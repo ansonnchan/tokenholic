@@ -108,6 +108,14 @@ unranked reason, priced share, hidden ranks, and the named comparison
 without recomputing any of them. Text from the server is stripped of control
 characters before it is drawn.
 
+Claiming from the TUI goes through an account interface the command layer
+implements: begin a device login, wait for it, and upload the outbox. It is
+the same login and upload `tokenholic claim` runs, split so a view can show
+the code while it waits. The upload takes the lock the scheduled sync uses.
+The TUI never sees the credential and uploads only after the user confirms.
+`internal/share` builds the compose link for a post; the user's browser opens
+it and the user sends it.
+
 Dashboard loads query Today, This week, 30 days, and All time using the local
 timezone, add total tokens for each of the last 30 local dates, and attach the
 privacy-safe database diagnostic snapshot. Storage, not presentation, defines
