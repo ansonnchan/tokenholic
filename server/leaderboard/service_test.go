@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -366,6 +367,52 @@ func TestGlobalBoardHidesRanksBelowTheMinimumPopulation(t *testing.T) {
 	}
 }
 
+// A public board needs no credential. It applies the same publishing rules
+// as the global board, and nothing about a request reveals whether a slug
+// names a private group.
+func TestPublicGroupBoardIsReadOnlyAndUniformlyNotFound(t *testing.T) {
+	complete := serveraccount.AvailabilityComplete
+	synced := time.Date(2026, 11, 18, 11, 0, 0, 0, time.UTC)
+	rows := []Row{member("Alpha", 300, 300, complete, 10_000, 10_000), member("Beta", 200, 200, complete, 10_000, 10_000)}
+	for index := range rows {
+		rows[index].LastSyncedAt = &synced
+	}
+	repository := &fakeRepository{board: Board{Scope: ScopePublicGroup, GroupName: "Public team", Metric: MetricTotalTokens, Rows: rows}}
+	service, err := NewService(fakeAuthenticator{err: serverauth.ErrUnauthorized}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board, err := service.PublicGroup(t.Context(), "g-publicab", PeriodWeek, MetricTotalTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !board.RanksHidden || board.MinRankedMembers != GlobalMinRankedMembers || len(board.Rows) != 2 {
+		t.Fatalf("public board = %#v", board)
+	}
+	for _, row := range board.Rows {
+		if row.UserID != "" || row.LastSyncedAt != nil || row.CurrentUser || row.Rank != nil {
+			t.Fatalf("public row = %#v", row)
+		}
+	}
+	for _, slug := range []string{"g-privatea", "g-nothere", "", "G-PUBLICAB", "-leading", "trailing-", "has space", "../groups", strings.Repeat("a", 65)} {
+		if _, err := service.PublicGroup(t.Context(), slug, PeriodWeek, MetricTotalTokens); !errors.Is(err, servergroup.ErrNotFound) {
+			t.Fatalf("PublicGroup(%q) error = %v, want the one not-found error", slug, err)
+		}
+	}
+	if got := strings.Join(repository.slugs, ","); got != "g-publicab,g-privatea,g-nothere" {
+		t.Fatalf("slugs that reached storage = %q", got)
+	}
+	// An invalid request is refused before any lookup, for every slug alike.
+	for _, slug := range []string{"g-publicab", "g-privatea"} {
+		if _, err := service.PublicGroup(t.Context(), slug, "future", MetricTotalTokens); !errors.Is(err, servergroup.ErrInvalidInput) {
+			t.Fatalf("invalid period for %q error = %v", slug, err)
+		}
+	}
+	if len(repository.slugs) != 3 {
+		t.Fatal("an invalid request reached storage")
+	}
+}
+
 func TestGlobalBoardShowsOnlyWhatMembersAgreedToShow(t *testing.T) {
 	complete := serveraccount.AvailabilityComplete
 	synced := time.Date(2026, 11, 18, 11, 0, 0, 0, time.UTC)
@@ -431,11 +478,23 @@ type fakeRepository struct {
 	query Query
 	board Board
 	err   error
+	// slugs records every public slug that reached storage.
+	slugs []string
 }
 
 func (f *fakeRepository) Leaderboard(_ context.Context, _ serverauth.Principal, query Query) (Board, error) {
 	f.query = query
 	return f.board, f.err
+}
+
+func (f *fakeRepository) PublicGroupLeaderboard(_ context.Context, slug string, query Query) (Board, error) {
+	f.query, f.slugs = query, append(f.slugs, slug)
+	if slug != "g-publicab" {
+		return Board{}, servergroup.ErrNotFound
+	}
+	board := f.board
+	board.Rows = append([]Row(nil), f.board.Rows...)
+	return board, f.err
 }
 
 func (f *fakeRepository) GlobalLeaderboard(_ context.Context, query Query) (Board, error) {

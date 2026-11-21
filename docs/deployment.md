@@ -82,6 +82,10 @@ documentation or the headers a request actually arrives with, how many
 entries its proxies add. A value that is too high lets a client pick its own
 address. This has not been measured against a live Render service yet.
 
+`TOKENHOLIC_WEB_ORIGIN` is optional. Set it to the website's HTTPS origin once
+the site exists, and new invitations carry a link to its invite page. Without
+it the API returns invite codes only.
+
 After the first deployment completes, verify the generated HTTPS origin:
 
 ```sh

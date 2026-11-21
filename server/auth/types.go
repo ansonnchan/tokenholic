@@ -43,10 +43,15 @@ type GitHubPollResult struct {
 }
 
 // GitHubUser is the minimal stable identity tokenholic retains from GitHub.
+//
+// AvatarURL is GitHub's image URL for the account, or empty when GitHub
+// supplied none tokenholic accepts. It is shown to fellow group members and,
+// only with a public profile, publicly.
 type GitHubUser struct {
-	ID    int64
-	Login string
-	Name  string
+	ID        int64
+	Login     string
+	Name      string
+	AvatarURL string
 }
 
 // GitHub exchanges device codes and resolves the authenticated identity.

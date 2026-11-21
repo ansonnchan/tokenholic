@@ -38,6 +38,9 @@ type accountUsageService interface {
 	Usage(context.Context, string) (serveraccount.Usage, error)
 	Delete(context.Context, string) error
 	SetGlobalOptIn(context.Context, string, bool) error
+	Profile(context.Context, string) (serveraccount.Profile, error)
+	SetProfileVisibility(context.Context, string, serveraccount.Visibility) error
+	PublicProfile(context.Context, string) (serveraccount.PublicProfile, error)
 }
 
 type groupService interface {
@@ -48,11 +51,16 @@ type groupService interface {
 	Join(context.Context, string, string) (servergroup.Group, error)
 	Leave(context.Context, string, string) error
 	Revoke(context.Context, string, string, string) error
+	SetVisibility(context.Context, string, string, servergroup.Visibility) (servergroup.Group, error)
+	Delete(context.Context, string, string) error
+	Transfer(context.Context, string, string, string) error
+	InvitePreview(context.Context, string) (servergroup.InvitePreview, error)
 }
 
 type leaderboardService interface {
 	Get(context.Context, string, string, serverleaderboard.Period, serverleaderboard.Metric) (serverleaderboard.Board, error)
 	Global(context.Context, string, serverleaderboard.Period, serverleaderboard.Metric) (serverleaderboard.Board, error)
+	PublicGroup(context.Context, string, serverleaderboard.Period, serverleaderboard.Metric) (serverleaderboard.Board, error)
 }
 
 // Handler is the hosted tokenholic HTTP API.
@@ -93,7 +101,168 @@ func New(authService authenticationService, syncService usageSyncService, accoun
 	handler.mux.HandleFunc("GET /v1/groups/{group_id}/leaderboard", handler.groupLeaderboard)
 	handler.mux.HandleFunc("GET /v1/global/leaderboard", handler.globalLeaderboard)
 	handler.mux.HandleFunc("PUT /v1/account/global-board", handler.setGlobalBoard)
+	handler.mux.HandleFunc("GET /v1/account/profile", handler.accountProfile)
+	handler.mux.HandleFunc("PUT /v1/account/profile", handler.setAccountProfile)
+	handler.mux.HandleFunc("PUT /v1/groups/{group_id}/visibility", handler.setGroupVisibility)
+	handler.mux.HandleFunc("DELETE /v1/groups/{group_id}", handler.deleteGroup)
+	handler.mux.HandleFunc("PUT /v1/groups/{group_id}/owner", handler.transferGroup)
+	// Public, read-only routes. None takes a credential, and each answers a
+	// private record exactly as it answers one that does not exist.
+	handler.mux.HandleFunc("GET /v1/public/users/{login}", handler.publicProfile)
+	handler.mux.HandleFunc("GET /v1/public/groups/{slug}/leaderboard", handler.publicGroupLeaderboard)
+	handler.mux.HandleFunc("GET /v1/public/invites/{code}", handler.publicInvite)
 	return handler, nil
+}
+
+// writePublicNotFound is the one response for every public read that finds
+// nothing to show. Private, deleted, and nonexistent records must all end
+// here with identical status, headers, and body.
+func writePublicNotFound(response http.ResponseWriter) {
+	writeError(response, http.StatusNotFound, "not_found")
+}
+
+func (h *Handler) publicProfile(response http.ResponseWriter, request *http.Request) {
+	profile, err := h.account.PublicProfile(request.Context(), request.PathValue("login"))
+	switch {
+	case errors.Is(err, serveraccount.ErrProfileNotFound):
+		writePublicNotFound(response)
+	case err != nil:
+		writeError(response, http.StatusInternalServerError, "internal_error")
+	default:
+		writeJSON(response, http.StatusOK, profile)
+	}
+}
+
+func (h *Handler) publicGroupLeaderboard(response http.ResponseWriter, request *http.Request) {
+	period, metric := boardQuery(request)
+	board, err := h.leaderboards.PublicGroup(request.Context(), request.PathValue("slug"), period, metric)
+	switch {
+	case errors.Is(err, servergroup.ErrNotFound):
+		writePublicNotFound(response)
+	case errors.Is(err, servergroup.ErrInvalidInput):
+		writeError(response, http.StatusBadRequest, "invalid_request")
+	case err != nil:
+		writeError(response, http.StatusInternalServerError, "internal_error")
+	default:
+		writeJSON(response, http.StatusOK, board)
+	}
+}
+
+func (h *Handler) publicInvite(response http.ResponseWriter, request *http.Request) {
+	preview, err := h.groups.InvitePreview(request.Context(), request.PathValue("code"))
+	switch {
+	case errors.Is(err, servergroup.ErrInvalidInvite):
+		writePublicNotFound(response)
+	case err != nil:
+		writeError(response, http.StatusInternalServerError, "internal_error")
+	default:
+		writeJSON(response, http.StatusOK, preview)
+	}
+}
+
+func (h *Handler) accountProfile(response http.ResponseWriter, request *http.Request) {
+	credential, ok := bearerCredential(request)
+	if !ok {
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	profile, err := h.account.Profile(request.Context(), credential)
+	if errors.Is(err, serverauth.ErrUnauthorized) {
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+		return
+	} else if err != nil {
+		writeError(response, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	writeJSON(response, http.StatusOK, profile)
+}
+
+// setAccountProfile makes the profile public or private. Only those two
+// words are accepted, so nothing else can publish a profile.
+func (h *Handler) setAccountProfile(response http.ResponseWriter, request *http.Request) {
+	credential, ok := bearerCredential(request)
+	if !ok {
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var input struct {
+		Visibility string `json:"visibility"`
+	}
+	if err := decodeRequest(response, request, &input); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	err := h.account.SetProfileVisibility(request.Context(), credential, serveraccount.Visibility(input.Visibility))
+	switch {
+	case errors.Is(err, serverauth.ErrUnauthorized):
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+	case errors.Is(err, serveraccount.ErrInvalidVisibility):
+		writeError(response, http.StatusBadRequest, "invalid_request")
+	case err != nil:
+		writeError(response, http.StatusInternalServerError, "internal_error")
+	default:
+		writeJSON(response, http.StatusOK, map[string]string{"visibility": input.Visibility})
+	}
+}
+
+func (h *Handler) setGroupVisibility(response http.ResponseWriter, request *http.Request) {
+	credential, ok := bearerCredential(request)
+	if !ok {
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var input struct {
+		Visibility string `json:"visibility"`
+	}
+	if err := decodeRequest(response, request, &input); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	group, err := h.groups.SetVisibility(request.Context(), credential, request.PathValue("group_id"), servergroup.Visibility(input.Visibility))
+	if writeGroupError(response, err) {
+		return
+	}
+	writeJSON(response, http.StatusOK, group)
+}
+
+// deleteGroup requires an explicit confirmation word, as account deletion
+// does, so a stray request cannot delete a group.
+func (h *Handler) deleteGroup(response http.ResponseWriter, request *http.Request) {
+	credential, ok := bearerCredential(request)
+	if !ok {
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var input struct {
+		Confirmation string `json:"confirmation"`
+	}
+	if err := decodeRequest(response, request, &input); err != nil || input.Confirmation != "DELETE" {
+		writeError(response, http.StatusBadRequest, "confirmation_required")
+		return
+	}
+	if writeGroupError(response, h.groups.Delete(request.Context(), credential, request.PathValue("group_id"))) {
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) transferGroup(response http.ResponseWriter, request *http.Request) {
+	credential, ok := bearerCredential(request)
+	if !ok {
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var input struct {
+		Login string `json:"login"`
+	}
+	if err := decodeRequest(response, request, &input); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if writeGroupError(response, h.groups.Transfer(request.Context(), credential, request.PathValue("group_id"), input.Login)) {
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
 }
 
 // setGlobalBoard joins or leaves the global board. The body must state the
@@ -314,7 +483,8 @@ func writeGroupError(response http.ResponseWriter, err error) bool {
 		writeError(response, http.StatusNotFound, "group_not_found")
 	case errors.Is(err, servergroup.ErrForbidden):
 		writeError(response, http.StatusForbidden, "forbidden")
-	case errors.Is(err, servergroup.ErrOwnerMustRemain), errors.Is(err, servergroup.ErrAlreadyMember), errors.Is(err, servergroup.ErrGroupFull):
+	case errors.Is(err, servergroup.ErrOwnerMustRemain), errors.Is(err, servergroup.ErrAlreadyMember), errors.Is(err, servergroup.ErrGroupFull),
+		errors.Is(err, servergroup.ErrNotMember):
 		writeError(response, http.StatusConflict, "group_conflict")
 	case errors.Is(err, servergroup.ErrInvalidInput):
 		writeError(response, http.StatusBadRequest, "invalid_request")

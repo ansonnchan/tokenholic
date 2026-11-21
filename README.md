@@ -115,8 +115,15 @@ tokenholic group create "Quiet team"
 tokenholic group invite --expires 24h --uses 10 "Quiet team"
 tokenholic group join "$TOKENHOLIC_INVITE_CODE"
 tokenholic group leave "Quiet team"
+tokenholic group public "Quiet team"
+tokenholic group private "Quiet team"
+tokenholic group transfer "Quiet team" new-owner-login
+tokenholic group delete --confirm "Quiet team" "Quiet team"
 tokenholic global join
 tokenholic global leave
+tokenholic profile
+tokenholic profile public
+tokenholic profile private
 tokenholic account delete --confirm DELETE
 ```
 

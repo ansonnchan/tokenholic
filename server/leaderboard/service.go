@@ -67,6 +67,9 @@ const (
 	ScopeGroup Scope = "group"
 	// ScopeGlobal is every account that opted in to the global board.
 	ScopeGlobal Scope = "global"
+	// ScopePublicGroup is a group whose owner made its board public, limited
+	// to the members whose own profiles are public.
+	ScopePublicGroup Scope = "public_group"
 )
 
 // Window is the UTC query range for one period. End is exclusive and Start is
@@ -166,6 +169,7 @@ type Row struct {
 	UnrankedReason UnrankedReason      `json:"unranked_reason,omitempty"`
 	UserID         string              `json:"user_id"`
 	DisplayName    string              `json:"display_name"`
+	AvatarURL      string              `json:"avatar_url,omitempty"`
 	CurrentUser    bool                `json:"current_user"`
 	Value          serveraccount.Value `json:"value"`
 	Coverage       Coverage            `json:"cost_coverage"`
@@ -181,12 +185,14 @@ type Row struct {
 	PreviousCoverage Coverage `json:"-"`
 }
 
-// Board is one leaderboard snapshot. GroupID and GroupName are set only for a
-// group board.
+// Board is one leaderboard snapshot. GroupID is set only for a member's view
+// of a group, GroupName for any group board, and PublicSlug only for a public
+// one.
 type Board struct {
 	Scope       Scope      `json:"scope"`
 	GroupID     string     `json:"group_id,omitempty"`
 	GroupName   string     `json:"group_name,omitempty"`
+	PublicSlug  string     `json:"public_slug,omitempty"`
 	Timezone    string     `json:"timezone"`
 	Period      Period     `json:"period"`
 	Metric      Metric     `json:"metric"`
@@ -229,6 +235,10 @@ type Repository interface {
 	Leaderboard(context.Context, serverauth.Principal, Query) (Board, error)
 	// GlobalLeaderboard reads the board of accounts that opted in.
 	GlobalLeaderboard(context.Context, Query) (Board, error)
+	// PublicGroupLeaderboard reads a public group's board by slug. It returns
+	// the group package's ErrNotFound for a slug that names no public group,
+	// whether the group is private or does not exist.
+	PublicGroupLeaderboard(ctx context.Context, slug string, query Query) (Board, error)
 }
 
 // Service owns leaderboard input validation, authentication, ranking, and
@@ -290,11 +300,41 @@ func (s *Service) Global(ctx context.Context, credential string, period Period, 
 	if err != nil {
 		return Board{}, err
 	}
-	board.MinRankedMembers = GlobalMinRankedMembers
 	for index := range board.Rows {
 		board.Rows[index].CurrentUser = board.Rows[index].UserID == principal.UserID
 	}
-	Rank(&board)
+	publish(&board)
+	return board, nil
+}
+
+// PublicGroup returns a public group's board without authentication.
+//
+// The answer for a slug is the same whether its group is private, deleted, or
+// never existed. Input is validated before the lookup so that even an invalid
+// request cannot be used to probe for a group. The board lists only members
+// whose own profile is public, with the same limits as the global board.
+func (s *Service) PublicGroup(ctx context.Context, slug string, period Period, metric Metric) (Board, error) {
+	if !period.Valid() || !metric.Valid() {
+		return Board{}, servergroup.ErrInvalidInput
+	}
+	if !validSlug(slug) {
+		return Board{}, servergroup.ErrNotFound
+	}
+	board, err := s.repository.PublicGroupLeaderboard(ctx, slug, Query{Period: period, Metric: metric, GeneratedAt: s.now().UTC()})
+	if err != nil {
+		return Board{}, err
+	}
+	publish(&board)
+	return board, nil
+}
+
+// publish ranks a board that people outside its members can read and reduces
+// it to what a member agreed to show: a name, an avatar where the scope
+// provides one, and aggregate values. Account IDs survive only on the
+// viewer's own row, sync times never, and ranks need a minimum population.
+func publish(board *Board) {
+	board.MinRankedMembers = GlobalMinRankedMembers
+	Rank(board)
 	kept := board.Rows[:0]
 	for index, row := range board.Rows {
 		if index >= GlobalMaxRows && !row.CurrentUser {
@@ -307,7 +347,21 @@ func (s *Service) Global(ctx context.Context, credential string, period Period, 
 		kept = append(kept, row)
 	}
 	board.Rows = kept
-	return board, nil
+}
+
+// validSlug matches the shape the server assigns to public group slugs.
+func validSlug(slug string) bool {
+	if len(slug) < 3 || len(slug) > 64 {
+		return false
+	}
+	for index := 0; index < len(slug); index++ {
+		character := slug[index]
+		alphanumeric := character >= 'a' && character <= 'z' || character >= '0' && character <= '9'
+		if !alphanumeric && (character != '-' || index == 0 || index == len(slug)-1) {
+			return false
+		}
+	}
+	return true
 }
 
 // Valid reports whether a period is supported by the query contract.

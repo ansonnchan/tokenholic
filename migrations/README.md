@@ -30,5 +30,9 @@ validates the names, so a new tier or ladder step needs no migration.
 account is listed outside its own groups only where that column, or a later
 visibility column like it, is true.
 
+`0006_profiles_and_group_visibility` adds the avatar URL, profile visibility,
+and group visibility with its public slug. Every visibility column defaults
+to private. A public read must filter on these columns in its lookup query.
+
 Do not add deployment state before its roadmap stage. Server migrations must
 never introduce columns for raw local records or prohibited source material.

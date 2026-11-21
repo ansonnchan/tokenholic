@@ -38,8 +38,8 @@ func (r *GroupRepository) CreateGroup(ctx context.Context, principal serverauth.
 	if err = tx.QueryRow(ctx, `
 		INSERT INTO groups(id, name, timezone, owner_user_id)
 		VALUES ($1::uuid, $2, $3, $4::uuid)
-		RETURNING id::text, name, timezone, created_at
-	`, input.ID, input.Name, input.Timezone, principal.UserID).Scan(&group.ID, &group.Name, &group.Timezone, &group.CreatedAt); err != nil {
+		RETURNING id::text, name, timezone, visibility, created_at
+	`, input.ID, input.Name, input.Timezone, principal.UserID).Scan(&group.ID, &group.Name, &group.Timezone, &group.Visibility, &group.CreatedAt); err != nil {
 		return group, fmt.Errorf("create private group: %w", err)
 	}
 	if _, err = tx.Exec(ctx, `
@@ -58,7 +58,7 @@ func (r *GroupRepository) CreateGroup(ctx context.Context, principal serverauth.
 // ListGroups returns active memberships only.
 func (r *GroupRepository) ListGroups(ctx context.Context, principal serverauth.Principal) ([]servergroup.Group, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT g.id::text, g.name, g.timezone, m.role, g.created_at
+		SELECT g.id::text, g.name, g.timezone, m.role, g.visibility, COALESCE(g.public_slug, ''), g.created_at
 		FROM group_memberships m
 		JOIN groups g ON g.id = m.group_id
 		WHERE m.user_id = $1::uuid AND m.revoked_at IS NULL
@@ -71,7 +71,7 @@ func (r *GroupRepository) ListGroups(ctx context.Context, principal serverauth.P
 	groups := make([]servergroup.Group, 0)
 	for rows.Next() {
 		var group servergroup.Group
-		if err := rows.Scan(&group.ID, &group.Name, &group.Timezone, &group.Role, &group.CreatedAt); err != nil {
+		if err := rows.Scan(&group.ID, &group.Name, &group.Timezone, &group.Role, &group.Visibility, &group.PublicSlug, &group.CreatedAt); err != nil {
 			return nil, fmt.Errorf("decode private group: %w", err)
 		}
 		groups = append(groups, group)
@@ -90,12 +90,13 @@ func (r *GroupRepository) Group(ctx context.Context, principal serverauth.Princi
 	}
 	defer rollbackOnError(ctx, tx, &err)
 	err = tx.QueryRow(ctx, `
-		SELECT g.id::text, g.name, g.timezone, viewer.role, g.created_at
+		SELECT g.id::text, g.name, g.timezone, viewer.role, g.visibility, COALESCE(g.public_slug, ''), g.created_at
 		FROM groups g
 		JOIN group_memberships viewer ON viewer.group_id = g.id
 		WHERE g.id = $1::uuid AND viewer.user_id = $2::uuid AND viewer.revoked_at IS NULL
 	`, groupID, principal.UserID).Scan(
-		&detail.Group.ID, &detail.Group.Name, &detail.Group.Timezone, &detail.Group.Role, &detail.Group.CreatedAt,
+		&detail.Group.ID, &detail.Group.Name, &detail.Group.Timezone, &detail.Group.Role,
+		&detail.Group.Visibility, &detail.Group.PublicSlug, &detail.Group.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return detail, servergroup.ErrNotFound
@@ -177,14 +178,14 @@ func (r *GroupRepository) Join(ctx context.Context, principal serverauth.Princip
 	var maxUses, useCount int
 	var revokedAt *time.Time
 	err = tx.QueryRow(ctx, `
-		SELECT i.id::text, g.id::text, g.name, g.timezone, g.created_at,
+		SELECT i.id::text, g.id::text, g.name, g.timezone, g.visibility, COALESCE(g.public_slug, ''), g.created_at,
 		       i.expires_at, i.max_uses, i.use_count, i.revoked_at
 		FROM group_invites i
 		JOIN groups g ON g.id = i.group_id
 		WHERE i.code_hash = $1
 		FOR UPDATE OF i
 	`, codeHash[:]).Scan(
-		&inviteID, &group.ID, &group.Name, &group.Timezone, &group.CreatedAt,
+		&inviteID, &group.ID, &group.Name, &group.Timezone, &group.Visibility, &group.PublicSlug, &group.CreatedAt,
 		&expiresAt, &maxUses, &useCount, &revokedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -323,6 +324,144 @@ func (r *GroupRepository) RevokeMember(ctx context.Context, principal serverauth
 		return fmt.Errorf("commit member revocation: %w", err)
 	}
 	return nil
+}
+
+// lockOwner locks the caller's active membership and requires the owner role.
+// A caller who is not a member gets ErrNotFound, exactly as if the group did
+// not exist; a member who is not the owner gets ErrForbidden.
+func lockOwner(ctx context.Context, tx pgx.Tx, principal serverauth.Principal, groupID string) error {
+	var role servergroup.Role
+	err := tx.QueryRow(ctx, `
+		SELECT role FROM group_memberships
+		WHERE group_id = $1::uuid AND user_id = $2::uuid AND revoked_at IS NULL
+		FOR UPDATE
+	`, groupID, principal.UserID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return servergroup.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("authorize group owner operation: %w", err)
+	}
+	if role != servergroup.RoleOwner {
+		return servergroup.ErrForbidden
+	}
+	return nil
+}
+
+// SetVisibility changes a group's public visibility after verifying the owner.
+// The slug is assigned once and kept, so a board's address survives going
+// private and back.
+func (r *GroupRepository) SetVisibility(ctx context.Context, principal serverauth.Principal, groupID string, visibility servergroup.Visibility, slug string) (group servergroup.Group, err error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return group, fmt.Errorf("begin group visibility change: %w", err)
+	}
+	defer rollbackOnError(ctx, tx, &err)
+	if err = lockOwner(ctx, tx, principal, groupID); err != nil {
+		return group, err
+	}
+	if err = tx.QueryRow(ctx, `
+		UPDATE groups SET
+			visibility = $2,
+			public_slug = CASE WHEN $2 = 'public' THEN COALESCE(public_slug, $3) ELSE public_slug END
+		WHERE id = $1::uuid
+		RETURNING id::text, name, timezone, visibility, COALESCE(public_slug, ''), created_at
+	`, groupID, string(visibility), slug).Scan(&group.ID, &group.Name, &group.Timezone, &group.Visibility, &group.PublicSlug, &group.CreatedAt); err != nil {
+		return group, fmt.Errorf("update group visibility: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return group, fmt.Errorf("commit group visibility change: %w", err)
+	}
+	group.Role = servergroup.RoleOwner
+	return group, nil
+}
+
+// DeleteGroup removes a group after verifying the owner. Memberships and
+// invitations go with it through their foreign keys; usage belongs to
+// accounts and is untouched.
+func (r *GroupRepository) DeleteGroup(ctx context.Context, principal serverauth.Principal, groupID string) (err error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin group deletion: %w", err)
+	}
+	defer rollbackOnError(ctx, tx, &err)
+	if err = lockOwner(ctx, tx, principal, groupID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM groups WHERE id = $1::uuid`, groupID); err != nil {
+		return fmt.Errorf("delete group: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit group deletion: %w", err)
+	}
+	return nil
+}
+
+// TransferOwnership makes another active member the owner. The previous
+// owner is demoted first because a group can hold only one owner row.
+func (r *GroupRepository) TransferOwnership(ctx context.Context, principal serverauth.Principal, groupID, login string) (err error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin ownership transfer: %w", err)
+	}
+	defer rollbackOnError(ctx, tx, &err)
+	if err = lockOwner(ctx, tx, principal, groupID); err != nil {
+		return err
+	}
+	var targetID string
+	err = tx.QueryRow(ctx, `
+		SELECT m.user_id::text
+		FROM group_memberships m
+		JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+		JOIN github_identities gi ON gi.user_id = u.id
+		WHERE m.group_id = $1::uuid AND m.revoked_at IS NULL AND lower(gi.login) = lower($2)
+		ORDER BY gi.updated_at DESC
+		LIMIT 1
+		FOR UPDATE OF m
+	`, groupID, login).Scan(&targetID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return servergroup.ErrNotMember
+	}
+	if err != nil {
+		return fmt.Errorf("find ownership transfer target: %w", err)
+	}
+	if targetID == principal.UserID {
+		// Already the owner: nothing to change.
+		return tx.Commit(ctx)
+	}
+	for _, step := range []struct {
+		role, userID string
+	}{{"member", principal.UserID}, {"owner", targetID}} {
+		if _, err = tx.Exec(ctx, `UPDATE group_memberships SET role = $3 WHERE group_id = $1::uuid AND user_id = $2::uuid`, groupID, step.userID, step.role); err != nil {
+			return fmt.Errorf("transfer group ownership: %w", err)
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE groups SET owner_user_id = $2::uuid WHERE id = $1::uuid`, groupID, targetID); err != nil {
+		return fmt.Errorf("record group owner: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit ownership transfer: %w", err)
+	}
+	return nil
+}
+
+// InvitePreview names the group a usable invite joins. Every reason a code
+// cannot be used is the same ErrInvalidInvite.
+func (r *GroupRepository) InvitePreview(ctx context.Context, codeHash [32]byte, now time.Time) (servergroup.InvitePreview, error) {
+	var preview servergroup.InvitePreview
+	err := r.pool.QueryRow(ctx, `
+		SELECT g.name, i.expires_at
+		FROM group_invites i
+		JOIN groups g ON g.id = i.group_id
+		WHERE i.code_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 AND i.use_count < i.max_uses
+	`, codeHash[:], now).Scan(&preview.GroupName, &preview.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return servergroup.InvitePreview{}, servergroup.ErrInvalidInvite
+	}
+	if err != nil {
+		return servergroup.InvitePreview{}, fmt.Errorf("preview group invite: %w", err)
+	}
+	return preview, nil
 }
 
 func rollbackOnError(ctx context.Context, tx pgx.Tx, err *error) {

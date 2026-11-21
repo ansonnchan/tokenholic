@@ -27,6 +27,11 @@ type apiClient interface {
 	Leave(context.Context, string, string) error
 	Leaderboard(context.Context, string, string, Period, Metric) (Board, error)
 	SetGlobalParticipation(context.Context, string, bool) error
+	Profile(context.Context, string) (Profile, error)
+	SetProfileVisibility(context.Context, string, bool) error
+	SetGroupVisibility(context.Context, string, string, bool) (Group, error)
+	DeleteGroup(context.Context, string, string) error
+	TransferGroup(context.Context, string, string, string) error
 }
 
 type sessionStore interface {
@@ -143,6 +148,67 @@ func (s *Service) SetGlobalParticipation(ctx context.Context, participating bool
 		return err
 	}
 	return normalizeSessionError(s.client.SetGlobalParticipation(ctx, credential, participating))
+}
+
+// Profile returns the signed-in account's profile and visibility choices.
+func (s *Service) Profile(ctx context.Context) (Profile, error) {
+	credential, err := s.credential()
+	if err != nil {
+		return Profile{}, err
+	}
+	profile, err := s.client.Profile(ctx, credential)
+	return profile, normalizeSessionError(err)
+}
+
+// SetProfileVisibility makes the signed-in account's profile public or private.
+func (s *Service) SetProfileVisibility(ctx context.Context, public bool) error {
+	credential, err := s.credential()
+	if err != nil {
+		return err
+	}
+	return normalizeSessionError(s.client.SetProfileVisibility(ctx, credential, public))
+}
+
+// SetGroupVisibility makes a group's board public or private after resolving
+// the group by ID or name.
+func (s *Service) SetGroupVisibility(ctx context.Context, groupName string, public bool) (Group, error) {
+	credential, err := s.credential()
+	if err != nil {
+		return Group{}, err
+	}
+	group, err := s.resolveGroup(ctx, credential, groupName)
+	if err != nil {
+		return Group{}, err
+	}
+	updated, err := s.client.SetGroupVisibility(ctx, credential, group.ID, public)
+	return updated, normalizeSessionError(err)
+}
+
+// DeleteGroup permanently deletes a group after resolving it by ID or name.
+func (s *Service) DeleteGroup(ctx context.Context, groupName string) error {
+	credential, err := s.credential()
+	if err != nil {
+		return err
+	}
+	group, err := s.resolveGroup(ctx, credential, groupName)
+	if err != nil {
+		return err
+	}
+	return normalizeSessionError(s.client.DeleteGroup(ctx, credential, group.ID))
+}
+
+// TransferGroup hands a group to another member after resolving it by ID or
+// name.
+func (s *Service) TransferGroup(ctx context.Context, groupName, login string) error {
+	credential, err := s.credential()
+	if err != nil {
+		return err
+	}
+	group, err := s.resolveGroup(ctx, credential, groupName)
+	if err != nil {
+		return err
+	}
+	return normalizeSessionError(s.client.TransferGroup(ctx, credential, group.ID, login))
 }
 
 func (s *Service) resolveGroup(ctx context.Context, credential, name string) (Group, error) {

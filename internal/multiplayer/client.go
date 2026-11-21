@@ -45,19 +45,32 @@ const (
 	MetricAPIEstimate Metric = "api_estimate"
 )
 
-// Group is one private group visible to the authenticated account.
+// Group is one group visible to the authenticated account. PublicSlug names
+// its public board only while Visibility is "public".
 type Group struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Timezone string `json:"timezone"`
-	Role     string `json:"role"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Timezone   string `json:"timezone"`
+	Role       string `json:"role"`
+	Visibility string `json:"visibility"`
+	PublicSlug string `json:"public_slug"`
 }
 
-// Invite is plaintext invitation material returned only at creation.
+// Invite is plaintext invitation material returned only at creation. Link is
+// the same code as a website URL, when the server knows the website.
 type Invite struct {
 	Code      string    `json:"code"`
+	Link      string    `json:"link"`
 	ExpiresAt time.Time `json:"expires_at"`
 	MaxUses   int       `json:"max_uses"`
+}
+
+// Profile is the signed-in account's identity and visibility choices.
+type Profile struct {
+	Login       string `json:"login"`
+	AvatarURL   string `json:"avatar_url"`
+	Visibility  string `json:"visibility"`
+	GlobalOptIn bool   `json:"global_opt_in"`
 }
 
 // Availability preserves complete, partial, unavailable, and empty coverage.
@@ -280,6 +293,58 @@ func (c *Client) Leaderboard(ctx context.Context, credential, groupID string, pe
 		}
 	}
 	return board, err
+}
+
+// Profile returns the caller's own profile and visibility choices.
+func (c *Client) Profile(ctx context.Context, credential string) (Profile, error) {
+	var profile Profile
+	err := c.request(ctx, http.MethodGet, "/v1/account/profile", credential, nil, &profile)
+	if err == nil && (profile.Login == "" || profile.Visibility != "public" && profile.Visibility != "private") {
+		err = errors.New("multiplayer server returned an invalid profile")
+	}
+	return profile, err
+}
+
+// SetProfileVisibility makes the caller's profile public or private.
+func (c *Client) SetProfileVisibility(ctx context.Context, credential string, public bool) error {
+	want := visibilityName(public)
+	var response struct {
+		Visibility string `json:"visibility"`
+	}
+	err := c.request(ctx, http.MethodPut, "/v1/account/profile", credential, map[string]string{"visibility": want}, &response)
+	if err == nil && response.Visibility != want {
+		// Never report a visibility change the server did not confirm.
+		err = errors.New("multiplayer server did not confirm the profile visibility")
+	}
+	return err
+}
+
+// SetGroupVisibility makes a group's board public or private. Owner only.
+func (c *Client) SetGroupVisibility(ctx context.Context, credential, groupID string, public bool) (Group, error) {
+	want := visibilityName(public)
+	var group Group
+	err := c.request(ctx, http.MethodPut, "/v1/groups/"+url.PathEscape(groupID)+"/visibility", credential, map[string]string{"visibility": want}, &group)
+	if err == nil && (!group.valid() || group.Visibility != want || public && group.PublicSlug == "") {
+		err = errors.New("multiplayer server did not confirm the group visibility")
+	}
+	return group, err
+}
+
+// DeleteGroup permanently deletes a group. Owner only.
+func (c *Client) DeleteGroup(ctx context.Context, credential, groupID string) error {
+	return c.request(ctx, http.MethodDelete, "/v1/groups/"+url.PathEscape(groupID), credential, map[string]string{"confirmation": "DELETE"}, nil)
+}
+
+// TransferGroup hands ownership to another member by GitHub login. Owner only.
+func (c *Client) TransferGroup(ctx context.Context, credential, groupID, login string) error {
+	return c.request(ctx, http.MethodPut, "/v1/groups/"+url.PathEscape(groupID)+"/owner", credential, map[string]string{"login": login}, nil)
+}
+
+func visibilityName(public bool) string {
+	if public {
+		return "public"
+	}
+	return "private"
 }
 
 // SetGlobalParticipation joins or leaves the opt-in global board for the

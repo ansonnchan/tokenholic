@@ -30,7 +30,7 @@ func TestGitHubClientDeviceFlowAndIdentity(t *testing.T) {
 			if request.Header.Get("Authorization") != "Bearer provider-token" || request.Header.Get("X-GitHub-Api-Version") == "" {
 				t.Fatalf("user headers = %#v", request.Header)
 			}
-			body = `{"id":101,"login":"synthetic-user","name":"Synthetic"}`
+			body = `{"id":101,"login":"synthetic-user","name":"Synthetic","avatar_url":"https://avatars.githubusercontent.com/u/101?v=4"}`
 		default:
 			status = http.StatusNotFound
 		}
@@ -58,7 +58,7 @@ func TestGitHubClientDeviceFlowAndIdentity(t *testing.T) {
 		t.Fatalf("approved Poll() = %#v, %v", approved, err)
 	}
 	user, err := client.User(t.Context(), approved.AccessToken)
-	if err != nil || user.ID != 101 || user.Login != "synthetic-user" {
+	if err != nil || user.ID != 101 || user.Login != "synthetic-user" || user.AvatarURL != "https://avatars.githubusercontent.com/u/101?v=4" {
 		t.Fatalf("User() = %#v, %v", user, err)
 	}
 }
@@ -67,4 +67,32 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)
+}
+
+func TestAvatarURLAcceptsOnlyGitHubsAvatarHost(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		keep  bool
+	}{
+		{name: "GitHub avatar", value: "https://avatars.githubusercontent.com/u/1?v=4", keep: true},
+		{name: "empty", value: ""},
+		{name: "plain HTTP", value: "http://avatars.githubusercontent.com/u/1"},
+		{name: "another host", value: "https://images.example.test/u/1.png"},
+		{name: "look-alike host", value: "https://avatars.githubusercontent.com.example.test/u/1"},
+		{name: "host in the path", value: "https://example.test/avatars.githubusercontent.com/u/1"},
+		{name: "credentials in the URL", value: "https://user@avatars.githubusercontent.com/u/1"},
+		{name: "script URL", value: "javascript:alert(1)"},
+		{name: "data URL", value: "data:image/png;base64,AAAA"},
+		{name: "fragment", value: "https://avatars.githubusercontent.com/u/1#x"},
+		{name: "too long", value: "https://avatars.githubusercontent.com/u/" + strings.Repeat("1", 500)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := AvatarURL(test.value)
+			if test.keep && got != test.value || !test.keep && got != "" {
+				t.Fatalf("AvatarURL(%q) = %q, keep %t", test.value, got, test.keep)
+			}
+		})
+	}
 }

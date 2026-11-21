@@ -1,6 +1,6 @@
 # tokenholic roadmap
 
-Status: MVP complete; product-parity revamp in progress (M6 complete, M7 in progress, M8–M11 planned)
+Status: MVP complete; product-parity revamp in progress (M6 and M7 complete except one blocked item, M8–M11 planned)
 Last updated: November 21, 2026
 
 ## Product definition
@@ -69,17 +69,21 @@ tokenholic autosync status
 tokenholic doctor                  # Diagnose sources, auth, storage, and sync
 ```
 
-`tokenholic global join` and `tokenholic global leave` opt an account in to or
-out of the global board.
-
-### Planned commands (M7–M9)
+### Visibility and group lifecycle commands (M7)
 
 ```text
-tokenholic profile                 # Show profile visibility and links
+tokenholic global join             # Opt in to the global board
+tokenholic global leave
+tokenholic profile                 # Show profile visibility
 tokenholic profile public|private  # Set public profile visibility
 tokenholic group public|private <name>   # Owner sets public board visibility
-tokenholic group delete <name>     # Owner deletes a group
+tokenholic group delete --confirm <name> <name>  # Owner deletes a group
 tokenholic group transfer <name> <login> # Owner transfers ownership
+```
+
+### Planned commands (M9)
+
+```text
 tokenholic share                   # Print an x.com/intent/post share link
 ```
 
@@ -689,10 +693,14 @@ Goal: reach social-product parity with honest ranking rules.
   - Acceptance: a user who has not opted in never appears in a global response.
   - Depends on: TKH-071.
 
-- [ ] **TKH-073: Add profiles, public visibility, and group lifecycle** (`feat/profiles`)
+- [x] **TKH-073: Add profiles, public visibility, and group lifecycle** (`feat/profiles`)
   - Store the GitHub avatar URL at login; profile visibility defaults to private.
   - Groups gain public/private visibility with a public slug.
   - Add invite links, group deletion, and ownership transfer.
+  - A public group board lists only members whose own profile is public, so
+    an owner's choice never publishes another member.
+  - Public reads are unauthenticated JSON under `/v1/public/`. The website's
+    origin allowlist for them arrives with TKH-090.
   - Acceptance: public endpoints cannot distinguish private users or groups
     from nonexistent ones; owner-only operations are authorization-tested.
   - Depends on: TKH-072.
@@ -896,8 +904,10 @@ Each source must ship with:
 
 The local, multiplayer, packaging, and autosync implementation is complete,
 and `@tokenholic/cli` 0.1.0 is published. M6, usage and cost correctness, is
-complete. The remaining parity revamp continues in order: leaderboards and
-profiles, the TUI revamp, the website and share cards, and finally Linux,
-Windows, and a validated release. The free demo environment's end-to-end
+complete, and so is M7, leaderboards, profiles, and integrity, except for
+Codex compaction usage (TKH-075), which waits on real records to build a
+fixture from. The remaining parity revamp continues in order: the TUI revamp,
+the website and share cards, and finally Linux, Windows, and a validated
+release. The free demo environment's end-to-end
 validation (TKH-043) folds into TKH-102. Long-tail agents through ccusage
 follow in M11, after the release. A measured private beta remains optional.

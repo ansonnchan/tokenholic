@@ -428,6 +428,66 @@ func TestGroupCommandsUseConfiguredMultiplayerBoundary(t *testing.T) {
 	}
 }
 
+func TestProfileAndGroupLifecycleCommands(t *testing.T) {
+	manager := &fakeGroupManager{
+		groups:  []multiplayer.Group{{ID: "group-id", Name: "Quiet group", Role: "owner", Timezone: "UTC", Visibility: "public", PublicSlug: "g-publicab"}},
+		profile: multiplayer.Profile{Login: "member", Visibility: "public", GlobalOptIn: true},
+	}
+	deps := dependencies{
+		getenv: func(string) string { return "https://api.example.test" },
+		groups: func(string) (groupManager, error) { return manager, nil },
+	}
+	tests := []struct {
+		args     []string
+		wantCode int
+		wantOut  string
+		wantErr  string
+	}{
+		{args: []string{"profile"}, wantOut: "@member\nProfile: public\nGlobal board: listed"},
+		{args: []string{"profile", "public"}, wantOut: "Anyone can see your GitHub login, avatar, and usage totals"},
+		{args: []string{"profile", "private"}, wantOut: "no longer appears publicly"},
+		{args: []string{"profile", "unlisted"}, wantCode: 2, wantErr: "public or private"},
+		{args: []string{"profile", "public", "now"}, wantCode: 2, wantErr: "public or private"},
+		{args: []string{"group", "list"}, wantOut: "public board g-publicab"},
+		{args: []string{"group", "public", "Quiet group"}, wantOut: "now has a public board: g-publicab"},
+		{args: []string{"group", "private", "Quiet group"}, wantOut: "is private again"},
+		{args: []string{"group", "public"}, wantCode: 2, wantErr: "requires one group"},
+		{args: []string{"group", "transfer", "Quiet group", "@new-owner"}, wantOut: "Transferred Quiet group to new-owner"},
+		{args: []string{"group", "transfer", "Quiet group"}, wantCode: 2, wantErr: "GitHub login"},
+		// Deletion is permanent, so the name must be given twice.
+		{args: []string{"group", "delete", "Quiet group"}, wantCode: 2, wantErr: "permanent"},
+		{args: []string{"group", "delete", "--confirm", "Other group", "Quiet group"}, wantCode: 2, wantErr: "permanent"},
+		{args: []string{"group", "delete", "--confirm", "Quiet group", "Quiet group"}, wantOut: "Deleted group Quiet group"},
+	}
+	for _, test := range tests {
+		deletedBefore := manager.deleted
+		var stdout, stderr bytes.Buffer
+		code := run(test.args, &stdout, &stderr, deps)
+		if code != test.wantCode || !strings.Contains(stdout.String(), test.wantOut) || !strings.Contains(stderr.String(), test.wantErr) {
+			t.Fatalf("run(%v) = %d/%q/%q", test.args, code, stdout.String(), stderr.String())
+		}
+		if test.wantCode != 0 && manager.deleted != deletedBefore {
+			t.Fatalf("run(%v) deleted %q without confirmation", test.args, manager.deleted)
+		}
+	}
+	if manager.deleted != "Quiet group" || manager.transferred != "Quiet group->new-owner" || manager.visibility != "Quiet group=false" ||
+		manager.profilePublic == nil || *manager.profilePublic {
+		t.Fatalf("manager after the table = %#v", manager)
+	}
+
+	// A failure reports nothing as changed and leaks no detail.
+	manager.err, manager.profilePublic = errors.New("credential at /private/path"), nil
+	for _, args := range [][]string{{"profile"}, {"profile", "public"}, {"group", "public", "Quiet group"}, {"group", "delete", "--confirm", "Quiet group", "Quiet group"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr, deps); code != 1 || stdout.Len() != 0 || strings.Contains(stderr.String(), "/private/path") {
+			t.Fatalf("failed run(%v) = %d/%q/%q", args, code, stdout.String(), stderr.String())
+		}
+	}
+	if manager.profilePublic != nil {
+		t.Fatal("a failed command changed profile visibility")
+	}
+}
+
 func TestGlobalCommandJoinsAndLeavesOnlyWhenAsked(t *testing.T) {
 	manager := &fakeGroupManager{}
 	deps := dependencies{
@@ -547,6 +607,35 @@ type fakeGroupManager struct {
 	left          string
 	participating *bool
 	err           error
+	profile       multiplayer.Profile
+	profilePublic *bool
+	visibility    string
+	deleted       string
+	transferred   string
+}
+
+func (f *fakeGroupManager) Profile(context.Context) (multiplayer.Profile, error) {
+	return f.profile, f.err
+}
+func (f *fakeGroupManager) SetProfileVisibility(_ context.Context, public bool) error {
+	if f.err == nil {
+		f.profilePublic = &public
+	}
+	return f.err
+}
+func (f *fakeGroupManager) SetGroupVisibility(_ context.Context, group string, public bool) (multiplayer.Group, error) {
+	f.visibility = fmt.Sprintf("%s=%t", group, public)
+	return multiplayer.Group{Name: group, PublicSlug: "g-publicab"}, f.err
+}
+func (f *fakeGroupManager) DeleteGroup(_ context.Context, group string) error {
+	if f.err == nil {
+		f.deleted = group
+	}
+	return f.err
+}
+func (f *fakeGroupManager) TransferGroup(_ context.Context, group, login string) error {
+	f.transferred = group + "->" + login
+	return f.err
 }
 
 func (f *fakeGroupManager) SetGlobalParticipation(_ context.Context, participating bool) error {

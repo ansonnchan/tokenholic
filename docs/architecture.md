@@ -344,12 +344,52 @@ the operating-system credential vault with no plaintext-file fallback.
 
 ### Groups
 
-The MVP supports private groups with owner and member roles. Invite codes are
-expiring, usage-limited authorization artifacts, not permanent credentials.
-Only invite hashes are persisted. Group reads, invitation creation, joining,
-leaving, and member revocation authorize active membership inside the same
-repository boundary that performs the operation. Non-members receive the same
-not-found result whether a group exists or not.
+Groups have owner and member roles. Invite codes are expiring, usage-limited
+authorization artifacts, not permanent credentials. Only invite hashes are
+persisted. Group reads, invitation creation, joining, leaving, and member
+revocation authorize active membership inside the same repository boundary
+that performs the operation. Non-members receive the same not-found result
+whether a group exists or not.
+
+The owner alone can make the group's board public or private, transfer
+ownership to another active member, and delete the group. Each of those locks
+the caller's membership and checks the owner role in the transaction that
+makes the change: a member is told the operation is forbidden, and anyone
+else gets the same not-found as for a group that does not exist. Deletion
+removes memberships and invitations with the group and leaves every account's
+usage alone. A transfer demotes the previous owner to a member.
+
+### Public visibility
+
+Nothing is public by default. Three independent choices, each made by the
+person it concerns, open a read-only view:
+
+| Choice | Made by | Opens |
+| --- | --- | --- |
+| `users.profile_visibility = 'public'` | The account | `GET /v1/public/users/{login}`: GitHub login, avatar, and aggregate totals |
+| `groups.visibility = 'public'` | The group owner | `GET /v1/public/groups/{slug}/leaderboard`: the board, limited to members whose own profile is public |
+| `users.global_opt_in` | The account | A row on the global board for signed-in readers |
+
+An owner publishing a group therefore never publishes another member: a
+member with a private profile is absent from the public board, not anonymized
+on it. A group's slug is random, assigned when it first becomes public, and
+kept afterwards so a link survives going private and back; while the group is
+private the slug resolves to nothing.
+
+Public routes take no credential and are read-only. Each answers a private,
+deleted, or nonexistent record with one identical response: same status,
+headers, and body. That holds by construction as well as by test: the
+visibility condition is part of the lookup query, so a private record matches
+no row and reaches the same code path as a missing one, and input that could
+not name a record is refused before any lookup. Public responses carry no
+account, device, or group identifier and no sync times. A public board applies
+the global board's minimum population and row limit.
+
+An invite code can be previewed without signing in, at
+`GET /v1/public/invites/{code}`, which names the group a usable code joins.
+An unknown, expired, used-up, or malformed code is the same not-found. When
+the API knows the website's origin, an invitation also carries a link whose
+fragment holds the code, so the code is never sent to a web server.
 
 Leaderboard authorization checks membership on every request. A member of one
 group cannot enumerate another group or its users.
@@ -539,11 +579,13 @@ public-group scope follows.
 
 ### Identity, visibility, and integrity
 
-- Login stores the GitHub avatar URL alongside the stable numeric identity.
-- `users.profile_visibility` and `groups.visibility` default to private;
-  `users.global_opt_in` defaults to false (implemented). Public endpoints must return the
+- Implemented: login stores the GitHub avatar URL alongside the stable numeric
+  identity, accepting only GitHub's avatar host.
+- Implemented: `users.profile_visibility` and `groups.visibility` default to
+  private and `users.global_opt_in` to false. Public endpoints return the
   same not-found result for private and nonexistent users or groups.
-- Group lifecycle adds invite links, owner deletion, and ownership transfer.
+- Implemented: group lifecycle adds invite links, owner deletion, and
+  ownership transfer.
 - Implemented: an in-memory token-bucket limiter runs before every route
   except the health check, per client address and per presented credential,
   with a stricter limit on starting a device login. A refused request gets

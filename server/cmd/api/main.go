@@ -113,6 +113,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Invite links point at the website. Without its origin the API still
+	// returns invite codes, just no links.
+	if origin := strings.TrimSpace(os.Getenv("TOKENHOLIC_WEB_ORIGIN")); origin != "" {
+		if err := groups.SetWebOrigin(origin); err != nil {
+			return fmt.Errorf("TOKENHOLIC_WEB_ORIGIN: %w", err)
+		}
+	}
 	leaderboardRepository, err := postgres.NewLeaderboardRepository(pool)
 	if err != nil {
 		return err

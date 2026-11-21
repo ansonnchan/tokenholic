@@ -108,8 +108,9 @@ func (c *GitHubClient) Poll(ctx context.Context, deviceCode string) (GitHubPollR
 	}
 }
 
-// User resolves only the stable numeric ID, login, and display name. The
-// access token remains in memory for this request and is never retained.
+// User resolves only the stable numeric ID, login, display name, and avatar
+// image URL. The access token remains in memory for this request and is never
+// retained.
 func (c *GitHubClient) User(ctx context.Context, accessToken string) (GitHubUser, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.userURL, nil)
 	if err != nil {
@@ -128,14 +129,30 @@ func (c *GitHubClient) User(ctx context.Context, accessToken string) (GitHubUser
 		return GitHubUser{}, fmt.Errorf("request GitHub user: unexpected status %d", response.StatusCode)
 	}
 	var user struct {
-		ID    int64  `json:"id"`
-		Login string `json:"login"`
-		Name  string `json:"name"`
+		ID        int64  `json:"id"`
+		Login     string `json:"login"`
+		Name      string `json:"name"`
+		AvatarURL string `json:"avatar_url"`
 	}
 	if err := decodeLimitedJSON(response.Body, &user); err != nil {
 		return GitHubUser{}, fmt.Errorf("decode GitHub user: %w", err)
 	}
-	return GitHubUser{ID: user.ID, Login: user.Login, Name: user.Name}, nil
+	return GitHubUser{ID: user.ID, Login: user.Login, Name: user.Name, AvatarURL: AvatarURL(user.AvatarURL)}, nil
+}
+
+// avatarHost is the only host an avatar may be served from. Storing whatever
+// URL a response contains would let it point anywhere a page later loads.
+const avatarHost = "avatars.githubusercontent.com"
+
+// AvatarURL returns value when it is an HTTPS URL on GitHub's avatar host and
+// short enough to store, and "" otherwise. A missing avatar is not an error:
+// the account simply has none to show.
+func AvatarURL(value string) string {
+	parsed, err := url.Parse(value)
+	if err != nil || len(value) > 512 || parsed.Scheme != "https" || parsed.Host != avatarHost || parsed.User != nil || parsed.Fragment != "" {
+		return ""
+	}
+	return value
 }
 
 func (c *GitHubClient) postForm(ctx context.Context, endpoint string, values url.Values, target any) error {
