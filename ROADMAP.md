@@ -1,6 +1,6 @@
 # tokenholic roadmap
 
-Status: MVP complete; product-parity revamp in progress (M6 and M7 complete except one blocked item, M8 in progress, M9–M11 planned)
+Status: MVP complete; product-parity revamp in progress (M6 to M8 complete except one blocked item, M9–M11 planned)
 Last updated: November 21, 2026
 
 ## Product definition
@@ -746,10 +746,16 @@ Goal: deliver the retro-terminal dashboard described in `docs/design.md`.
     group deletion, ownership transfer, and leaving a group.
   - Depends on: TKH-081, TKH-073.
 
-- [ ] **TKH-083: Add in-TUI onboarding and sharing** (`feat/tui-onboarding`)
+- [x] **TKH-083: Add in-TUI onboarding and sharing** (`feat/tui-onboarding`)
   - First run scans, reveals the headline totals, and offers claim without
     leaving the TUI; a share action prints an intent link.
   - Acceptance: a new user reaches a ranked board from `npx` without docs.
+  - The flow is built and tested against fakes. The acceptance cannot be met
+    end to end yet: a build has no default API address, so the claim is
+    offered only when `TOKENHOLIC_API_URL` is set. Baking the hosted address
+    into release builds belongs with release validation (TKH-102).
+  - After the first upload the TUI does not upload again on its own; later
+    uploads still come from `tokenholic sync` or autosync.
   - Depends on: TKH-082.
 
 ### M9 — Website and sharing

@@ -152,10 +152,12 @@ go build -o ./bin/tokenholic ./cmd/tokenholic
 ./bin/tokenholic
 ```
 
-The TUI starts in local mode. Press `r` to collect supported evidence and
-refresh committed totals, `1`–`5` to switch views, `p` to change the period,
-`d` for exact token categories, `?` for help, and `q` to
-quit. The minimum supported width is 48 columns.
+The first launch scans local usage and shows what it found; nothing leaves
+the machine. Press `enter` for the dashboard, `r` to scan again, `1`–`5` to
+switch views, `p` to change the period, `d` for exact token categories, `s`
+to draft a post of your totals, `?` for help, and `q` to quit. With
+`TOKENHOLIC_API_URL` set, `c` claims an account from inside the TUI. The
+minimum supported width is 48 columns.
 
 The TUI is in color by default and picks its light or dark palette from the
 terminal's background. Three environment variables adjust that:

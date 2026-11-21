@@ -21,7 +21,7 @@ multiplayer owns authenticated group and leaderboard HTTP calls
 
 | Package | Owns | Does not own |
 | --- | --- | --- |
-| `account` | tokenholic API login, credential rotation/revocation, and OS vault storage | GitHub tokens, source collection, or server persistence |
+| `account` | tokenholic API login in one step or two, credential rotation/revocation, and OS vault storage | GitHub tokens, source collection, or server persistence |
 | `adapters` | Source discovery, source formats, and external parser contracts | Cross-source totals, persistence, or UI |
 | `normalize` | Provider-neutral records, capability vocabulary, and validation | Filesystem discovery or provider parsing |
 | `collect` | Application scan orchestration, deduplication, and cumulative reduction | SQL implementation or uploads |
@@ -32,6 +32,7 @@ multiplayer owns authenticated group and leaderboard HTTP calls
 | `modelcatalog` | Versioned canonical model and API-equivalent pricing resolution | Source parsing |
 | `multiplayer` | Native group and global-board commands, leaderboard DTOs, and authenticated API calls | Credentials, server policy, aggregation, ranking, or terminal rendering |
 | `numfmt` | Compact token counts, estimate amounts, and shares as every surface displays them | Deciding how an unknown or unavailable value is shown |
+| `share` | Compose links for a user's own post, and the draft text | Sending anything, or calling a social network's API |
 | `store` | SQLite lifecycle, migrations, and local persistence | Source-specific behavior |
 | `sync` | Allowlisted absolute-bucket batches, retry, dry run, and acknowledgements | Raw local records or provider credentials |
 | `tui` | Keyboard-first presentation of committed local state | Collection, SQL, or synchronization logic |

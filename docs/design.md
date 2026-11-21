@@ -1,6 +1,6 @@
 # Design direction
 
-Status: TUI design system, personal views, and boards built; onboarding in progress (M8); website (M9) accepted
+Status: TUI revamp built (M8); website (M9) accepted
 Last updated: November 21, 2026
 
 ## Intent
@@ -140,8 +140,7 @@ back to the one-line mark on narrow terminals and without Unicode.
 - The header shows freshness of the local scan (`scanned 4m ago`) and, when
   wide, how many buckets wait to upload. It says `scanned`, not `synced`:
   this device does not record when it last uploaded.
-- When signed out, a primary chip: `[ c  CLAIM YOUR SPOT ]` (arrives with
-  onboarding).
+- When signed out, a primary chip under the panels: `[ c  CLAIM YOUR SPOT ]`.
 
 At 120 columns the breakdowns sit in a 50-column rail beside the usage
 panel. Below that they stack under it.
@@ -241,21 +240,59 @@ the rail collapses to one summary line (`@you · RANK #5 · $640.00 EST ·
 
 ### Onboarding
 
-The first launch scans with a single spinner, then reveals the headline:
+A launch on a machine that has never been scanned scans without being asked,
+with a single spinner, then reveals the headline. This greeting has no tabs;
+`enter` or any view key opens the dashboard. Later launches go straight to
+HOME.
 
 ```text
->_ TOKENHOLIC
+>_ TOKENHOLIC                      (three-line block mark from 88 columns)
 
-SCANNING  claude code ✓   claude desktop ✓   codex ✓
+SCANNED  Claude CLI ✓ · Claude Desktop Code ✓ · Codex CLI and Desktop ✓
 
-YOU BURNED 4.2B TOKENS · ~$1,180.00 EST · LAST 30 DAYS
+YOU BURNED ≥4.26B TOKENS · ≥$1,180.42 EST · LAST 30 DAYS
 
-[ c  CLAIM YOUR SPOT ]    r refresh · 1–5 views · q quit
+[ c  CLAIM YOUR SPOT ]
+Nothing leaves this machine until you claim.
+enter dashboard · c claim · r scan again · s share · ? help · q quit
 ```
 
-Claiming runs the GitHub device flow inside the TUI: it shows the user code,
-offers to open the verification page, and returns to BOARDS after the first
-sync. Nothing uploads before the user claims.
+- The headline uses the same rules as every other number: `≥` for a lower
+  bound and an `EST` label, never `~`.
+- Sources that exist are listed; one that was simply not found is left to
+  SOURCES. A machine with no supported agent gets instructions, not a
+  headline of zero.
+- With no API configured there is no claim to offer; the chip opens the
+  dashboard instead.
+
+Claiming (`c`, offered only to a device known to be signed out) runs the
+GitHub device flow inside the TUI:
+
+1. A confirmation states what is uploaded, what never is, and that
+   `tokenholic show-data` prints the exact payload. Nothing has started;
+   `enter` continues and `esc` backs out.
+2. The verification address and the code are shown. `o` opens the page, `y`
+   copies the code, `esc` cancels. A code approved after a cancel signs
+   nobody in.
+3. Once approved, pending usage uploads, then the view moves to BOARDS with
+   `Signed in as @login · N buckets uploaded`.
+
+Nothing uploads before step 3. A failed start or an expired code offers
+`enter` to try again. If the upload fails after sign-in, `enter` retries only
+the upload and `esc` continues signed in; local usage is kept either way.
+While the claim is open it takes every key, so none quits or navigates by
+accident. HOME keeps a `[ c  CLAIM YOUR SPOT ]` chip for a signed-out
+device, and the BOARDS sign-in gate offers the same.
+
+### Share
+
+`s` on HOME, BOARDS, or the greeting drafts a post from the period HOME is
+showing: the user's own tokens and estimate, with "at least" for a lower
+bound and the estimate called an estimate. It names no group and no rank. The
+overlay shows the draft and its `x.com/intent/post` link; `o` opens it in the
+browser, where the user reviews and posts it, and `y` copies it. Because a
+wrapped link in a panel cannot be selected cleanly, the link is printed again
+after the TUI exits. tokenholic sends nothing itself.
 
 ### Primary actions
 
@@ -284,7 +321,9 @@ visible per panel. Destructive actions require an inline typed confirmation.
 | `i` | Join with an invite code (input masked) |
 | `y` | Copy invite, creating one first for an owner |
 | `o` | Join or leave the global board, after confirming |
-| `s` | Share (prints an `x.com/intent/post` link) |
+| `s` | Share: draft a post and its `x.com/intent/post` link |
+| `enter` | Leave the first-launch greeting; continue a claim |
+| `esc` | Close a prompt, the claim, or the share overlay |
 | `r` | Refresh |
 | `?` | Help |
 | `q` | Quit |
