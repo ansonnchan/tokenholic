@@ -1,0 +1,37 @@
+>_ TOKENHOLIC                     scanned 4m ago
+[HOME] BOARDS  MODELS  SOURCES  SETTINGS
+
++- YOUR USAGE ---------------------------------+
+|  TODAY  THIS WEEK [30 DAYS] ALL-TIME         |
+|                                              |
+| TOKENS        $ EST         PRICED           |
+| >=4.26B       >=$1,180.42   92.3%            |
+|                                              |
+| DAILY TOKENS - - - - - -  PEAK >=338M OCT 27 |
+| =..-#=.#_.=-#-... =.=-...#-#=.               |
+| OCT 23                   TODAY               |
+|                                              |
+| CATEGORIES - - - - - - - - - - - - -   EXACT |
+| Uncached input           127,600,000    2.9% |
+| Cache read             3,800,000,000   89.2% |
+| Cache write            >=251,700,000    5.9% |
+|   5-minute             >=203,000,000         |
+|   1-hour                >=48,700,000         |
+| Output                    80,300,000    1.8% |
+|   reasoning             >=22,100,000         |
++----------------------------------------------+
++- BY SOURCE ----------------------------------+
+| SOURCE            TOKENS        $ EST  SHARE |
+| Claude             2.92B      $820.40  68.4% |
+| Codex            >=1.34B    >=$360.02  31.5% |
++----------------------------------------------+
++- BY MODEL -----------------------------------+
+| MODEL             TOKENS        $ EST  SHARE |
+| claude-opus-5-5    2.12B      $688.30  49.6% |
+| gpt-5.2-codex    >=1.02B    >=$318.90  23.9% |
+| claude-sonnet-~     707M      $121.75  16.5% |
+| codex-auto-rev~   >=242M            -   5.6% |
+| claude-haiku-5~      92M       $10.35   2.1% |
+| 2 more models | press 3                      |
++----------------------------------------------+
+1-5 views | p period | ? help | q quit

@@ -1,252 +1,311 @@
 package tui
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/ansonnchan/tokenholic/internal/application"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
-	"github.com/ansonnchan/tokenholic/internal/normalize"
 	"github.com/ansonnchan/tokenholic/internal/store"
+	"github.com/ansonnchan/tokenholic/internal/tui/widget"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type fakeApplication struct {
-	dashboard  application.Dashboard
-	loadError  error
-	refreshErr error
-	loads      int
-	refreshes  int
+func view(model Model) string {
+	return model.View()
 }
 
-type fakeMultiplayer struct {
-	snapshot   multiplayer.Snapshot
-	selectedID string
-	period     multiplayer.Period
-	metric     multiplayer.Metric
-	created    string
-	joined     string
+func TestKeysSwitchAreasInTheDocumentedOrder(t *testing.T) {
+	t.Parallel()
+	app := &fakeApplication{dashboard: sampleDashboard()}
+	model := start(t, app, Config{}, 88, 0)
+	if app.loads != 1 || !strings.Contains(view(model), "[HOME]") || !strings.Contains(view(model), "YOUR USAGE") {
+		t.Fatalf("first frame = %q after %d loads", view(model), app.loads)
+	}
+	for key, want := range map[string][2]string{
+		"2": {"[BOARDS]", "BOARDS"}, "3": {"[MODELS]", "MODEL DETAIL"},
+		"4": {"[SOURCES]", "LOCAL SOURCES"}, "5": {"[SETTINGS]", "PRIVACY"}, "1": {"[HOME]", "BY MODEL"},
+	} {
+		// Start somewhere else so every key is a real switch.
+		from := "5"
+		if key == "5" {
+			from = "4"
+		}
+		got := view(press(model, from, key))
+		if !strings.Contains(got, want[0]) || !strings.Contains(got, want[1]) {
+			t.Errorf("key %s: view = %q, want %q and %q", key, got, want[0], want[1])
+		}
+	}
+	if got := view(press(model, "tab", "tab")); !strings.Contains(got, "[MODELS]") {
+		t.Errorf("tab twice = %q", got)
+	}
+	if got := view(press(model, "shift+tab")); !strings.Contains(got, "[SETTINGS]") {
+		t.Errorf("shift+tab = %q", got)
+	}
 }
 
-func (f *fakeMultiplayer) Load(_ context.Context, selectedID string, period multiplayer.Period, metric multiplayer.Metric) (multiplayer.Snapshot, error) {
-	f.selectedID, f.period, f.metric = selectedID, period, metric
-	snapshot := f.snapshot
-	if selectedID != "" {
-		for _, group := range snapshot.Groups {
-			if group.ID == selectedID {
-				snapshot.Selected = group
-				break
+func TestPeriodAndDetailKeysChangeTheLocalViews(t *testing.T) {
+	t.Parallel()
+	model := start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{}, 88, 0)
+	if got := view(model); !strings.Contains(got, "[30 DAYS]") || !strings.Contains(got, "≥4.26B") || strings.Contains(got, "CATEGORIES") {
+		t.Fatalf("default view = %q", got)
+	}
+	// 30 days -> all-time -> today: each period shows its own totals.
+	if got := view(press(model, "p")); !strings.Contains(got, "[ALL-TIME]") || !strings.Contains(got, "≥13.4B") {
+		t.Errorf("all-time = %q", got)
+	}
+	if got := view(press(model, "p", "p")); !strings.Contains(got, "[TODAY]") || !strings.Contains(got, "≥132M") {
+		t.Errorf("today = %q", got)
+	}
+	// The period is shared by the local areas.
+	if got := view(press(model, "p", "3")); !strings.Contains(got, "[ALL-TIME]") {
+		t.Errorf("models after a period change = %q", got)
+	}
+	detail := view(press(model, "d"))
+	for _, want := range []string{"CATEGORIES", "3,800,000,000", "≥251,700,000", "reasoning"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("detail = %q, want %q", detail, want)
+		}
+	}
+	if got := view(press(model, "d", "d")); strings.Contains(got, "CATEGORIES") {
+		t.Errorf("detail did not toggle off: %q", got)
+	}
+}
+
+func TestUnknownValuesAreNeverShownAsZero(t *testing.T) {
+	t.Parallel()
+	dashboard := sampleDashboard()
+	dashboard.Last30Days.APIEstimate = unavailable
+	dashboard.Last30Days.Coverage = store.Coverage{}
+	model := start(t, &fakeApplication{dashboard: dashboard}, Config{}, 88, 0)
+	home := view(model)
+	if strings.Contains(home, "$0.00") || strings.Contains(home, " 0%") {
+		t.Fatalf("an unavailable estimate or share rendered as zero: %q", home)
+	}
+	if !strings.Contains(home, "—") {
+		t.Fatalf("an unavailable estimate has no marker: %q", home)
+	}
+	// A category the source never reports says so instead of showing 0.
+	models := view(press(model, "3", "j"))
+	if !strings.Contains(models, "not reported") || !strings.Contains(models, "inferred") {
+		t.Fatalf("model detail = %q", models)
+	}
+	// A known zero is a number, not a missing value.
+	dashboard = sampleDashboard()
+	dashboard.Last30Days.APIEstimate = known(0)
+	if got := view(start(t, &fakeApplication{dashboard: dashboard}, Config{}, 88, 0)); !strings.Contains(got, "$0.00") {
+		t.Fatalf("a known zero estimate = %q", got)
+	}
+}
+
+func TestEstimatesAreAlwaysLabelledAndNeverCalledSpending(t *testing.T) {
+	t.Parallel()
+	model := start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{}, 120, 0)
+	for _, keys := range [][]string{nil, {"d"}, {"3"}, {"4"}, {"5"}, {"?"}} {
+		got := view(press(model, keys...))
+		lower := strings.ToLower(got)
+		if strings.Contains(lower, "spent") || strings.Contains(lower, "spend") || strings.Contains(lower, " cost ") && !strings.Contains(lower, "would cost") {
+			t.Errorf("keys %v: a cost is described as spending: %q", keys, got)
+		}
+		if strings.Contains(got, "$") && !strings.Contains(got, "EST") {
+			t.Errorf("keys %v: a dollar amount has no EST label: %q", keys, got)
+		}
+	}
+}
+
+func TestModelsCursorMovesWithinTheList(t *testing.T) {
+	t.Parallel()
+	model := press(start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{}, 88, 0), "3")
+	selected := func(model Model) string {
+		for _, line := range strings.Split(view(model), "\n") {
+			if strings.Contains(line, "▌") {
+				return line
 			}
 		}
+		return ""
 	}
-	if snapshot.Board != nil {
-		board := *snapshot.Board
-		board.GroupID, board.GroupName = snapshot.Selected.ID, snapshot.Selected.Name
-		board.Period, board.Metric = period, metric
-		snapshot.Board = &board
+	if got := selected(model); !strings.Contains(got, "claude-opus-5-5") {
+		t.Fatalf("first selection = %q", got)
 	}
-	return snapshot, nil
+	if got := selected(press(model, "j", "down")); !strings.Contains(got, "claude-sonnet-5-5") {
+		t.Errorf("after two moves = %q", got)
+	}
+	if got := selected(press(model, "k")); !strings.Contains(got, "claude-opus-5-5") {
+		t.Errorf("moving above the first row = %q", got)
+	}
+	moves := []string{"j", "j", "j", "j", "j", "j", "j", "j", "j", "j"}
+	if got := selected(press(model, moves...)); !strings.Contains(got, "(no model recorded)") {
+		t.Errorf("moving past the last row = %q", got)
+	}
+	// A shorter list in another period must not leave the cursor outside it.
+	if got := selected(press(press(model, moves...), "p")); !strings.Contains(got, "claude-opus-5-5") {
+		t.Errorf("after a period change = %q", got)
+	}
 }
 
-func (f *fakeMultiplayer) Create(_ context.Context, name string) (multiplayer.Group, error) {
-	f.created = name
-	group := multiplayer.Group{ID: "group-created", Name: name, Timezone: "UTC", Role: "owner"}
-	f.snapshot.Groups = append(f.snapshot.Groups, group)
-	return group, nil
-}
-
-func (f *fakeMultiplayer) Join(_ context.Context, code string) (multiplayer.Group, error) {
-	f.joined = code
-	group := multiplayer.Group{ID: "group-joined", Name: "Joined", Timezone: "UTC", Role: "member"}
-	f.snapshot.Groups = append(f.snapshot.Groups, group)
-	return group, nil
-}
-
-func (a *fakeApplication) Load(context.Context) (application.Dashboard, error) {
-	a.loads++
-	return a.dashboard, a.loadError
-}
-
-func (a *fakeApplication) Refresh(context.Context) error {
-	a.refreshes++
-	return a.refreshErr
-}
-
-func TestModelLoadsAndNavigatesWithKeyboard(t *testing.T) {
+func TestShortTerminalScrollsInsteadOfOverflowing(t *testing.T) {
 	t.Parallel()
-	app := &fakeApplication{dashboard: usageDashboard(store.AvailabilityComplete, 42)}
-	app.dashboard.Diagnostics.AdapterHealth = []store.StoredAdapterHealth{{
-		Health: normalize.SourceHealth{Source: normalize.SourceCodex, Surface: normalize.SurfaceCLI, Status: normalize.HealthDegraded},
-	}}
-	model := NewModel(t.Context(), app, Config{NoColor: true})
-	message := model.Init()()
-	updated, command := model.Update(message)
-	model = updated.(Model)
-	if command != nil || model.state != StateWarning || !strings.Contains(model.View(), "Total tokens: 42") {
-		t.Fatalf("initial model = %#v view=%q", model, model.View())
+	model := start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{}, 88, 14)
+	frame := model.frame()
+	if len(frame) > 14 || !strings.Contains(frame[len(frame)-2], "below") {
+		t.Fatalf("clipped frame is %d rows: %q", len(frame), frame)
 	}
-
-	updated, command = model.Update(key('2'))
-	model = updated.(Model)
-	if model.section != SourcesSection || model.state != StateLoading || command == nil {
-		t.Fatalf("navigation model = %#v", model)
+	moves := make([]string, 60)
+	for index := range moves {
+		moves[index] = "j"
 	}
-	updated, _ = model.Update(command())
-	model = updated.(Model)
-	if model.state != StateWarning || !strings.Contains(model.View(), "[warning] 1 local adapter state(s) need attention") {
-		t.Fatalf("warning model = %#v view=%q", model, model.View())
+	bottom := press(model, moves...)
+	if frame := bottom.frame(); len(frame) > 14 || !strings.Contains(strings.Join(frame, "\n"), "0 below") {
+		t.Fatalf("scrolled past the end: scroll=%d frame=%q", bottom.scroll, frame)
 	}
-
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if got := updated.(Model).section; got != ModelsSection {
-		t.Fatalf("tab section = %v, want models", got)
+	if top := press(bottom, append(moves, moves...)...); top.scroll != bottom.scroll {
+		t.Fatalf("scroll kept growing: %d then %d", bottom.scroll, top.scroll)
 	}
-	updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	if got := updated.(Model).section; got != SourcesSection {
-		t.Fatalf("shift-tab section = %v, want sources", got)
+	// Growing the terminal pulls the offset back into range.
+	resized, _ := bottom.Update(tea.WindowSizeMsg{Width: 88, Height: 60})
+	if resized.(Model).scroll != 0 {
+		t.Fatalf("scroll after growing = %d", resized.(Model).scroll)
 	}
 }
 
-func TestModelIgnoresStaleLoadsAndRefreshesThroughApplication(t *testing.T) {
+func TestRefreshGoesThroughTheApplicationAndKeepsTheLastStableData(t *testing.T) {
 	t.Parallel()
-	app := &fakeApplication{dashboard: usageDashboard(store.AvailabilityComplete, 1)}
-	model := NewModel(t.Context(), app, Config{NoColor: true})
-	updated, _ := model.Update(key('2'))
-	model = updated.(Model)
-	updated, command := model.Update(loadResult{section: OverviewSection, requestID: 1, dashboard: usageDashboard(store.AvailabilityComplete, 99)})
-	model = updated.(Model)
-	if command != nil || strings.Contains(model.View(), "stale") || model.section != SourcesSection {
-		t.Fatalf("stale result changed model = %#v", model)
+	app := &fakeApplication{dashboard: sampleDashboard()}
+	model := start(t, app, Config{}, 88, 0)
+	model = press(model, "r")
+	if app.refreshes != 1 || app.loads != 2 || model.loading || model.refreshing {
+		t.Fatalf("refreshes=%d loads=%d loading=%t", app.refreshes, app.loads, model.loading)
 	}
-
-	updated, command = model.Update(key('r'))
-	model = updated.(Model)
-	if command == nil || !model.refreshing {
-		t.Fatalf("refresh did not start = %#v", model)
+	// A failure can wrap a private path: it must not reach the screen, and
+	// the data already shown must stay.
+	app.refreshErr = errors.New("open /synthetic/private/path: denied")
+	failed := view(press(model, "r"))
+	if !strings.Contains(failed, "ERROR  Could not refresh local data") || strings.Contains(failed, "synthetic/private") {
+		t.Fatalf("refresh failure = %q", failed)
 	}
-	updated, command = model.Update(command())
-	model = updated.(Model)
-	if app.refreshes != 1 || command == nil {
-		t.Fatalf("refresh result = %#v calls=%d", model, app.refreshes)
+	if !strings.Contains(failed, "≥4.26B") || !strings.Contains(failed, "tokenholic doctor") {
+		t.Fatalf("refresh failure dropped the last stable data: %q", failed)
+	}
+	app.refreshErr = nil
+	if got := view(press(press(model, "r"), "r")); strings.Contains(got, "ERROR") {
+		t.Fatalf("a later success kept the failure: %q", got)
 	}
 }
 
-func TestModelStatesRemainExplicitWithoutColor(t *testing.T) {
+func TestSpinnerShowsOnlyWhileWorkRuns(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name    string
-		message loadResult
-		want    string
-	}{
-		{name: "empty", message: loadResult{section: OverviewSection, requestID: 1}, want: "[empty]"},
-		{name: "error", message: loadResult{section: OverviewSection, requestID: 1, err: errors.New("private detail")}, want: "[error]"},
-		{name: "warning", message: loadResult{section: OverviewSection, requestID: 1, dashboard: usageDashboard(store.AvailabilityPartial, 1)}, want: "[warning]"},
-		{name: "ready", message: loadResult{section: OverviewSection, requestID: 1, dashboard: usageDashboard(store.AvailabilityComplete, 1)}, want: "[ready]"},
+	app := &fakeApplication{dashboard: sampleDashboard()}
+	model := NewModel(t.Context(), app, Config{})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 88, Height: 0})
+	model = updated.(Model)
+	if got := view(model); !strings.Contains(got, "Reading local usage") {
+		t.Fatalf("first frame = %q", got)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			model := NewModel(t.Context(), &fakeApplication{}, Config{NoColor: true})
-			updated, _ := model.Update(test.message)
-			view := updated.(Model).View()
-			if !strings.Contains(view, test.want) || strings.Contains(view, "\x1b[") || strings.Contains(view, "private detail") {
-				t.Fatalf("View() = %q", view)
-			}
-		})
+	// A tick while busy advances the spinner and asks for another.
+	ticked, next := model.Update(spinnerTick{})
+	if ticked.(Model).spinner != 1 || next == nil {
+		t.Fatalf("busy tick: spinner=%d next=%v", ticked.(Model).spinner, next)
+	}
+	model = drain(model, model.Init())
+	idle, next := model.Update(spinnerTick{})
+	if next != nil || idle.(Model).ticking || strings.Contains(view(model), "scanning") {
+		t.Fatalf("the spinner kept running while idle: %q", view(model))
+	}
+	// A refresh shows it in the header until the reload lands.
+	scanning, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if got := view(scanning.(Model)); !strings.Contains(got, "scanning") || !strings.Contains(got, "≥4.26B") {
+		t.Fatalf("frame during a refresh = %q", got)
 	}
 }
 
-func TestModelExplainsWhenNoSupportedSourceIsAvailable(t *testing.T) {
+func TestStaleLoadsAreIgnored(t *testing.T) {
 	t.Parallel()
-	dashboard := application.Dashboard{Diagnostics: store.DiagnosticSnapshot{
-		AdapterHealth: []store.StoredAdapterHealth{
-			{Health: normalize.SourceHealth{Source: normalize.SourceClaude, Surface: normalize.SurfaceCLI, Status: normalize.HealthNotFound}},
-			{Health: normalize.SourceHealth{Source: normalize.SourceCodex, Surface: normalize.SurfaceSharedLocal, Status: normalize.HealthNotFound}},
-		},
-	}}
-	model := NewModel(t.Context(), &fakeApplication{dashboard: dashboard}, Config{NoColor: true})
-	updated, _ := model.Update(model.Init()())
-	updated, _ = updated.(Model).Update(tea.WindowSizeMsg{Width: MinimumWidth, Height: 20})
-	view := updated.(Model).View()
-	for _, want := range []string{"[empty] No supported coding-agent usage", "Claude Code/Desktop", "Codex CLI/Desktop", "press r", "tokenholic doctor"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("View() = %q, want %q", view, want)
-		}
+	app := &fakeApplication{dashboard: sampleDashboard()}
+	model := start(t, app, Config{}, 88, 0)
+	stale := emptyDashboard()
+	updated, _ := model.Update(loadResult{requestID: model.localRequest - 1, dashboard: stale})
+	if got := view(updated.(Model)); !strings.Contains(got, "≥4.26B") {
+		t.Fatalf("a stale load replaced the dashboard: %q", got)
 	}
-	if strings.Contains(view, "[warning]") || strings.Contains(view, "\x1b[") {
-		t.Fatalf("missing optional sources rendered as a warning or used color: %q", view)
+}
+
+func TestFirstLoadFailureIsActionable(t *testing.T) {
+	t.Parallel()
+	app := &fakeApplication{loadError: errors.New("open /synthetic/private/state.db")}
+	got := view(start(t, app, Config{}, 88, 0))
+	if !strings.Contains(got, "ERROR  Could not load local data") || !strings.Contains(got, "tokenholic doctor") || strings.Contains(got, "synthetic/private") {
+		t.Fatalf("first load failure = %q", got)
 	}
-	for _, line := range strings.Split(view, "\n") {
-		if len([]rune(line)) > MinimumWidth {
-			t.Fatalf("empty-state line is %d columns: %q", len([]rune(line)), line)
+}
+
+func TestNoSupportedSourcesGetsInstructions(t *testing.T) {
+	t.Parallel()
+	got := view(start(t, &fakeApplication{dashboard: emptyDashboard()}, Config{}, MinimumWidth, 0))
+	for _, want := range []string{"No supported coding-agent usage found.", "Claude Code", "Codex", "tokenholic doctor", "press r to scan again"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("empty machine = %q, want %q", got, want)
 		}
 	}
 }
 
-func TestNarrowLayoutAndHelp(t *testing.T) {
+func TestSourcesThatNeedAttentionAreFlaggedEverywhere(t *testing.T) {
 	t.Parallel()
-	model := NewModel(t.Context(), nil, Config{NoColor: true})
-	updated, _ := model.Update(tea.WindowSizeMsg{Width: MinimumWidth - 1, Height: 20})
-	view := updated.(Model).View()
-	if !strings.Contains(view, "Terminal is too narrow") || !strings.Contains(view, "48 columns") {
-		t.Fatalf("too-narrow View() = %q", view)
+	model := start(t, &fakeApplication{dashboard: needsAttentionDashboard()}, Config{}, 88, 0)
+	if got := view(model); !strings.Contains(got, "WARNING  1 source needs attention; see 4 SOURCES.") {
+		t.Errorf("home = %q", got)
 	}
-	updated, _ = updated.(Model).Update(key('?'))
-	if view = updated.(Model).View(); !strings.Contains(view, "1–5 views") {
-		t.Fatalf("too-narrow help View() = %q", view)
+	sources := view(press(model, "4"))
+	if !strings.Contains(sources, "no permission") || strings.Contains(sources, "WARNING") {
+		t.Errorf("sources = %q", sources)
 	}
+}
 
-	updated, _ = updated.(Model).Update(tea.WindowSizeMsg{Width: 60, Height: 20})
-	view = updated.(Model).View()
-	if !strings.Contains(view, "tab/arrows navigate") || strings.Contains(view, "move between views") {
-		t.Fatalf("narrow help View() = %q", view)
+func TestTooNarrowTerminalAsksForRoom(t *testing.T) {
+	t.Parallel()
+	model := start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{}, MinimumWidth-1, 20)
+	got := view(model)
+	if !strings.Contains(got, "Terminal is too narrow") || !strings.Contains(got, "48 columns") || !strings.Contains(got, "q quit") {
+		t.Fatalf("too-narrow view = %q", got)
 	}
-	for _, line := range strings.Split(view, "\n") {
-		if len([]rune(line)) > 60 {
-			t.Fatalf("narrow line is %d columns: %q", len([]rune(line)), line)
+	for _, line := range strings.Split(got, "\n") {
+		if widget.Width(line) > MinimumWidth-1 {
+			t.Errorf("line is %d cells: %q", widget.Width(line), line)
 		}
 	}
-}
-
-func TestRefreshFailureIsActionable(t *testing.T) {
-	t.Parallel()
-	app := &fakeApplication{refreshErr: errors.New("private path")}
-	model := NewModel(t.Context(), app, Config{NoColor: true})
-	updated, command := model.Update(key('r'))
-	updated, command = updated.(Model).Update(command())
-	if command != nil {
-		t.Fatal("failed refresh returned another command")
-	}
-	view := updated.(Model).View()
-	if !strings.Contains(view, "Could not refresh local data") || strings.Contains(view, "private path") {
-		t.Fatalf("refresh failure View() = %q", view)
+	if got := view(press(model, "?")); !strings.Contains(got, "1–5 views") {
+		t.Fatalf("too-narrow help = %q", got)
 	}
 }
 
-func TestNarrowSettingsContentWrapsWithoutLosingPrivacyMeaning(t *testing.T) {
+func TestHelpExplainsKeysAndHowToReadTheNumbers(t *testing.T) {
 	t.Parallel()
-	app := &fakeApplication{dashboard: usageDashboard(store.AvailabilityComplete, 1)}
-	model := NewModel(t.Context(), app, Config{NoColor: true})
-	updated, _ := model.Update(tea.WindowSizeMsg{Width: MinimumWidth, Height: 30})
-	updated, command := updated.(Model).Update(key('4'))
-	updated, _ = updated.(Model).Update(command())
-	view := updated.(Model).View()
-	if !strings.Contains(view, "Never stored: prompts") || !strings.Contains(view, "repository") || !strings.Contains(view, "branch names") {
-		t.Fatalf("settings View() lost privacy explanation: %q", view)
-	}
-	for _, line := range strings.Split(view, "\n") {
-		if len([]rune(line)) > MinimumWidth {
-			t.Fatalf("settings line is %d columns: %q", len([]rune(line)), line)
+	model := start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{}, MinimumWidth, 0)
+	help := view(press(model, "?"))
+	for _, want := range []string{"KEYS", "READING THE NUMBERS", "lower bound", "never means zero", "It is an estimate"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help = %q, want %q", help, want)
 		}
 	}
+	if got := view(press(model, "?", "?")); strings.Contains(got, "READING THE NUMBERS") {
+		t.Errorf("help did not close: %q", got)
+	}
+	if got := view(press(model, "?", "3")); strings.Contains(got, "READING THE NUMBERS") || !strings.Contains(got, "[MODELS]") {
+		t.Errorf("switching areas kept help open: %q", got)
+	}
 }
 
-func TestGroupsViewLoadsSwitchesPeriodMetricAndSelection(t *testing.T) {
+func TestStoredTextCannotControlTheTerminal(t *testing.T) {
+	t.Parallel()
+	if got := cleanLine("Private\x1b[31m\nGroup\x7f\u009b"); strings.ContainsAny(got, "\x1b\n\x7f\u009b") {
+		t.Fatalf("cleanLine() = %q", got)
+	}
+}
+
+func TestBoardsLoadsSwitchesPeriodMetricAndGroup(t *testing.T) {
 	t.Parallel()
 	value := "20"
-	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	rank := 1
 	remote := &fakeMultiplayer{snapshot: multiplayer.Snapshot{
 		Groups: []multiplayer.Group{
 			{ID: "group-one", Name: "One", Timezone: "UTC", Role: "owner"},
@@ -256,108 +315,80 @@ func TestGroupsViewLoadsSwitchesPeriodMetricAndSelection(t *testing.T) {
 		Board: &multiplayer.Board{
 			GroupID: "group-one", GroupName: "One", Timezone: "UTC",
 			Period: multiplayer.PeriodToday, Metric: multiplayer.MetricTotalTokens,
-			GeneratedAt: now, Rows: []multiplayer.Row{{
-				Rank: new(int), DisplayName: "Alpha", CurrentUser: true,
+			GeneratedAt: time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC), Rows: []multiplayer.Row{{
+				Rank: &rank, DisplayName: "Alpha", CurrentUser: true,
 				Value:       multiplayer.Value{Value: &value, State: multiplayer.AvailabilityComplete},
 				Limitations: multiplayer.Limitations{UnknownModelBuckets: 1},
 			}},
 		},
 	}}
-	*remote.snapshot.Board.Rows[0].Rank = 1
-	model := NewModel(t.Context(), &fakeApplication{}, Config{NoColor: true, Multiplayer: remote})
-	updated, command := model.Update(key('5'))
-	if command == nil {
-		t.Fatal("groups navigation did not load")
-	}
-	updated, _ = updated.(Model).Update(command())
-	model = updated.(Model)
-	view := model.View()
-	for _, want := range []string{"Group 1/2 · One", "Your standing: #1 of 1", "Alpha (you)", "unknown model 1"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("group View() = %q, want %q", view, want)
+	model := press(start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{Multiplayer: remote}, 88, 0), "2")
+	got := view(model)
+	for _, want := range []string{"[BOARDS]", "Group 1/2 · One", "Your standing: #1 of 1", "Alpha (you)", "unknown model 1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("boards = %q, want %q", got, want)
 		}
 	}
-	updated, command = model.Update(key('p'))
-	updated, _ = updated.(Model).Update(command())
+	model = press(model, "p")
 	if remote.period != multiplayer.PeriodWeek {
 		t.Fatalf("period = %s", remote.period)
 	}
-	updated, command = updated.(Model).Update(key('m'))
-	updated, _ = updated.(Model).Update(command())
+	model = press(model, "m")
 	if remote.metric != multiplayer.MetricAPIEstimate {
 		t.Fatalf("metric = %s", remote.metric)
 	}
-	updated, command = updated.(Model).Update(key('j'))
-	updated, _ = updated.(Model).Update(command())
-	if remote.selectedID != "group-two" || !strings.Contains(updated.(Model).View(), "Group 2/2 · Two") {
-		t.Fatalf("selected group/view = %q/%q", remote.selectedID, updated.(Model).View())
+	model = press(model, "j")
+	if remote.selectedID != "group-two" || !strings.Contains(view(model), "Group 2/2 · Two") {
+		t.Fatalf("selected group/view = %q/%q", remote.selectedID, view(model))
+	}
+	// A failed reload keeps the board that was showing.
+	remote.loadError = errors.New("synthetic outage")
+	if got := view(press(model, "r")); !strings.Contains(got, "Could not load private groups") || !strings.Contains(got, "Group 2/2 · Two") || strings.Contains(got, "synthetic outage") {
+		t.Fatalf("failed reload = %q", got)
 	}
 }
 
-func TestGroupsViewOffersClaimWhenMultiplayerIsNotConfigured(t *testing.T) {
+func TestBoardsExplainsMissingConfigurationAndSignIn(t *testing.T) {
 	t.Parallel()
-	model := NewModel(t.Context(), &fakeApplication{}, Config{NoColor: true})
-	updated, command := model.Update(key('5'))
-	if command == nil {
-		t.Fatal("groups navigation did not load")
+	app := &fakeApplication{dashboard: sampleDashboard()}
+	got := view(press(start(t, app, Config{}, 88, 0), "2"))
+	if !strings.Contains(got, "tokenholic claim") || !strings.Contains(got, "TOKENHOLIC_API_URL") || strings.Contains(got, "tokenholic login") {
+		t.Fatalf("unconfigured boards = %q", got)
 	}
-	updated, _ = updated.(Model).Update(command())
-	view := updated.(Model).View()
-	if !strings.Contains(view, "tokenholic claim") || strings.Contains(view, "tokenholic login") {
-		t.Fatalf("groups claim guidance = %q", view)
+	remote := &fakeMultiplayer{loadError: multiplayer.ErrSignedOut}
+	got = view(press(start(t, app, Config{Multiplayer: remote}, 88, 0), "2"))
+	if !strings.Contains(got, "Sign in is required") || !strings.Contains(got, "tokenholic claim") {
+		t.Fatalf("signed-out boards = %q", got)
 	}
 }
 
-func TestGroupsViewCreatesAndMasksInviteInput(t *testing.T) {
+func TestBoardsCreatesAGroupAndMasksTheInviteCode(t *testing.T) {
 	t.Parallel()
-	remote := &fakeMultiplayer{snapshot: multiplayer.Snapshot{Groups: []multiplayer.Group{
-		{ID: "group-one", Name: "One", Timezone: "UTC", Role: "owner"},
-	}, Selected: multiplayer.Group{ID: "group-one", Name: "One", Timezone: "UTC", Role: "owner"}}}
-	model := NewModel(t.Context(), &fakeApplication{}, Config{NoColor: true, Multiplayer: remote})
-	updated, command := model.Update(key('5'))
-	updated, _ = updated.(Model).Update(command())
-	updated, _ = updated.(Model).Update(key('c'))
-	updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("New group")})
-	if !strings.Contains(updated.(Model).View(), "New group_") {
-		t.Fatalf("create input View() = %q", updated.(Model).View())
+	group := multiplayer.Group{ID: "group-one", Name: "One", Timezone: "UTC", Role: "owner"}
+	remote := &fakeMultiplayer{snapshot: multiplayer.Snapshot{Groups: []multiplayer.Group{group}, Selected: group}}
+	model := press(start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{Multiplayer: remote}, 88, 0), "2", "c")
+	model = press(model, "New group")
+	if got := view(model); !strings.Contains(got, "New group_") {
+		t.Fatalf("create prompt = %q", got)
 	}
-	updated, command = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated, command = updated.(Model).Update(command())
-	updated, _ = updated.(Model).Update(command())
-	if remote.created != "New group" {
+	// While typing, keys are text: q must not quit and 1 must not navigate.
+	model = press(model, "q", "1")
+	if got := view(model); !strings.Contains(got, "New groupq1_") || !strings.Contains(got, "[BOARDS]") {
+		t.Fatalf("typed keys acted as commands: %q", got)
+	}
+	model = press(model, "enter")
+	if remote.created != "New groupq1" {
 		t.Fatalf("created = %q", remote.created)
 	}
-	updated, _ = updated.(Model).Update(key('i'))
-	updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ovt_secret")})
-	view := updated.(Model).View()
-	if strings.Contains(view, "ovt_secret") || !strings.Contains(view, "**********_") {
-		t.Fatalf("invite input was not masked: %q", view)
+	model = press(model, "i", "ovt_secret")
+	if got := view(model); strings.Contains(got, "ovt_secret") || !strings.Contains(got, "**********_") {
+		t.Fatalf("invite code was not masked: %q", got)
 	}
-	updated, command = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
-	_, _ = updated.(Model).Update(command())
+	if got := view(press(model, "esc")); strings.Contains(got, "Join with invite code") {
+		t.Fatalf("esc kept the prompt: %q", got)
+	}
+	press(model, "enter")
 	if remote.joined != "ovt_secret" {
 		t.Fatalf("joined with %q", remote.joined)
-	}
-}
-
-func key(value rune) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{value}}
-}
-
-func usageDashboard(state store.Availability, input uint64) application.Dashboard {
-	zero := uint64(0)
-	breakdown := store.TokenBreakdown{
-		InputUncached:   store.AggregateValue{Value: &input, State: state},
-		InputCacheRead:  store.AggregateValue{Value: &zero, State: store.AvailabilityComplete},
-		InputCacheWrite: store.AggregateValue{Value: &zero, State: store.AvailabilityComplete},
-		Output:          store.AggregateValue{Value: &zero, State: store.AvailabilityComplete},
-		ReasoningOutput: store.AggregateValue{Value: &zero, State: store.AvailabilityComplete},
-	}
-	estimate := store.AggregateValue{Value: &zero, State: store.AvailabilityComplete}
-	summary := store.UsageSummary{Tokens: breakdown, APIEstimate: estimate}
-	return application.Dashboard{
-		GeneratedAt: time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC),
-		Timezone:    "UTC", Today: summary, Week: summary, Last30Days: summary, AllTime: summary,
-		Diagnostics: store.DiagnosticSnapshot{IntegrityOK: true, SchemaVersion: 3, SupportedSchemaVersion: 3},
 	}
 }

@@ -1,0 +1,26 @@
+>_ TOKENHOLIC                     scanned 4m ago
+ HOME  BOARDS  MODELS [SOURCES] SETTINGS
+
++- LOCAL SOURCES ------------------------------+
+| SOURCE                         STATUS        |
+| Claude | CLI                   detected      |
+| Claude | Desktop Code          no permission |
+| Claude | Desktop Cowork        not found     |
+| Codex | CLI and Desktop        detected      |
+|                                              |
+| Run `tokenholic doctor` for path-redacted    |
+| detail on any source.                        |
++----------------------------------------------+
++- USAGE BY SOURCE ----------------------------+
+|  TODAY  THIS WEEK [30 DAYS] ALL-TIME         |
+|                                              |
+| SOURCE            TOKENS        $ EST  SHARE |
+| Claude             2.92B      $820.40  68.4% |
+| Codex            >=1.34B    >=$360.02  31.5% |
+|                                              |
+| SURFACE           TOKENS        $ EST  SHARE |
+| CLI                2.51B      $701.15  58.8% |
+| Desktop Code        410M      $119.25   9.6% |
+| CLI and Desktop  >=1.34B    >=$360.02  31.5% |
++----------------------------------------------+
+1-5 views | p period | ? help | q quit

@@ -11,7 +11,8 @@ storage, calls the API, ranks, or prices. The visual direction is specified in
 | --- | --- |
 | `theme` | Design tokens: the palette for dark and light backgrounds, the text styles built from it, and the glyph set with its ASCII fallbacks |
 | `widget` | Stateless building blocks drawn from a theme: chips, tabs, titled panels, dashed rules, tables, sparklines, movement marks, notices, and the key bar |
-| `tui` | The Bubble Tea model, key handling, and the views composed from widgets |
+| `tui` | The Bubble Tea model, key handling, and the views composed from widgets. `values.go` is the one place stored values become text, so an unknown value cannot turn into a zero in one view and not another |
+| `goldentest` | Test support for comparing rendered frames with golden snapshots |
 
 Numbers are formatted by [`internal/numfmt`](../numfmt), kept outside the TUI
 so the share cards can apply the same rules.
@@ -27,15 +28,20 @@ so the share cards can apply the same rules.
 
 ## Golden snapshots
 
-`widget/gallery_test.go` lays every component out with synthetic data and
-compares the frame with `widget/testdata/` at 48, 88, and 120 columns, with
-color, without, on a light background, and in ASCII.
+Two sets of frames are fixed at 48, 88, and 120 columns, with color and
+without, plus a light background and ASCII:
+
+- `widget/gallery_test.go` lays every component out in one frame.
+- `golden_test.go` renders each screen and state of the application from the
+  synthetic dashboard in `fixture_test.go`, driving the model with the same
+  keys a user would press.
 
 ```bash
-go test ./internal/tui/widget -update
+go test ./internal/tui/... -update
 ```
 
 rewrites them after an intended change; review the diff before committing.
+`goldentest` holds the comparison and the width check both sets share.
 The color snapshots hold the real escape sequences, so printing one shows the
 frame as a terminal draws it:
 

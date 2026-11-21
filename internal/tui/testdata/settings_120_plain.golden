@@ -1,0 +1,20 @@
+>_ TOKENHOLIC    HOME  BOARDS  MODELS  SOURCES [SETTINGS]                                   scanned 4m ago · 3 to upload
+
+╭─ PRIVACY ────────────────────────────────────────────────╮ ╭─ THIS DEVICE ───────────────────────────────────────────╮
+│ STORED ON THIS DEVICE                                    │ │ MODE         local; no account is required              │
+│ Normalized usage counts only: when, which coding agent,  │ │ TIMEZONE     America/Vancouver                          │
+│ which model, and how many tokens in each category.       │ │ LAST SCAN    4m ago                                     │
+│                                                          │ │ TO UPLOAD    3 buckets                                  │
+│ NEVER STORED                                             │ │ DATABASE     schema 7 of 7 · integrity ok               │
+│ Prompts, responses, source code, command text, or        │ ╰─────────────────────────────────────────────────────────╯
+│ credentials.                                             │ ╭─ DISPLAY ───────────────────────────────────────────────╮
+│                                                          │ │ TOKENHOLIC_THEME                                        │
+│ NEVER STORED                                             │ │   light or dark, when the terminal's background is      │
+│ Paths, project names, repository names, or branch names. │ │   detected wrongly                                      │
+│                                                          │ │ NO_COLOR                                                │
+│ UPLOADED                                                 │ │   any value turns all styling off                       │
+│ Nothing, until you claim an account. Then the same       │ │ TOKENHOLIC_ASCII                                        │
+│ counts, and nothing else. `tokenholic show-data` prints  │ │   any value replaces symbols with ASCII                 │
+│ the exact payload.                                       │ ╰─────────────────────────────────────────────────────────╯
+╰──────────────────────────────────────────────────────────╯
+1–5 views · j/k scroll · r refresh · ? help · q quit

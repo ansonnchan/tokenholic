@@ -1,0 +1,20 @@
+>_ TOKENHOLIC   [HOME] BOARDS  MODELS  SOURCES  SETTINGS                  scanned 4m ago
+
+╭─ KEYS ───────────────────────────────────────────────────────────────────────────────╮
+│ 1–5     switch view                                                                  │
+│ tab     next view; shift+tab goes back                                               │
+│ p       change period                                                                │
+│ j / k   move the selection or scroll                                                 │
+│ d       show exact token categories on HOME                                          │
+│ r       scan local usage again                                                       │
+│ ?       close help                                                                   │
+│ q       quit                                                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+╭─ READING THE NUMBERS ────────────────────────────────────────────────────────────────╮
+│ $ EST   what the tokens would cost at API list prices. It is an estimate, not what   │
+│         you paid.                                                                    │
+│ ≥1.2M   a lower bound: part of the usage was not reported or has no price.           │
+│ —       not available. It never means zero.                                          │
+│ PRICED  the share of tokens the estimate covers.                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+1–5 views · p period · d detail · j/k scroll · r refresh · ? help · q quit

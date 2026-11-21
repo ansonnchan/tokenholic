@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/ansonnchan/tokenholic/internal/application"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
+	"github.com/ansonnchan/tokenholic/internal/store"
 	"github.com/ansonnchan/tokenholic/internal/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -17,49 +19,31 @@ import (
 const (
 	// MinimumWidth is the narrowest supported terminal width.
 	MinimumWidth = 48
-	wideWidth    = 88
+	// stackWidth is where the header fits on one line.
+	stackWidth = 88
+	// wideWidth is where a view gains a second column.
+	wideWidth = 120
+	// spinnerInterval paces the one spinner shown while work runs.
+	spinnerInterval = 120 * time.Millisecond
 )
 
-// Section identifies one top-level local application area.
+// Section identifies one top-level area, in key order.
 type Section int
 
 const (
-	// OverviewSection summarizes local usage and freshness.
-	OverviewSection Section = iota
-	// SourcesSection shows local adapter and source health.
-	SourcesSection
-	// ModelsSection shows local model usage and attribution.
+	// HomeSection is the personal dashboard.
+	HomeSection Section = iota
+	// BoardsSection shows group standings.
+	BoardsSection
+	// ModelsSection shows per-model usage and attribution.
 	ModelsSection
-	// SettingsSection explains controls, settings, and privacy.
+	// SourcesSection shows local adapter health and usage by source.
+	SourcesSection
+	// SettingsSection explains privacy and this device's setup.
 	SettingsSection
-	// GroupsSection shows authenticated private-group leaderboards.
-	GroupsSection
 )
 
-var sections = []Section{OverviewSection, SourcesSection, ModelsSection, SettingsSection, GroupsSection}
-
-// ContentState identifies the semantic state of the active section.
-type ContentState string
-
-const (
-	// StateLoading means the application is reading the active snapshot.
-	StateLoading ContentState = "loading"
-	// StateEmpty means the snapshot contains no displayable records.
-	StateEmpty ContentState = "empty"
-	// StateReady means the snapshot is complete and healthy.
-	StateReady ContentState = "ready"
-	// StateWarning means content is available with an actionable warning.
-	StateWarning ContentState = "warning"
-	// StateError means the application could not load the active snapshot.
-	StateError ContentState = "error"
-)
-
-// Page contains presentation-ready, privacy-safe content for one section.
-type Page struct {
-	Lines        []string
-	Warning      string
-	EmptyMessage string
-}
+const sectionCount = 5
 
 // Application supplies committed local state and owns refresh behavior.
 // Implementations keep collection and persistence outside the TUI package.
@@ -83,31 +67,39 @@ type Config struct {
 	ASCII       bool
 	Background  theme.Background
 	Multiplayer Multiplayer
-	// theme is detected from the output by Run. A model built without it
-	// renders unstyled text.
-	theme *theme.Theme
+	// Theme replaces the detected theme. Run sets it from the output; tests
+	// and previews set it to a fixed one.
+	Theme *theme.Theme
 }
 
-// Model is the Bubble Tea model for the local application shell.
+// Model is the Bubble Tea model for the application shell. It holds the last
+// stable snapshot of each area so a refresh never blanks the screen.
 type Model struct {
 	ctx         context.Context
 	app         Application
 	multiplayer Multiplayer
-	styles      styleSet
+	theme       theme.Theme
 	section     Section
-	state       ContentState
-	page        Page
-	errMessage  string
 	width       int
 	height      int
 	help        bool
-	refreshing  bool
-	requestID   uint64
-	groups      multiplayer.Snapshot
-	groupID     string
-	period      multiplayer.Period
-	metric      multiplayer.Metric
-	groupInput  groupInput
+	scroll      int
+	spinner     int
+	ticking     bool
+	tickEvery   time.Duration
+
+	// Local areas share one dashboard and one period.
+	dashboard    application.Dashboard
+	loaded       bool
+	loading      bool
+	refreshing   bool
+	localError   string
+	localRequest uint64
+	period       store.Period
+	detail       bool
+	modelCursor  int
+
+	board boardState
 }
 
 type groupInput struct {
@@ -116,7 +108,6 @@ type groupInput struct {
 }
 
 type loadResult struct {
-	section   Section
 	requestID uint64
 	dashboard application.Dashboard
 	err       error
@@ -139,200 +130,219 @@ type groupMutationResult struct {
 	err       error
 }
 
+type spinnerTick struct{}
+
 var errMultiplayerNotConfigured = errors.New("multiplayer is not configured")
 
-// NewModel constructs a shell whose data access is limited to app.
+// NewModel constructs a shell whose data access is limited to app and the
+// multiplayer service in config.
 func NewModel(ctx context.Context, app Application, config Config) Model {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	state := StateLoading
-	if app == nil {
-		state = StateEmpty
-	}
 	tokens := theme.Fixed(false, true, config.ASCII)
-	if config.theme != nil {
-		tokens = *config.theme
+	if config.Theme != nil {
+		tokens = *config.Theme
 	}
 	return Model{
-		ctx:         ctx,
-		app:         app,
-		multiplayer: config.Multiplayer,
-		styles:      newStyles(tokens),
-		section:     OverviewSection,
-		state:       state,
-		requestID:   1,
-		period:      multiplayer.PeriodToday,
-		metric:      multiplayer.MetricTotalTokens,
+		ctx:          ctx,
+		app:          app,
+		multiplayer:  config.Multiplayer,
+		theme:        tokens,
+		section:      HomeSection,
+		tickEvery:    spinnerInterval,
+		loading:      app != nil,
+		localRequest: 1,
+		period:       store.PeriodLast30Days,
+		board: boardState{
+			period: multiplayer.PeriodToday,
+			metric: multiplayer.MetricTotalTokens,
+		},
 	}
 }
 
-// Init loads the initial application snapshot.
+// Init loads the first local snapshot.
 func (m Model) Init() tea.Cmd {
-	return m.load(m.section, m.requestID)
+	if m.app == nil {
+		return nil
+	}
+	return tea.Batch(m.loadLocal(m.localRequest), m.tick())
 }
 
-// Update applies terminal, navigation, help, refresh, and load messages.
+// Update applies terminal, key, load, refresh, and spinner messages.
 func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case tea.WindowSizeMsg:
-		m.width = message.Width
-		m.height = message.Height
+		m.width, m.height = message.Width, message.Height
+		m.scroll = min(m.scroll, m.maxScroll())
 		return m, nil
 	case tea.KeyMsg:
 		return m.updateKey(message)
+	case spinnerTick:
+		if !m.busy() {
+			m.ticking = false
+			return m, nil
+		}
+		m.ticking = true
+		m.spinner++
+		return m, m.tick()
 	case loadResult:
-		// A slow request must not replace a newer selection, including when the
-		// user leaves and returns to the same tab before the first load finishes.
-		if message.section != m.section || message.requestID != m.requestID {
+		// A slow load must not replace the result of a newer one.
+		if message.requestID != m.localRequest {
 			return m, nil
 		}
-		m.refreshing = false
-		m.errMessage = ""
-		m.page = buildPage(message.section, message.dashboard)
-		switch {
-		case message.err != nil:
-			m.state = StateError
-			m.errMessage = "Could not load local data"
-		case m.page.Warning != "":
-			m.state = StateWarning
-		case m.page.EmptyMessage != "" || len(m.page.Lines) == 0:
-			m.state = StateEmpty
-		default:
-			m.state = StateReady
-		}
-		return m, nil
-	case groupLoadResult:
-		if m.section != GroupsSection || message.requestID != m.requestID {
-			return m, nil
-		}
-		m.refreshing = false
-		m.errMessage = ""
-		switch {
-		case errors.Is(message.err, errMultiplayerNotConfigured):
-			m.page = Page{Warning: "Multiplayer needs an API configuration", Lines: []string{
-				"Multiplayer is not configured.",
-				"Set TOKENHOLIC_API_URL and run `tokenholic claim`, then reopen tokenholic.",
-			}}
-			m.state = StateWarning
-		case errors.Is(message.err, multiplayer.ErrSignedOut):
-			m.page = Page{Warning: "Sign in is required for private groups", Lines: []string{
-				"No signed-in multiplayer account.",
-				"Run `tokenholic claim`, then press r to retry.",
-			}}
-			m.state = StateWarning
-		case message.err != nil:
-			m.state = StateError
-			m.errMessage = "Could not load private groups"
-		default:
-			m.groups = message.snapshot
-			m.groupID = message.snapshot.Selected.ID
-			m.page = groupPage(message.snapshot)
-			if m.page.Warning != "" {
-				m.state = StateWarning
-			} else {
-				m.state = StateReady
-			}
-		}
-		return m, nil
-	case groupMutationResult:
-		if m.section != GroupsSection || message.requestID != m.requestID {
-			return m, nil
-		}
-		m.refreshing = false
+		m.loading, m.refreshing = false, false
 		if message.err != nil {
-			m.state = StateError
-			m.errMessage = "Could not " + message.action + " private group"
+			// Keep the last stable dashboard on screen under the notice.
+			m.localError = "Could not load local data"
 			return m, nil
 		}
-		m.groupID = message.groupID
-		m.requestID++
-		return m, m.loadGroups(m.requestID)
+		m.dashboard, m.loaded, m.localError = message.dashboard, true, ""
+		m.modelCursor = min(m.modelCursor, max(len(summaryFor(m.dashboard, m.period).Models)-1, 0))
+		m.scroll = min(m.scroll, m.maxScroll())
+		return m, nil
 	case refreshResult:
 		if message.err != nil {
-			m.refreshing = false
-			m.state = StateError
-			m.errMessage = "Could not refresh local data"
+			// The error can wrap a private path; show a stable message only.
+			m.loading, m.refreshing = false, false
+			m.localError = "Could not refresh local data"
 			return m, nil
 		}
-		m.requestID++
-		return m, m.load(m.section, m.requestID)
+		m.localRequest++
+		return m, m.loadLocal(m.localRequest)
+	case groupLoadResult:
+		return m.applyGroupLoad(message), nil
+	case groupMutationResult:
+		if message.requestID != m.board.request {
+			return m, nil
+		}
+		if message.err != nil {
+			m.board.loading = false
+			m.board.failure = "Could not " + message.action + " private group"
+			return m, nil
+		}
+		m.board.groupID = message.groupID
+		m.board.request++
+		return m, m.loadGroups(m.board.request)
 	default:
 		return m, nil
 	}
+}
+
+func (m Model) applyGroupLoad(message groupLoadResult) Model {
+	if message.requestID != m.board.request {
+		return m
+	}
+	m.board.loading, m.board.loaded, m.board.failure = false, true, ""
+	switch {
+	case errors.Is(message.err, errMultiplayerNotConfigured):
+		m.board.page = boardPage{warning: "Multiplayer needs an API configuration", lines: []string{
+			"Multiplayer is not configured.",
+			"Set TOKENHOLIC_API_URL and run `tokenholic claim`, then reopen tokenholic.",
+		}}
+	case errors.Is(message.err, multiplayer.ErrSignedOut):
+		m.board.page = boardPage{warning: "Sign in is required for private groups", lines: []string{
+			"No signed-in multiplayer account.",
+			"Run `tokenholic claim`, then press r to retry.",
+		}}
+	case message.err != nil:
+		// Keep the last stable board under the failure.
+		m.board.failure = "Could not load private groups"
+	default:
+		m.board.snapshot = message.snapshot
+		m.board.groupID = message.snapshot.Selected.ID
+		m.board.page = groupPage(message.snapshot)
+	}
+	return m
 }
 
 func (m Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	if m.groupInput.action != "" {
+	if m.board.input.action != "" {
 		return m.updateGroupInput(key)
 	}
+	boards := m.section == BoardsSection
 	switch key.String() {
 	case "q":
 		return m, tea.Quit
 	case "?":
 		m.help = !m.help
+		m.scroll = 0
 		return m, nil
-	case "1":
-		return m.activate(OverviewSection)
-	case "2":
-		return m.activate(SourcesSection)
-	case "3":
-		return m.activate(ModelsSection)
-	case "4":
-		return m.activate(SettingsSection)
-	case "5":
-		return m.activate(GroupsSection)
-	case "tab", "right", "l":
-		return m.activate(sections[(int(m.section)+1)%len(sections)])
-	case "shift+tab", "left", "h":
-		return m.activate(sections[(int(m.section)+len(sections)-1)%len(sections)])
-	case "j", "down":
-		if m.section == GroupsSection {
-			return m.selectGroup(1)
-		}
-		return m.activate(sections[(int(m.section)+1)%len(sections)])
-	case "k", "up":
-		if m.section == GroupsSection {
-			return m.selectGroup(-1)
-		}
-		return m.activate(sections[(int(m.section)+len(sections)-1)%len(sections)])
-	case "p":
-		if m.section == GroupsSection {
-			m.period = nextPeriod(m.period)
+	case "1", "2", "3", "4", "5":
+		return m.activate(Section(key.String()[0] - '1'))
+	case "tab":
+		return m.activate((m.section + 1) % sectionCount)
+	case "shift+tab":
+		return m.activate((m.section + sectionCount - 1) % sectionCount)
+	case "r":
+		if boards {
 			return m.reloadGroups()
 		}
+		if m.app == nil || m.loading {
+			return m, nil
+		}
+		m.loading, m.refreshing = true, true
+		return m, m.withTick(m.refresh())
+	case "p":
+		if boards {
+			m.board.period = nextPeriod(m.board.period)
+			return m.reloadGroups()
+		}
+		if m.section == SettingsSection {
+			return m, nil
+		}
+		m.period = periods[(indexOf(periods, m.period)+1)%len(periods)]
+		m.modelCursor = 0
+		m.scroll = min(m.scroll, m.maxScroll())
 		return m, nil
 	case "m":
-		if m.section == GroupsSection {
-			m.metric = nextMetric(m.metric)
+		if boards {
+			m.board.metric = nextMetric(m.board.metric)
 			return m.reloadGroups()
 		}
 		return m, nil
+	case "d":
+		if m.section == HomeSection {
+			m.detail = !m.detail
+			m.scroll = min(m.scroll, m.maxScroll())
+		}
+		return m, nil
+	case "j", "down":
+		return m.move(1)
+	case "k", "up":
+		return m.move(-1)
 	case "c":
-		if m.section == GroupsSection && m.multiplayer != nil {
-			m.groupInput = groupInput{action: "create"}
+		if boards && m.multiplayer != nil {
+			m.board.input = groupInput{action: "create"}
 		}
 		return m, nil
 	case "i":
-		if m.section == GroupsSection && m.multiplayer != nil {
-			m.groupInput = groupInput{action: "join"}
+		if boards && m.multiplayer != nil {
+			m.board.input = groupInput{action: "join"}
 		}
 		return m, nil
-	case "r":
-		if m.section == GroupsSection {
-			return m.reloadGroups()
-		}
-		if m.app == nil || m.refreshing {
-			return m, nil
-		}
-		m.refreshing = true
-		return m, m.refresh()
 	default:
 		return m, nil
 	}
+}
+
+// move steps the active area's selection, or scrolls it when it has none.
+func (m Model) move(delta int) (tea.Model, tea.Cmd) {
+	switch {
+	case m.help:
+		m.scroll = max(0, min(m.scroll+delta, m.maxScroll()))
+	case m.section == BoardsSection:
+		return m.selectGroup(delta)
+	case m.section == ModelsSection:
+		count := len(summaryFor(m.dashboard, m.period).Models)
+		m.modelCursor = max(0, min(m.modelCursor+delta, count-1))
+	default:
+		m.scroll = max(0, min(m.scroll+delta, m.maxScroll()))
+	}
+	return m, nil
 }
 
 func (m Model) activate(section Section) (tea.Model, tea.Cmd) {
@@ -341,135 +351,45 @@ func (m Model) activate(section Section) (tea.Model, tea.Cmd) {
 	}
 	m.section = section
 	m.help = false
-	m.state = StateLoading
-	m.page = Page{}
-	m.errMessage = ""
-	m.requestID++
-	return m, m.load(section, m.requestID)
+	m.scroll = 0
+	if section == BoardsSection {
+		m.board.loading = true
+		m.board.request++
+		return m, m.withTick(m.loadGroups(m.board.request))
+	}
+	if m.app == nil || m.loading {
+		return m, nil
+	}
+	// Re-read committed state so another process's sync shows up, keeping
+	// the current dashboard on screen meanwhile.
+	m.loading = true
+	m.localRequest++
+	return m, m.loadLocal(m.localRequest)
 }
 
-func (m Model) load(section Section, requestID uint64) tea.Cmd {
-	if section == GroupsSection {
-		return m.loadGroups(requestID)
+// busy reports whether the spinner has anything to show.
+func (m Model) busy() bool {
+	return m.refreshing || !m.loaded && m.loading || m.board.loading
+}
+
+// withTick starts the spinner alongside command unless it is already running.
+func (m *Model) withTick(command tea.Cmd) tea.Cmd {
+	if m.ticking {
+		return command
 	}
-	if m.app == nil {
-		return nil
-	}
+	m.ticking = true
+	return tea.Batch(command, m.tick())
+}
+
+func (m Model) tick() tea.Cmd {
+	return tea.Tick(m.tickEvery, func(time.Time) tea.Msg { return spinnerTick{} })
+}
+
+func (m Model) loadLocal(requestID uint64) tea.Cmd {
 	return func() tea.Msg {
 		dashboard, err := m.app.Load(m.ctx)
-		return loadResult{section: section, requestID: requestID, dashboard: dashboard, err: err}
+		return loadResult{requestID: requestID, dashboard: dashboard, err: err}
 	}
-}
-
-func (m Model) loadGroups(requestID uint64) tea.Cmd {
-	if m.multiplayer == nil {
-		return func() tea.Msg { return groupLoadResult{requestID: requestID, err: errMultiplayerNotConfigured} }
-	}
-	return func() tea.Msg {
-		snapshot, err := m.multiplayer.Load(m.ctx, m.groupID, m.period, m.metric)
-		return groupLoadResult{requestID: requestID, snapshot: snapshot, err: err}
-	}
-}
-
-func (m Model) reloadGroups() (tea.Model, tea.Cmd) {
-	m.help = false
-	m.state = StateLoading
-	m.errMessage = ""
-	m.refreshing = true
-	m.requestID++
-	return m, m.loadGroups(m.requestID)
-}
-
-func (m Model) selectGroup(delta int) (tea.Model, tea.Cmd) {
-	if len(m.groups.Groups) < 2 {
-		return m, nil
-	}
-	index := 0
-	for candidate := range m.groups.Groups {
-		if m.groups.Groups[candidate].ID == m.groupID {
-			index = candidate
-			break
-		}
-	}
-	index = (index + delta + len(m.groups.Groups)) % len(m.groups.Groups)
-	m.groupID = m.groups.Groups[index].ID
-	return m.reloadGroups()
-}
-
-func (m Model) updateGroupInput(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch key.Type {
-	case tea.KeyEsc:
-		m.groupInput = groupInput{}
-		return m, nil
-	case tea.KeyEnter:
-		value := strings.TrimSpace(m.groupInput.value)
-		if value == "" {
-			return m, nil
-		}
-		action := m.groupInput.action
-		m.groupInput = groupInput{}
-		m.state = StateLoading
-		m.refreshing = true
-		m.requestID++
-		requestID := m.requestID
-		return m, func() tea.Msg {
-			var group multiplayer.Group
-			var err error
-			if action == "create" {
-				group, err = m.multiplayer.Create(m.ctx, value)
-			} else {
-				group, err = m.multiplayer.Join(m.ctx, value)
-			}
-			return groupMutationResult{requestID: requestID, action: action, groupID: group.ID, err: err}
-		}
-	case tea.KeyBackspace, tea.KeyDelete:
-		runes := []rune(m.groupInput.value)
-		if len(runes) > 0 {
-			m.groupInput.value = string(runes[:len(runes)-1])
-		}
-		return m, nil
-	case tea.KeyRunes:
-		limit := 80
-		if m.groupInput.action == "join" {
-			limit = 128
-		}
-		runes := []rune(m.groupInput.value)
-		for _, character := range key.Runes {
-			if len(runes) >= limit || unicode.IsControl(character) {
-				continue
-			}
-			runes = append(runes, character)
-		}
-		m.groupInput.value = string(runes)
-		return m, nil
-	default:
-		return m, nil
-	}
-}
-
-func nextPeriod(period multiplayer.Period) multiplayer.Period {
-	periods := []multiplayer.Period{
-		multiplayer.PeriodToday, multiplayer.PeriodWeek,
-		multiplayer.PeriodLast30Days, multiplayer.PeriodAllTime,
-	}
-	for index, candidate := range periods {
-		if candidate == period {
-			return periods[(index+1)%len(periods)]
-		}
-	}
-	return multiplayer.PeriodToday
-}
-
-func nextMetric(metric multiplayer.Metric) multiplayer.Metric {
-	metrics := []multiplayer.Metric{
-		multiplayer.MetricTotalTokens, multiplayer.MetricAPIEstimate,
-	}
-	for index, candidate := range metrics {
-		if candidate == metric {
-			return metrics[(index+1)%len(metrics)]
-		}
-	}
-	return multiplayer.MetricTotalTokens
 }
 
 func (m Model) refresh() tea.Cmd {
@@ -478,9 +398,112 @@ func (m Model) refresh() tea.Cmd {
 	}
 }
 
-// View renders the current shell without reading application state.
-func (m Model) View() string {
-	return m.render()
+func (m Model) loadGroups(requestID uint64) tea.Cmd {
+	if m.multiplayer == nil {
+		return func() tea.Msg { return groupLoadResult{requestID: requestID, err: errMultiplayerNotConfigured} }
+	}
+	groupID, period, metric := m.board.groupID, m.board.period, m.board.metric
+	return func() tea.Msg {
+		snapshot, err := m.multiplayer.Load(m.ctx, groupID, period, metric)
+		return groupLoadResult{requestID: requestID, snapshot: snapshot, err: err}
+	}
+}
+
+func (m Model) reloadGroups() (tea.Model, tea.Cmd) {
+	m.help = false
+	m.board.loading = true
+	m.board.request++
+	return m, m.withTick(m.loadGroups(m.board.request))
+}
+
+func (m Model) selectGroup(delta int) (tea.Model, tea.Cmd) {
+	groups := m.board.snapshot.Groups
+	if len(groups) < 2 {
+		return m, nil
+	}
+	index := 0
+	for candidate := range groups {
+		if groups[candidate].ID == m.board.groupID {
+			index = candidate
+			break
+		}
+	}
+	m.board.groupID = groups[(index+delta+len(groups))%len(groups)].ID
+	return m.reloadGroups()
+}
+
+func (m Model) updateGroupInput(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch key.Type {
+	case tea.KeyEsc:
+		m.board.input = groupInput{}
+		return m, nil
+	case tea.KeyEnter:
+		value := strings.TrimSpace(m.board.input.value)
+		if value == "" {
+			return m, nil
+		}
+		action := m.board.input.action
+		m.board.input = groupInput{}
+		m.board.loading = true
+		m.board.request++
+		requestID := m.board.request
+		return m, m.withTick(func() tea.Msg {
+			var group multiplayer.Group
+			var err error
+			if action == "create" {
+				group, err = m.multiplayer.Create(m.ctx, value)
+			} else {
+				group, err = m.multiplayer.Join(m.ctx, value)
+			}
+			return groupMutationResult{requestID: requestID, action: action, groupID: group.ID, err: err}
+		})
+	case tea.KeyBackspace, tea.KeyDelete:
+		runes := []rune(m.board.input.value)
+		if len(runes) > 0 {
+			m.board.input.value = string(runes[:len(runes)-1])
+		}
+		return m, nil
+	case tea.KeyRunes:
+		limit := 80
+		if m.board.input.action == "join" {
+			limit = 128
+		}
+		runes := []rune(m.board.input.value)
+		for _, character := range key.Runes {
+			if len(runes) >= limit || unicode.IsControl(character) {
+				continue
+			}
+			runes = append(runes, character)
+		}
+		m.board.input.value = string(runes)
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+func nextPeriod(period multiplayer.Period) multiplayer.Period {
+	order := []multiplayer.Period{
+		multiplayer.PeriodToday, multiplayer.PeriodWeek,
+		multiplayer.PeriodLast30Days, multiplayer.PeriodAllTime,
+	}
+	return order[(indexOf(order, period)+1)%len(order)]
+}
+
+func nextMetric(metric multiplayer.Metric) multiplayer.Metric {
+	order := []multiplayer.Metric{multiplayer.MetricTotalTokens, multiplayer.MetricAPIEstimate}
+	return order[(indexOf(order, metric)+1)%len(order)]
+}
+
+// indexOf is the position of value in values, or -1 so that the next one
+// after an unknown value is the first.
+func indexOf[T comparable](values []T, value T) int {
+	for index, candidate := range values {
+		if candidate == value {
+			return index
+		}
+	}
+	return -1
 }
 
 // Run starts the terminal application with explicit streams.
@@ -488,9 +511,10 @@ func Run(ctx context.Context, app Application, input io.Reader, output io.Writer
 	if input == nil || output == nil {
 		return errors.New("run TUI: input and output are required")
 	}
-	// Detect color depth and background before the program reads input.
-	tokens := theme.New(output, theme.Options{NoColor: config.NoColor, ASCII: config.ASCII, Background: config.Background})
-	config.theme = &tokens
+	if config.Theme == nil {
+		tokens := theme.New(output, theme.Options{NoColor: config.NoColor, ASCII: config.ASCII, Background: config.Background})
+		config.Theme = &tokens
+	}
 	program := tea.NewProgram(
 		NewModel(ctx, app, config),
 		tea.WithContext(ctx),
@@ -502,30 +526,4 @@ func Run(ctx context.Context, app Application, input io.Reader, output io.Writer
 		return fmt.Errorf("run TUI: %w", err)
 	}
 	return nil
-}
-
-func sectionName(section Section) string {
-	switch section {
-	case OverviewSection:
-		return "Overview"
-	case SourcesSection:
-		return "Sources"
-	case ModelsSection:
-		return "Models"
-	case SettingsSection:
-		return "Settings"
-	case GroupsSection:
-		return "Groups"
-	default:
-		return "Unknown"
-	}
-}
-
-func cleanLine(line string) string {
-	return strings.Map(func(character rune) rune {
-		if unicode.IsControl(character) {
-			return ' '
-		}
-		return character
-	}, line)
 }

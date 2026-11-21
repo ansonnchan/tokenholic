@@ -1,231 +1,250 @@
 package tui
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/ansonnchan/tokenholic/internal/tui/widget"
 )
 
-func (m Model) render() string {
-	width := m.width
-	if width <= 0 {
-		width = wideWidth
-	}
+// tabs are the areas in key order: 1 through 5.
+var tabs = []string{"HOME", "BOARDS", "MODELS", "SOURCES", "SETTINGS"}
+
+// View renders the current frame. It reads only the model.
+func (m Model) View() string {
+	return strings.Join(m.frame(), "\n") + "\n"
+}
+
+// frame lays the view out as lines no wider than the terminal: the header,
+// the active area, notices, and the key bar. When the area is taller than
+// the terminal it is clipped to a scrolled window.
+func (m Model) frame() []string {
+	width := m.viewWidth()
+	t := m.theme
 	if width < MinimumWidth {
-		lines := []string{
-			m.styles.title.Render("tokenholic"),
-			"",
-			m.styles.warning.Render("[warning] Terminal is too narrow"),
-			fmt.Sprintf("Resize to at least %d columns.", MinimumWidth),
-			"",
-			"q quit · ? help",
-		}
+		lines := []string{widget.Wordmark(t), ""}
+		lines = append(lines, widget.Notice(t, widget.Warning, "Terminal is too narrow. Resize to at least "+strconv.Itoa(MinimumWidth)+" columns.", width)...)
+		lines = append(lines, "", widget.KeyBar(t, []widget.Hint{{Key: "?", Label: "help", Keep: true}, {Key: "q", Label: "quit", Keep: true}}, width))
 		if m.help {
-			lines = append(lines, "", "1–5 views · r refresh · q quit")
+			lines = append(lines, "", t.Muted.Render("1"+t.Glyphs.Range+"5 views"), t.Muted.Render("r refresh"))
 		}
-		return strings.Join(lines, "\n") + "\n"
+		return lines
 	}
 
-	var output strings.Builder
-	title := "tokenholic · local usage"
-	if m.section == GroupsSection {
-		title = "tokenholic · private groups"
+	header, notices, available := m.layout(width)
+	footer := widget.KeyBar(t, m.hints(), width)
+	body := m.body(width, available)
+	if available > 0 && len(body) > available {
+		// Keep one line to say how much is out of view.
+		offset := min(m.scroll, len(body)-available+1)
+		shown := body[offset : offset+available-1]
+		below := len(body) - offset - len(shown)
+		position := plural(below, "more line", "more lines") + " below"
+		if offset > 0 {
+			position = strconv.Itoa(offset) + " above " + t.Glyphs.Separator + " " + strconv.Itoa(below) + " below"
+		}
+		if m.help || m.section != ModelsSection && m.section != BoardsSection {
+			// In the other areas j and k move a selection instead.
+			position += " " + t.Glyphs.Separator + " j/k scroll"
+		}
+		body = append(append([]string(nil), shown...), t.Muted.Render(position))
 	}
-	fmt.Fprintln(&output, m.styles.title.Render(title))
-	fmt.Fprintln(&output, m.renderNavigation(width))
-	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, m.styles.title.Render(sectionName(m.section)))
+	lines := append(header, body...)
+	lines = append(lines, notices...)
+	return append(lines, footer)
+}
+
+// layout returns the frame's fixed parts and the rows left for the area
+// between them, which is zero while the terminal's height is unknown.
+func (m Model) layout(width int) (header, notices []string, available int) {
+	header = append(widget.Header(m.theme, tabs, int(m.section), m.status(width), width, stackWidth), "")
+	notices = m.notices(width)
+	if m.height > 0 {
+		// One row is the key bar; never squeeze the area below three rows.
+		available = max(m.height-len(header)-len(notices)-1, 3)
+	}
+	return header, notices, available
+}
+
+// maxScroll is how far the active area can scroll at the current size.
+func (m Model) maxScroll() int {
+	width := m.viewWidth()
+	if m.height <= 0 || width < MinimumWidth {
+		return 0
+	}
+	_, _, available := m.layout(width)
+	if rows := len(m.body(width, available)); rows > available {
+		return rows - available + 1
+	}
+	return 0
+}
+
+// viewWidth is the terminal width, or a default before the first size
+// message arrives.
+func (m Model) viewWidth() int {
+	if m.width <= 0 {
+		return stackWidth
+	}
+	return m.width
+}
+
+// body renders the active area. height is the rows available, or zero when
+// unknown; only views that window their own lists use it.
+func (m Model) body(width, height int) []string {
+	t := m.theme
 	if m.help {
-		m.renderHelp(&output, width)
-	} else {
-		m.renderContent(&output, width)
+		return m.helpView(width)
 	}
-	fmt.Fprintln(&output)
-	footer := "1–5 views · tab navigate · r refresh · ? help · q quit"
-	if width < wideWidth {
-		footer = "1–5 views · r refresh · ? help · q quit"
+	if m.section == BoardsSection {
+		return m.boardsView(width)
 	}
-	if m.section == GroupsSection {
-		footer = "j/k group · p period · m metric · c create · i join · r refresh · q quit"
+	switch {
+	case m.app == nil:
+		return widget.Panel(t, tabs[m.section], width, []string{t.Muted.Render("No local data to show.")})
+	case !m.loaded && m.localError != "":
+		return widget.Panel(t, tabs[m.section], width, []string{t.Muted.Render("Local usage could not be read.")})
+	case !m.loaded:
+		return widget.Panel(t, tabs[m.section], width, []string{t.Muted.Render(m.spin() + " Reading local usage")})
 	}
-	if m.refreshing {
-		footer = "[loading] Refreshing · " + footer
-	}
-	fmt.Fprintln(&output, m.styles.muted.Render(clip(footer, width)))
-	return output.String()
-}
-
-func (m Model) renderNavigation(width int) string {
-	labels := make([]string, 0, len(sections))
-	for index, section := range sections {
-		name := sectionName(section)
-		if width < wideWidth {
-			name = shortSectionName(section)
-		}
-		label := fmt.Sprintf("%d %s", index+1, name)
-		if section == m.section {
-			label = m.styles.selected.Render("[" + label + "]")
-		}
-		labels = append(labels, label)
-	}
-	if width >= wideWidth {
-		return strings.Join(labels, "    ")
-	}
-	return strings.Join(labels, " ")
-}
-
-func (m Model) renderContent(output *strings.Builder, width int) {
-	if m.groupInput.action != "" {
-		prompt := "Create group name"
-		value := m.groupInput.value
-		if m.groupInput.action == "join" {
-			prompt = "Join with invite code"
-			value = strings.Repeat("*", len([]rune(value)))
-		}
-		fmt.Fprintln(output, m.styles.warning.Render(clip(prompt+": "+value+"_", width)))
-		hint := "enter submit · esc cancel"
-		if m.groupInput.action == "join" {
-			hint += " · invite code hidden"
-		}
-		fmt.Fprintln(output, m.styles.muted.Render(hint))
-		fmt.Fprintln(output)
-		m.renderLines(output, width)
-		return
-	}
-	switch m.state {
-	case StateLoading:
-		message := "[loading] Reading committed local data…"
-		if m.section == GroupsSection {
-			message = "[loading] Reading private groups…"
-		}
-		fmt.Fprintln(output, m.styles.muted.Render(message))
-	case StateEmpty:
-		if m.section == GroupsSection {
-			fmt.Fprintln(output, m.styles.muted.Render("[empty] No private groups to show yet."))
-			fmt.Fprintln(output, "Press c to create or i to join.")
-		} else if m.page.EmptyMessage != "" {
-			for _, line := range wrap("[empty] "+cleanLine(m.page.EmptyMessage), width) {
-				fmt.Fprintln(output, m.styles.muted.Render(line))
-			}
-			m.renderLines(output, width)
-		} else {
-			fmt.Fprintln(output, m.styles.muted.Render("[empty] No local data to show yet."))
-			fmt.Fprintln(output, "Press r to collect and refresh.")
-		}
-	case StateWarning:
-		for _, line := range wrap("[warning] "+cleanLine(m.page.Warning), width) {
-			fmt.Fprintln(output, m.styles.warning.Render(line))
-		}
-		m.renderLines(output, width)
-	case StateError:
-		message := m.errMessage
-		if message == "" {
-			message = "Could not load local data"
-		}
-		for _, line := range wrap("[error] "+message+".", width) {
-			fmt.Fprintln(output, m.styles.failure.Render(line))
-		}
-		action := "Press r to retry or run `tokenholic doctor` for details."
-		if m.section == GroupsSection {
-			action = "Press r to retry; check TOKENHOLIC_API_URL and `tokenholic claim`."
-		}
-		for _, line := range wrap(action, width) {
-			fmt.Fprintln(output, line)
-		}
-	default:
-		status := "[ready] Local data loaded"
-		if m.section == GroupsSection {
-			status = "[ready] Private group loaded"
-		}
-		fmt.Fprintln(output, m.styles.success.Render(status))
-		m.renderLines(output, width)
-	}
-}
-
-func (m Model) renderLines(output *strings.Builder, width int) {
-	for _, line := range m.page.Lines {
-		for _, wrapped := range wrap(cleanLine(line), width) {
-			fmt.Fprintln(output, wrapped)
-		}
-	}
-}
-
-func (m Model) renderHelp(output *strings.Builder, width int) {
-	lines := []string{
-		"1–5        switch view",
-		"tab/arrows move between views",
-		"r          refresh local data",
-		"?          close help",
-		"q          quit",
-	}
-	if m.section == GroupsSection {
-		lines = []string{
-			"j/k        switch private group",
-			"p          change period",
-			"m          change metric",
-			"c / i      create group / join invite",
-			"r          reload multiplayer data",
-			"?          close help",
-			"q          quit",
-		}
-	}
-	if width < wideWidth && m.section != GroupsSection {
-		lines[1] = "tab/arrows navigate"
-	}
-	for _, line := range lines {
-		fmt.Fprintln(output, clip(line, width))
-	}
-}
-
-func shortSectionName(section Section) string {
-	switch section {
+	switch m.section {
+	case ModelsSection:
+		return m.modelsView(width, height)
 	case SourcesSection:
-		return "Src"
+		return m.sourcesView(width)
 	case SettingsSection:
-		return "Set"
+		return m.settingsView(width)
 	default:
-		return sectionName(section)
+		return m.homeView(width)
 	}
 }
 
-func clip(value string, width int) string {
-	if width <= 0 || utf8.RuneCountInString(value) <= width {
-		return value
+// status is the header's right-hand text: a spinner while work runs, and
+// otherwise how fresh the local scan is.
+func (m Model) status(width int) string {
+	g := m.theme.Glyphs
+	switch {
+	case m.section == BoardsSection:
+		if m.board.loading {
+			return m.spin() + " loading"
+		}
+		return ""
+	case m.refreshing:
+		return m.spin() + " scanning"
+	case !m.loaded:
+		return ""
 	}
-	if width == 1 {
-		return "…"
+	diagnostics := m.dashboard.Diagnostics
+	if diagnostics.LastSuccessfulCollection == nil {
+		return "not scanned yet"
 	}
-	runes := []rune(value)
-	return string(runes[:width-1]) + "…"
+	status := "scanned " + age(diagnostics.LastSuccessfulCollection, m.dashboard.GeneratedAt)
+	if diagnostics.PendingOutbox > 0 && width >= wideWidth {
+		status += " " + g.Separator + " " + strconv.Itoa(diagnostics.PendingOutbox) + " to upload"
+	}
+	return status
 }
 
-func wrap(value string, width int) []string {
-	if value == "" || width <= 0 {
-		return []string{value}
+func (m Model) spin() string {
+	frames := m.theme.Glyphs.Spinner
+	return frames[m.spinner%len(frames)]
+}
+
+// notices are the lines between the area and the key bar: a failed load or
+// refresh, and sources that need the user's attention.
+func (m Model) notices(width int) []string {
+	t := m.theme
+	var lines []string
+	if m.section == BoardsSection || m.help {
+		return nil
 	}
-	var words []string
-	for _, word := range strings.Fields(value) {
-		for utf8.RuneCountInString(word) > width {
-			runes := []rune(word)
-			words = append(words, string(runes[:width]))
-			word = string(runes[width:])
-		}
-		if word != "" {
-			words = append(words, word)
-		}
+	if m.localError != "" {
+		lines = append(lines, widget.Notice(t, widget.Failure, m.localError+". Press r to retry, or run `tokenholic doctor`.", width)...)
 	}
-	if len(words) == 0 {
-		return []string{""}
-	}
-	lines := []string{words[0]}
-	for _, word := range words[1:] {
-		last := len(lines) - 1
-		candidate := lines[last] + " " + word
-		if utf8.RuneCountInString(candidate) <= width {
-			lines[last] = candidate
-			continue
-		}
-		lines = append(lines, word)
+	if count := unhealthyAdapters(m.dashboard.Diagnostics.AdapterHealth); m.loaded && count > 0 && m.section != SourcesSection {
+		lines = append(lines, widget.Notice(t, widget.Warning, plural(count, "source needs", "sources need")+" attention; see 4 SOURCES.", width)...)
 	}
 	return lines
+}
+
+// hints is the key bar for the active area. Hints marked Keep survive the
+// narrowest width.
+func (m Model) hints() []widget.Hint {
+	g := m.theme.Glyphs
+	hints := []widget.Hint{{Key: "1" + g.Range + "5", Label: "views", Keep: true}}
+	switch m.section {
+	case HomeSection:
+		hints = append(hints, widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "d", Label: "detail"}, widget.Hint{Key: "j/k", Label: "scroll"})
+	case ModelsSection:
+		hints = append(hints, widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "j/k", Label: "move"})
+	case SourcesSection:
+		hints = append(hints, widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "j/k", Label: "scroll"})
+	case SettingsSection:
+		hints = append(hints, widget.Hint{Key: "j/k", Label: "scroll"})
+	case BoardsSection:
+		hints = append(hints,
+			widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "m", Label: "metric"}, widget.Hint{Key: "j/k", Label: "group"},
+			widget.Hint{Key: "c", Label: "create"}, widget.Hint{Key: "i", Label: "join"},
+		)
+	}
+	return append(hints,
+		widget.Hint{Key: "r", Label: "refresh"},
+		widget.Hint{Key: "?", Label: "help", Keep: true},
+		widget.Hint{Key: "q", Label: "quit", Keep: true},
+	)
+}
+
+// helpView lists the keys and explains how to read the numbers.
+func (m Model) helpView(width int) []string {
+	t := m.theme
+	g := t.Glyphs
+	keys := [][2]string{
+		{"1" + g.Range + "5", "switch view"},
+		{"tab", "next view; shift+tab goes back"},
+		{"p", "change period"},
+		{"j / k", "move the selection or scroll"},
+		{"d", "show exact token categories on HOME"},
+		{"r", "scan local usage again"},
+		{"?", "close help"},
+		{"q", "quit"},
+	}
+	if m.section == BoardsSection {
+		keys = [][2]string{
+			{"j / k", "switch group"},
+			{"p", "change period"},
+			{"m", "change metric"},
+			{"c / i", "create a group / join with an invite"},
+			{"r", "reload"},
+			{"?", "close help"},
+			{"q", "quit"},
+		}
+	}
+	legend := [][2]string{
+		{"$ EST", "what the tokens would cost at API list prices. It is an estimate, not what you paid."},
+		{g.AtLeast + "1.2M", "a lower bound: part of the usage was not reported or has no price."},
+		{g.Unavailable, "not available. It never means zero."},
+		{"PRICED", "the share of tokens the estimate covers."},
+	}
+	render := func(rows [][2]string, inner int) []string {
+		var lines []string
+		for _, row := range rows {
+			for index, line := range widget.Wrap(row[1], max(inner-8, 8)) {
+				label := ""
+				if index == 0 {
+					label = row[0]
+				}
+				lines = append(lines, widget.PadRight(t.Text.Render(label), 8)+t.Muted.Render(line))
+			}
+		}
+		return lines
+	}
+	if width >= wideWidth {
+		right := (width - 1) / 2
+		left := width - 1 - right
+		return widget.Columns(1,
+			widget.Panel(t, "keys", left, render(keys, widget.InnerWidth(left))),
+			widget.Panel(t, "reading the numbers", right, render(legend, widget.InnerWidth(right))),
+		)
+	}
+	inner := widget.InnerWidth(width)
+	return append(widget.Panel(t, "keys", width, render(keys, inner)), widget.Panel(t, "reading the numbers", width, render(legend, inner))...)
 }

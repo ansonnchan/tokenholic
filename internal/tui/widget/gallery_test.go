@@ -1,20 +1,16 @@
 package widget
 
 import (
-	"flag"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ansonnchan/tokenholic/internal/numfmt"
+	"github.com/ansonnchan/tokenholic/internal/tui/goldentest"
 	"github.com/ansonnchan/tokenholic/internal/tui/theme"
 )
-
-var update = flag.Bool("update", false, "rewrite golden snapshots")
 
 // gallery lays every component out with synthetic data, the way the views
 // will use them. It is the design system's reference frame: the golden
@@ -194,49 +190,9 @@ func TestGalleryGoldenSnapshots(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 				lines := gallery(theme.Fixed(variant.color, variant.dark, variant.ascii), width)
-				for index, line := range lines {
-					if cells := Width(line); cells > width {
-						t.Errorf("line %d is %d cells, wider than %d: %q", index+1, cells, width, line)
-					}
-					if variant.ascii {
-						for _, character := range line {
-							if character > 0x7e {
-								t.Errorf("line %d has %q outside ASCII: %q", index+1, character, line)
-								break
-							}
-						}
-					}
-				}
-				compareGolden(t, name, lines)
+				goldentest.Fits(t, lines, width, variant.ascii)
+				goldentest.Compare(t, name, lines)
 			})
 		}
-	}
-}
-
-// compareGolden checks a frame against testdata. Trailing spaces are not
-// part of a frame, which keeps the files clean for git diff --check.
-func compareGolden(t *testing.T, name string, lines []string) {
-	t.Helper()
-	trimmed := make([]string, len(lines))
-	for index, line := range lines {
-		trimmed[index] = strings.TrimRight(line, " ")
-	}
-	got := strings.Join(trimmed, "\n") + "\n"
-	path := filepath.Join("testdata", name+".golden")
-	if *update {
-		if err := os.MkdirAll("testdata", 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read golden (run with -update to create it): %v", err)
-	}
-	if got != string(want) {
-		t.Errorf("%s differs from its golden snapshot; run `go test ./internal/tui/widget -update` and review the diff.\ngot:\n%s", name, got)
 	}
 }
