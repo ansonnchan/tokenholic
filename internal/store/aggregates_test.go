@@ -700,3 +700,137 @@ func TestModelSummaryNamesTheLargestUnpricedReason(t *testing.T) {
 		t.Fatalf("model summary = reason %q estimate %#v; want the 70-token reason beside a partial estimate", model.UnpricedReason, model.APIEstimate)
 	}
 }
+
+func TestTokenTotalAddsFourCategoriesAndKeepsCoverage(t *testing.T) {
+	t.Parallel()
+	value := func(number uint64, state Availability) AggregateValue {
+		return AggregateValue{Value: &number, State: state}
+	}
+	cases := []struct {
+		name      string
+		tokens    TokenBreakdown
+		want      uint64
+		wantState Availability
+	}{
+		{"nothing recorded", TokenBreakdown{}, 0, AvailabilityEmpty},
+		{"empty parts", TokenBreakdown{InputUncached: AggregateValue{State: AvailabilityEmpty}}, 0, AvailabilityEmpty},
+		{"subsets are not added again", TokenBreakdown{
+			InputUncached: value(1, AvailabilityComplete), InputCacheRead: value(2, AvailabilityComplete),
+			InputCacheWrite: value(4, AvailabilityComplete), InputCacheWrite5m: value(3, AvailabilityComplete),
+			InputCacheWrite1h: value(1, AvailabilityComplete), Output: value(8, AvailabilityComplete),
+			ReasoningOutput: value(5, AvailabilityComplete),
+		}, 15, AvailabilityComplete},
+		{"a missing category makes a lower bound", TokenBreakdown{
+			InputUncached: value(10, AvailabilityComplete), InputCacheWrite: AggregateValue{State: AvailabilityUnavailable},
+			Output: value(5, AvailabilityComplete),
+		}, 15, AvailabilityPartial},
+		{"nothing known", TokenBreakdown{Output: AggregateValue{State: AvailabilityUnavailable}}, 0, AvailabilityUnavailable},
+		{"saturates", TokenBreakdown{
+			InputUncached: value(math.MaxUint64, AvailabilityComplete), Output: value(1, AvailabilityComplete),
+		}, math.MaxUint64, AvailabilityPartial},
+	}
+	for _, test := range cases {
+		total := test.tokens.Total()
+		if total.State != test.wantState {
+			t.Errorf("%s: state = %q, want %q", test.name, total.State, test.wantState)
+		}
+		if known := test.wantState == AvailabilityComplete || test.wantState == AvailabilityPartial; known != (total.Value != nil) || known && *total.Value != test.want {
+			t.Errorf("%s: value = %v, want %d", test.name, total.Value, test.want)
+		}
+	}
+}
+
+func TestSummaryReportsThePricedShare(t *testing.T) {
+	t.Parallel()
+	db := openStoreForTest(t)
+	start := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	priced := completeBucket(start, normalize.SourceClaude, normalize.SurfaceCLI, "model-a", 9499, 1)
+	priced.Preview.PricedTokens = 9499
+	unpriced := completeBucket(start.Add(time.Minute), normalize.SourceCodex, normalize.SurfaceCLI, "model-b", 501, 1)
+	unpriced.Preview.UnpricedTokens = 501
+	if _, err := db.ApplyBucketRevisions(t.Context(), []UsageBucket{priced, unpriced}); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := db.QueryUsage(t.Context(), PeriodAllTime, start.Add(time.Hour), time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 9499 of 10000 is 94.99%: the share is cut, never rounded up to 95%.
+	if got := summary.Coverage; got.PricedTokens != 9499 || got.UnpricedTokens != 501 || got.PricedBasisPoints == nil || *got.PricedBasisPoints != 9499 {
+		t.Fatalf("summary coverage = %+v", got)
+	}
+	shares := map[string]int{}
+	for _, source := range summary.Sources {
+		shares[source.Name] = *source.Coverage.PricedBasisPoints
+	}
+	if shares["claude"] != 10000 || shares["codex"] != 0 {
+		t.Fatalf("source shares = %v", shares)
+	}
+	empty, err := db.QueryUsage(t.Context(), PeriodToday, start.AddDate(0, 0, 3), time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Coverage.PricedBasisPoints != nil {
+		t.Fatalf("empty period has a priced share: %+v", empty.Coverage)
+	}
+}
+
+func TestDailyUsageFollowsLocalCalendarDays(t *testing.T) {
+	t.Parallel()
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := openStoreForTest(t)
+	// New York left daylight time on November 2, 2025, a 25-hour day that
+	// ran from 04:00 UTC to 05:00 UTC the next day. A past change is used so
+	// the result does not depend on the installed timezone data.
+	buckets := []UsageBucket{
+		completeBucket(time.Date(2025, 10, 31, 3, 59, 0, 0, time.UTC), normalize.SourceClaude, normalize.SurfaceCLI, "too-old", 1000, 1),
+		completeBucket(time.Date(2025, 10, 31, 4, 0, 0, 0, time.UTC), normalize.SourceClaude, normalize.SurfaceCLI, "oct-31", 1, 1),
+		completeBucket(time.Date(2025, 11, 2, 4, 0, 0, 0, time.UTC), normalize.SourceClaude, normalize.SurfaceCLI, "nov-2-first", 10, 1),
+		completeBucket(time.Date(2025, 11, 3, 4, 59, 0, 0, time.UTC), normalize.SourceCodex, normalize.SurfaceCLI, "nov-2-last", 20, 1),
+		completeBucket(time.Date(2025, 11, 3, 5, 0, 0, 0, time.UTC), normalize.SourceCodex, normalize.SurfaceCLI, "nov-3", 300, 1),
+		completeBucket(time.Date(2025, 11, 4, 9, 0, 0, 0, time.UTC), normalize.SourceCodex, normalize.SurfaceCLI, "after-now", 5000, 1),
+	}
+	if _, err := db.ApplyBucketRevisions(t.Context(), buckets); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2025, 11, 3, 20, 0, 0, 0, time.UTC)
+	series, err := db.QueryDailyUsage(t.Context(), now, location, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		day   int
+		month time.Month
+		total uint64
+		state Availability
+	}{
+		{31, time.October, 1, AvailabilityComplete},
+		{1, time.November, 0, AvailabilityEmpty},
+		{2, time.November, 30, AvailabilityComplete},
+		{3, time.November, 300, AvailabilityComplete},
+	}
+	if len(series) != len(want) {
+		t.Fatalf("series has %d days, want %d", len(series), len(want))
+	}
+	for index, expected := range want {
+		got := series[index]
+		if got.Day.Day() != expected.day || got.Day.Month() != expected.month || got.Day.Hour() != 0 || got.Day.Location() != location {
+			t.Errorf("day %d = %v", index, got.Day)
+		}
+		if got.Tokens.State != expected.state || (got.Tokens.Value == nil) != (expected.state == AvailabilityEmpty) {
+			t.Errorf("day %d tokens = %+v, want state %q", index, got.Tokens, expected.state)
+		} else if got.Tokens.Value != nil && *got.Tokens.Value != expected.total {
+			// An empty day stays empty: it is not reported as a zero.
+			t.Errorf("day %d total = %d, want %d", index, *got.Tokens.Value, expected.total)
+		}
+	}
+	if _, err := db.QueryDailyUsage(t.Context(), now, location, 0); err == nil {
+		t.Error("zero days accepted")
+	}
+	if _, err := db.QueryDailyUsage(t.Context(), now, nil, 30); err == nil {
+		t.Error("missing location accepted")
+	}
+}

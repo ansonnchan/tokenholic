@@ -19,12 +19,19 @@ type Dashboard struct {
 	Week        store.UsageSummary
 	Last30Days  store.UsageSummary
 	AllTime     store.UsageSummary
+	// Daily is total tokens for each of the last DailyDays local dates,
+	// oldest first and ending today.
+	Daily       []store.DailyUsage
 	Diagnostics store.DiagnosticSnapshot
 }
+
+// DailyDays is how many local dates Dashboard.Daily covers.
+const DailyDays = 30
 
 // Storage is the committed local-state boundary consumed by Service.
 type Storage interface {
 	QueryUsage(context.Context, store.Period, time.Time, *time.Location) (store.UsageSummary, error)
+	QueryDailyUsage(context.Context, time.Time, *time.Location, int) ([]store.DailyUsage, error)
 	Diagnostics(context.Context) (store.DiagnosticSnapshot, error)
 	NextUsageBucketRevision(context.Context) (uint64, error)
 	RebuildUsageBuckets(context.Context, uint64, store.Previewer) (store.BucketApplyResult, error)
@@ -82,6 +89,11 @@ func (s *Service) Load(ctx context.Context) (Dashboard, error) {
 		}
 		*query.target = summary
 	}
+	daily, err := s.storage.QueryDailyUsage(ctx, now, s.location, DailyDays)
+	if err != nil {
+		return Dashboard{}, fmt.Errorf("load daily local usage: %w", err)
+	}
+	dashboard.Daily = daily
 	diagnostics, err := s.storage.Diagnostics(ctx)
 	if err != nil {
 		return Dashboard{}, fmt.Errorf("load local health: %w", err)
