@@ -12,10 +12,16 @@ import (
 // ErrSignedOut means multiplayer requires a fresh local login.
 var ErrSignedOut = errors.New("multiplayer account is signed out")
 
-// Snapshot is the group selector and selected leaderboard loaded together.
+// GlobalScope selects the opt-in global board where a group ID is expected.
+// Group IDs are UUIDs, so it can never name a group.
+const GlobalScope = "global"
+
+// Snapshot is the scope selector and the selected leaderboard loaded
+// together. Selected is the zero Group when Global is set.
 type Snapshot struct {
 	Groups   []Group
 	Selected Group
+	Global   bool
 	Board    *Board
 }
 
@@ -26,6 +32,7 @@ type apiClient interface {
 	Invite(context.Context, string, string, time.Duration, int) (Invite, error)
 	Leave(context.Context, string, string) error
 	Leaderboard(context.Context, string, string, Period, Metric) (Board, error)
+	GlobalLeaderboard(context.Context, string, Period, Metric) (Board, error)
 	SetGlobalParticipation(context.Context, string, bool) error
 	Profile(context.Context, string) (Profile, error)
 	SetProfileVisibility(context.Context, string, bool) error
@@ -53,7 +60,10 @@ func NewService(client apiClient, store sessionStore, defaultTimezone string) (*
 	return &Service{client: client, store: store, defaultTimezone: defaultTimezone}, nil
 }
 
-// Load returns the group list and one selected leaderboard.
+// Load returns the group list and one selected leaderboard: the group named
+// by selectedID, the global board for GlobalScope, and otherwise the first
+// group. An account with no groups gets no board unless it asks for the
+// global one.
 func (s *Service) Load(ctx context.Context, selectedID string, period Period, metric Metric) (Snapshot, error) {
 	credential, err := s.credential()
 	if err != nil {
@@ -64,6 +74,15 @@ func (s *Service) Load(ctx context.Context, selectedID string, period Period, me
 		return Snapshot{}, normalizeSessionError(err)
 	}
 	snapshot := Snapshot{Groups: groups}
+	if selectedID == GlobalScope {
+		board, err := s.client.GlobalLeaderboard(ctx, credential, period, metric)
+		if err != nil {
+			return Snapshot{}, normalizeSessionError(err)
+		}
+		snapshot.Global = true
+		snapshot.Board = &board
+		return snapshot, nil
+	}
 	if len(groups) == 0 {
 		return snapshot, nil
 	}
@@ -112,6 +131,13 @@ func (s *Service) Join(ctx context.Context, code string) (Group, error) {
 	group, err := s.client.Join(ctx, credential, code)
 	return group, normalizeSessionError(err)
 }
+
+// DefaultInviteLifetime and DefaultInviteUses are what an invitation gets
+// when the caller does not choose.
+const (
+	DefaultInviteLifetime = 24 * time.Hour
+	DefaultInviteUses     = 10
+)
 
 // Invite creates an invitation after resolving a visible group by ID or name.
 func (s *Service) Invite(ctx context.Context, groupName string, lifetime time.Duration, maxUses int) (Invite, error) {
