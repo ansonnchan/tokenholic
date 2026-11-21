@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	usageSync "github.com/ansonnchan/tokenholic/internal/sync"
+	"github.com/ansonnchan/tokenholic/internal/tui/theme"
 	"io"
 	"strings"
 	"testing"
@@ -61,16 +62,19 @@ func TestRootCommandLaunchesLocalTUIWithEnvironment(t *testing.T) {
 			switch name {
 			case "CODEX_HOME":
 				return "/synthetic/codex"
-			case "NO_COLOR":
+			case "NO_COLOR", "TOKENHOLIC_ASCII":
 				return "1"
+			case "TOKENHOLIC_THEME":
+				return " Light "
 			default:
 				return ""
 			}
 		},
 		input: input,
-		launch: func(ctx context.Context, home, codexHome, apiURL string, gotInput io.Reader, _ io.Writer, noColor bool) error {
-			if ctx == nil || home != "/synthetic/home" || codexHome != "/synthetic/codex" || apiURL != "" || gotInput != input || !noColor {
-				t.Fatalf("launch inputs = %v %q %q %q %v %v", ctx, home, codexHome, apiURL, gotInput, noColor)
+		launch: func(ctx context.Context, home, codexHome, apiURL string, gotInput io.Reader, _ io.Writer, display displayOptions) error {
+			want := displayOptions{noColor: true, ascii: true, background: theme.LightBackground}
+			if ctx == nil || home != "/synthetic/home" || codexHome != "/synthetic/codex" || apiURL != "" || gotInput != input || display != want {
+				t.Fatalf("launch inputs = %v %q %q %q %v %+v", ctx, home, codexHome, apiURL, gotInput, display)
 			}
 			return nil
 		},
@@ -88,7 +92,7 @@ func TestRootCommandRedactsStartupFailure(t *testing.T) {
 		homeDir: func() (string, error) { return "/synthetic/home", nil },
 		getenv:  func(string) string { return "" },
 		input:   strings.NewReader("q"),
-		launch: func(context.Context, string, string, string, io.Reader, io.Writer, bool) error {
+		launch: func(context.Context, string, string, string, io.Reader, io.Writer, displayOptions) error {
 			return errors.New("private/path/state.db")
 		},
 	}
