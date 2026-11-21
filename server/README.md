@@ -53,7 +53,12 @@ rolls back the whole batch. Token counts remain self-reported local evidence.
 Uploads use sync protocol v2 at `POST /v2/sync/buckets` and carry observed
 evidence only. `pricing` resolves each observed model with the bundled catalog
 and derives the API-equivalent estimate, priced and unpriced token counts, and
-the pricing revision. An unrecognized model is stored as unknown and unpriced,
+the pricing revision. A bucket may also carry pricing evidence, the service
+tier and prompt band of its requests, which selects among the model's rate
+cards; the stored pricing key names the card that was applied. Evidence is
+optional and is stored as NULL when absent. The
+[model catalog guide](../internal/modelcatalog/README.md) owns the selection
+rules. An unrecognized model is stored as unknown and unpriced,
 never rejected, so a client with a different catalog always syncs.
 `POST /v1/sync/buckets` returns `426 Upgrade Required` with an upgrade
 instruction.

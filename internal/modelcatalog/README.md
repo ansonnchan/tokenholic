@@ -28,11 +28,19 @@ only when it is:
 - not an `alias_of` entry. A moving alias such as a `-latest` name would
   reprice history whenever the provider repoints it.
 
-For each kept model it stores five rates and nothing else: uncached input,
-cache read, base cache write, 1-hour cache write, and output. Rates are integer
-micro-US-dollars per million tokens, converted exactly from the upstream
-decimal. A price that is not a whole number in that unit fails generation
-instead of being rounded.
+For each kept model it stores rate cards and nothing else. A rate card is five
+rates: uncached input, cache read, base cache write, 1-hour cache write, and
+output. Every model has a standard card, and the generator adds the other
+cards the upstream file publishes (see [Rate cards](#rate-cards)). Rates are
+integer micro-US-dollars per million tokens, converted exactly from the
+upstream decimal. A price that is not a whole number in that unit fails
+generation instead of being rounded.
+
+Every upstream field that starts with one of the four per-token price names
+must match the shape the generator knows: a category, an optional cache
+lifetime, an optional prompt-length threshold, and an optional service tier.
+A field in a new shape, or with a tier nobody has reviewed, stops generation
+rather than being dropped unseen.
 
 ### Moving the pin
 
@@ -63,6 +71,66 @@ Claude models in the regression test were compared with
 <https://platform.claude.com/docs/en/about-claude/pricing> on November 21, 2026
 and matched.
 
+## Rate cards
+
+A provider can charge several prices for one model. Two facts about a request
+select among them, and both travel with usage as
+[pricing evidence](../normalize/README.md#pricing-evidence):
+
+| Fact | Upstream source | Vendored as |
+| --- | --- | --- |
+| Service tier | A `_priority` or `_flex` suffix on a price field | `tiers.priority`, `tiers.flex` |
+| Fast mode | `provider_specific_entry.fast`, a multiplier, on Anthropic models | `tiers.fast`: every standard rate times the multiplier |
+| Prompt length | An `_above_<N>k_tokens` infix | `prompt_threshold` and `long_prompt`, per tier |
+
+The fast-mode multiplier is the only derived card. Anthropic publishes fast
+mode as a multiple of the standard rates with the prompt-caching multipliers
+applied on top, across the whole context window
+(<https://platform.claude.com/docs/en/about-claude/pricing>, read November 21,
+2026). The products matched that page's fast-mode table. A product that is not
+a whole rate, or a multiplier beside a prompt threshold, fails generation.
+
+Deliberately not vendored:
+
+- `_batches`, `_ultrafast`, and `_decisions` tiers. No supported coding agent
+  runs through them, so their cards could never be selected.
+- The 12-hour cache-write lifetime. No token category carries it.
+- `provider_specific_entry.us`, the data-residency multiplier. Usage does not
+  carry where a request was processed.
+
+A model has at most one prompt threshold, and it must be a limit of the upload
+ladder (100K, 200K, or 272K tokens). Otherwise no usage bucket could prove
+which side a request fell on, so generation fails instead.
+
+Each card has its own pricing key. The standard card keeps the model's bare
+key, `provider/model`; the others append what selects them, such as
+`openai/gpt-5.6-sol:priority:above-272k`. The key stored beside a usage bucket
+therefore names the exact card that priced it.
+
+### Selecting a card
+
+`PricingRegistry.Select` applies these rules, in order:
+
+| Evidence | Card |
+| --- | --- |
+| Proven service tier with a vendored card | That tier's card |
+| Proven service tier without one | None: `tier_rate_unavailable` |
+| No service tier | The standard card |
+| Model has a threshold; the prompt band is within it | The tier's base card |
+| Model has a threshold; the prompt band is above it | The tier's long-prompt card, or `tier_rate_unavailable` if none is published |
+| Model has a threshold; no prompt band, or one that straddles it | None: `prompt_length_unproven` |
+
+Pricing an unproven tier as standard is a product decision made on November
+21, 2026, not evidence. Standard is what a provider applies when a request
+names no tier. Codex records the tier only from a thread's second turn, so the
+alternative left every first turn unpriced and put Codex-heavy users below the
+coverage a cost rank requires. The estimate understates a first turn that
+really ran at a higher tier. Prompt length has no such default: a model that
+charges more above a threshold is priced only from proof of the side.
+
+Changing a selection rule changes what stored usage prices to. Increment
+`rulesVersion` in `bundled.go` in the same change so the revision moves.
+
 ## Resolution rules
 
 Resolution tries an exact catalog ID first. Two explicit suffix rules follow,
@@ -74,20 +142,23 @@ and each requires an exact match for what remains:
 | Strip a trailing calendar date, `-YYYYMMDD` or `-YYYY-MM-DD` | a dated snapshot ID → its undated model | `alias` |
 
 A rule never guesses a model family, version, or size, and it only ever weakens
-the recorded match kind. `[1m]` is safe to strip because a model whose price
-changes with prompt length is already unpriced (see below); for every other
-model the provider charges the same rates across the whole context window.
+the recorded match kind. `[1m]` is safe to strip because it never selects a
+price: a model whose price changes with prompt length is priced from each
+request's proven prompt size, and every other model charges the same rates
+across the whole context window.
 
 Routing labels `auto`, `default`, `router`, and `smart` stay unknown, with or
 without a suffix. Source-inferred attribution stays labelled `inferred` after a
 canonical match.
 
 Changing a rule changes what stored usage resolves to. Increment
-`aliasRulesVersion` in `bundled.go` in the same change so the revision moves.
+`rulesVersion` in `bundled.go` in the same change so the revision moves.
 
 ## Why a model can be unpriced
 
-Every resolution without a pricing key carries a reason:
+Every derivation without a pricing key carries a reason. The first six
+describe the model; the last two describe one bucket of a model that does have
+prices:
 
 | Reason | Meaning |
 | --- | --- |
@@ -95,14 +166,14 @@ Every resolution without a pricing key carries a reason:
 | `model_unavailable` | The source reported no model |
 | `ambiguous_routing_alias` | A routing alias that names no single model |
 | `routing_label` | A reviewed client label with no identifiable model |
-| `context_tiered` | The provider charges more above a prompt length |
 | `no_published_price` | A known model with no reviewed price |
+| `prompt_length_unproven` | The model charges more above a prompt length, and the bucket does not prove which side its requests fell on |
+| `tier_rate_unavailable` | The bucket proves a service tier or prompt length with no vendored rate |
 
-`context_tiered` is detected from upstream fields such as
-`input_cost_per_token_above_272k_tokens`. The applicable tier depends on each
-request's prompt length, and usage buckets do not carry that, so the model
-resolves canonically but is not priced. Pricing it at the base tier would be a
-guess.
+Usage collected before pricing evidence existed, and usage from a source that
+cannot report a request's prompt size, has no prompt band. For a model with a
+threshold it stays `prompt_length_unproven`; pricing it at the base rate would
+be a guess.
 
 Unpriced tokens still count toward token totals. They are reported as unpriced
 so cost coverage stays visible.
@@ -125,9 +196,9 @@ when a billable category is unavailable or when known tokens have no rate; the
 latter are counted in `UnpricedTokens`. Arithmetic is exact big-integer math
 with one floor to whole micro-dollars per estimate.
 
-Estimates use standard-tier, global-routing rates. Batch, fast-mode,
-data-residency, and other service-tier multipliers are not applied, because the
-normalized record does not carry that evidence.
+Estimates use the rate card the bucket's evidence selects and global-routing
+rates. Data-residency multipliers are not applied, because usage does not carry
+where a request was processed.
 
 Every value is labelled an `API-equivalent estimate`. It is not subscription
 usage or actual spending.

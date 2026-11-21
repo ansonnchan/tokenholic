@@ -1,7 +1,7 @@
 # Architecture
 
 Status: MVP implemented; M6–M10 target design accepted (see "Planned target design")
-Last updated: November 20, 2026
+Last updated: November 21, 2026
 
 ## System goals
 
@@ -177,8 +177,17 @@ checks never render observations, source identities, or database contents.
 ### Local usage buckets
 
 Local bucket keys include the UTC interval, source, surface, observed model,
-model evidence quality, measurement quality, and normalization version. They
-contain no catalog result, so a catalog or price update never moves a bucket.
+model evidence quality, measurement quality, normalization version, and
+pricing evidence. They contain no catalog result, so a catalog or price update
+never moves a bucket.
+
+Pricing evidence is what a source proves about how a request was billed: its
+service tier and its prompt size. A bucket carries the tier and a prompt band,
+the request's place on a fixed ladder of the prompt lengths at which providers
+change price. Requests with different evidence never share a bucket, because
+the server prices a bucket from one rate card. A bucket whose source proved
+neither omits both from its key and its JSON, so it is identical to one built
+before the evidence existed and is not uploaded again.
 Observations store source evidence only; canonical model, unpriced reason, and
 estimate are a per-bucket preview derived with the bundled catalog and kept in
 a separate local column that is never uploaded.
@@ -239,7 +248,8 @@ a payload hash, never the client JSON body or local observation IDs.
 
 Sync protocol v2 carries observed evidence only: the observed model ID, how the
 source attributed it (`reported`, `inferred`, or `unknown`), measurement
-quality, and the six token categories plus reasoning. It has no field for a
+quality, optional pricing evidence (service tier and prompt band), and the six
+token categories plus reasoning. It has no field for a
 canonical model, provider, pricing key, estimate, or pricing revision. The
 `server/pricing` engine derives all of those from the bundled catalog and
 stores them beside the raw counts with the revision that produced them. A
@@ -367,10 +377,17 @@ the data files and rules.
 
 Resolution uses exact identifiers plus two explicit suffix rules: a client
 context-window marker such as `[1m]`, and a trailing snapshot date. Ambiguous
-routing aliases remain unknown instead of selecting a backend model. Models
-whose price changes with prompt length remain resolved but unpriced, because a
-usage bucket does not prove the applicable tier. Every unpriced resolution
-carries a reason.
+routing aliases remain unknown instead of selecting a backend model. Every
+unpriced derivation carries a reason.
+
+A model can have several rate cards: one per service tier the snapshot
+publishes, and one above a prompt-length threshold. A bucket's pricing
+evidence selects the card, and the stored pricing key names it. A proven tier
+or prompt length without a vendored rate stays unpriced. A model that charges
+more above a threshold is priced only when the bucket proves which side its
+requests fell on. A tier the source did not prove is priced on the standard
+card; that default is a recorded product decision, described in the model
+catalog guide, and it is the only place an estimate assumes a billing fact.
 
 Estimates price five categories: uncached input, cache read, 5-minute cache
 write, 1-hour cache write, and output. A cache write with an unknown lifetime
@@ -445,8 +462,10 @@ client: observed model ID + token categories (protocol v2)
 - Five priced categories: uncached input, cache read, 5-minute cache write,
   1-hour cache write, and output. A combined cache write without a time-to-live
   is priced at the 5-minute rate and marks the estimate partial.
-- Context-length or service-tier price tiers that local evidence cannot prove
-  stay unpriced.
+- Service-tier and prompt-length prices are selected by pricing evidence the
+  client uploads. A tier or length with no vendored rate, and a prompt length
+  the bucket cannot prove, stay unpriced. An unproven tier is priced as
+  standard.
 - Estimates use integer micro-dollars with exact big-integer arithmetic.
 - When the active pricing revision changes, startup reprices every stored
   bucket from raw tokens inside one advisory-locked transaction.

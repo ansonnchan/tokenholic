@@ -1,7 +1,7 @@
 # tokenholic roadmap
 
-Status: MVP complete; product-parity revamp in progress (M6 complete, M7–M11 planned)
-Last updated: November 20, 2026
+Status: MVP complete; product-parity revamp in progress (M6 complete, M7 in progress, M8–M11 planned)
+Last updated: November 21, 2026
 
 ## Product definition
 
@@ -248,6 +248,8 @@ input_cache_write_5m_tokens
 input_cache_write_1h_tokens
 output_tokens
 reasoning_output_tokens
+service_tier: standard | priority | flex | batch | fast (absent when unproven)
+prompt_tokens (one request's whole prompt; absent when unproven)
 count_semantics: incremental | cumulative_snapshot
 measurement: reported | derived | estimated
 adapter_version
@@ -273,8 +275,14 @@ error records, are excluded before normalization.
   lower bound with the unpriced share visible.
 - A user is ranked on cost when at least 95% of their tokens in the window are
   priced; otherwise the row shows its lower bound and coverage without a rank.
-- Context-length or service-tier price tiers that local evidence cannot prove
-  remain unpriced rather than guessed.
+- Service tier and prompt length select among a model's prices, from evidence
+  the source records for each request. A proven tier or length with no
+  vendored rate stays unpriced, and so does usage of a prompt-length-priced
+  model that cannot prove which side of the threshold it fell on.
+- A service tier the source did not prove is priced at the standard rate
+  (decided November 21, 2026). Codex records the tier only from a thread's
+  second turn, so the stricter rule left every first turn unpriced. This is
+  the one place an estimate assumes a billing fact.
 - When the server's pricing revision changes, it reprices every stored bucket
   from raw token counts in one transaction so history stays consistent.
 
@@ -300,6 +308,7 @@ The default upload payload may include:
 - UTC time bucket;
 - source and surface;
 - the observed model identifier and how the source attributed it;
+- the service tier and a coarse prompt-size band, when the source proves them;
 - normalized token categories;
 - schema and adapter versions.
 
@@ -609,15 +618,15 @@ M6 exit criteria:
 - Real local usage produces totals and estimates whose coverage is visible.
 - Catalog or price updates never reject an otherwise valid upload.
 
-Two pricing gaps remain after M6 and open M7 as TKH-074: usage whose price
-depends on prompt length or service tier is not yet priced from proven
+Two pricing gaps remained after M6 and opened M7 as TKH-074: usage whose price
+depends on prompt length or service tier was not yet priced from proven
 evidence.
 
 ### M7 — Leaderboards, profiles, and integrity
 
 Goal: reach social-product parity with honest ranking rules.
 
-- [ ] **TKH-074: Carry pricing-tier evidence** (`feat/pricing-tier-evidence`)
+- [x] **TKH-074: Carry pricing-tier evidence** (`feat/pricing-tier-evidence`)
   - Ships first in M7, before the protocol is released, because cost ranking
     depends on it and it changes the upload shape.
   - Two prices depend on evidence a usage bucket does not carry today:
@@ -634,9 +643,11 @@ Goal: reach social-product parity with honest ranking rules.
     evidence must serialize exactly as they do now.
   - Vendor the per-tier rates the price snapshot publishes. Usage in a tier
     with no vendored rate stays unpriced with a reason.
-  - Decide what an unknown tier means. The cost rule says unproven tiers stay
-    unpriced; short Codex rollouts carry no settings event, so that leaves
-    them unpriced. Do not read the Codex configuration file to guess.
+  - Decided: an unknown service tier is priced at the standard rate. Codex
+    writes no settings event before a thread's first turn, so the stricter
+    rule left about a tenth of the maintainer's Codex usage unpriced. An
+    unproven prompt length still stays unpriced. The Codex configuration file
+    is never read to guess.
   - Acceptance: golden cost tests cover each tier and threshold side; a
     bucket without tier evidence keeps its key and content hash; a fixture
     proves a settings event without a tier keeps the previous one.

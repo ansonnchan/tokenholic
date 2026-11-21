@@ -23,6 +23,17 @@ Resolution values mean:
 
 New observed model strings do not require an allowlist update. Unknown pricing must not discard their token counts.
 
+## Pricing evidence
+
+Providers charge different rates for the same model depending on how a request ran. Two facts decide it, and an observation carries each only when the source proves it:
+
+- `ServiceTier`: the processing tier the request ran at (`standard`, `priority`, `flex`, `batch`, or `fast`). The empty value means the source did not say. It does not mean standard.
+- `PromptTokens`: the size of the request's whole prompt, cached part included. It is set only on a record that is exactly one request, so a cumulative snapshot never has one.
+
+A usage bucket cannot carry a size for many requests, so it carries a `PromptBand` instead: the request's place on a fixed ladder of the prompt lengths at which providers change price (100K, 200K, and 272K tokens). Every request in a band sits on the same side of each ladder limit. The ladder belongs to the upload contract, not to a catalog, so a client never needs to know which model has which threshold. A price threshold that is not on the ladder cannot be proven by any band, and the price generator refuses to vendor one.
+
+Adapters report evidence; they never choose a price. What an unproven fact means is decided once, in `internal/modelcatalog`.
+
 ## Count and measurement semantics
 
 Incremental observations represent usage contributed by one record. Cumulative snapshots represent counters up to a point in a session and must be reduced before aggregation. Measurement quality records whether a value was reported by the source, derived deterministically, or estimated.
