@@ -69,8 +69,8 @@ type Theme struct {
 	Failure lipgloss.Style
 }
 
-// New builds a theme for output. Color depth and the light or dark background
-// are detected from the output once, here, before any program reads input.
+// New builds a theme for output. Color depth is detected from output; the
+// light or dark background is the one the terminal reported at startup.
 func New(output io.Writer, options Options) Theme {
 	renderer := lipgloss.NewRenderer(output)
 	configure(renderer, options)
@@ -84,8 +84,11 @@ func configure(renderer *lipgloss.Renderer, options Options) {
 	case options.Background != DetectBackground:
 		renderer.SetHasDarkBackground(options.Background == DarkBackground)
 	default:
-		// Query the background now: asking later would race the key reader.
-		renderer.HasDarkBackground()
+		// Bubble Tea asks the terminal for its background once, when the
+		// process starts and before anything reads keys, through Lip Gloss's
+		// default renderer. Reuse that answer: asking again here would wait
+		// out a second timeout on a terminal that never replies.
+		renderer.SetHasDarkBackground(lipgloss.HasDarkBackground())
 	}
 }
 
