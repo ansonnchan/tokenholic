@@ -39,23 +39,45 @@ func NewManager(client authClient, store Store) (*Manager, error) {
 }
 
 // Login completes GitHub device authorization and stores only the resulting
-// tokenholic device session.
+// tokenholic device session, writing the code and the result to output.
 func (m *Manager) Login(ctx context.Context, clientVersion string, output io.Writer) error {
-	started, err := m.client.Start(ctx, clientVersion)
+	started, err := m.Begin(ctx, clientVersion)
 	if err != nil {
-		return fmt.Errorf("start login: %w", err)
+		return err
 	}
 	fmt.Fprintf(output, "Open %s and enter code %s\n", started.VerificationURI, started.UserCode)
+	session, err := m.Complete(ctx, started)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(output, "Signed in as %s.\n", session.Login)
+	return nil
+}
+
+// Begin starts GitHub device authorization and returns the code the user
+// enters at the verification page. Nothing is stored until Complete.
+func (m *Manager) Begin(ctx context.Context, clientVersion string) (DeviceStart, error) {
+	started, err := m.client.Start(ctx, clientVersion)
+	if err != nil {
+		return DeviceStart{}, fmt.Errorf("start login: %w", err)
+	}
+	return started, nil
+}
+
+// Complete waits for the user to authorize the challenge from Begin, then
+// stores the device session and returns it. It ends early when ctx is
+// cancelled or the challenge expires, and stores nothing in either case.
+func (m *Manager) Complete(ctx context.Context, started DeviceStart) (Session, error) {
 	loginCtx, cancel := context.WithTimeout(ctx, started.ExpiresIn)
 	defer cancel()
 	wait := started.Interval
 	for {
 		if err := m.sleep(loginCtx, wait); err != nil {
-			return errors.New("login expired or was interrupted")
+			return Session{}, errors.New("login expired or was interrupted")
 		}
 		result, err := m.client.Poll(loginCtx, started.FlowToken)
 		if err != nil {
-			return fmt.Errorf("complete login: %w", err)
+			return Session{}, fmt.Errorf("complete login: %w", err)
 		}
 		if result.Pending {
 			if result.RetryAfter > 0 {
@@ -64,10 +86,9 @@ func (m *Manager) Login(ctx context.Context, clientVersion string, output io.Wri
 			continue
 		}
 		if err := m.store.Save(result.Session); err != nil {
-			return fmt.Errorf("store device credential: %w", err)
+			return Session{}, fmt.Errorf("store device credential: %w", err)
 		}
-		fmt.Fprintf(output, "Signed in as %s.\n", result.Session.Login)
-		return nil
+		return result.Session, nil
 	}
 }
 
