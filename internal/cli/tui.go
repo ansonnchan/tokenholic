@@ -59,7 +59,7 @@ func launchLocalTUI(ctx context.Context, home, codexHome, apiURL string, input i
 			err = closeErr
 		}
 	}()
-	config := tui.Config{NoColor: display.noColor, ASCII: display.ascii, Background: display.background}
+	config := tui.Config{NoColor: display.noColor, ASCII: display.ascii, Background: display.background, OpenURL: openBrowser}
 	if apiURL != "" {
 		client, clientErr := multiplayer.NewClient(apiURL, nil)
 		if clientErr != nil {
@@ -72,6 +72,11 @@ func launchLocalTUI(ctx context.Context, home, codexHome, apiURL string, input i
 		// Assign only a real service: a nil *Service stored in the interface
 		// would not compare equal to nil, and the board area would call it.
 		config.Multiplayer = groups
+		claim, clientErr := newDeviceAccount(apiURL, database)
+		if clientErr != nil {
+			return clientErr
+		}
+		config.Account = claim
 	}
 	return tui.Run(ctx, service, input, output, config)
 }
