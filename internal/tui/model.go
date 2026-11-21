@@ -76,6 +76,11 @@ type Config struct {
 	// Clipboard copies text for the user. Run sets it to an OSC 52 write to
 	// the output; nil means copying is unavailable.
 	Clipboard func(string)
+	// Account signs in and uploads; nil means no API is configured and no
+	// claim is offered.
+	Account Account
+	// OpenURL shows a link in the user's browser; nil means it cannot.
+	OpenURL func(string) error
 }
 
 // Model is the Bubble Tea model for the application shell. It holds the last
@@ -86,6 +91,8 @@ type Model struct {
 	multiplayer Multiplayer
 	theme       theme.Theme
 	clipboard   func(string)
+	account     Account
+	openURL     func(string) error
 	section     Section
 	width       int
 	height      int
@@ -108,6 +115,18 @@ type Model struct {
 	modelCursor  int
 
 	board boardState
+
+	// login is this device's GitHub login, known once accountKnown is set.
+	login        string
+	accountKnown bool
+	// welcome is the first-launch screen; started records that the first
+	// load has been seen, so the automatic scan runs once.
+	welcome bool
+	started bool
+	claim   claimState
+	share   shareState
+	// sharedLink is printed after the program exits.
+	sharedLink string
 }
 
 type loadResult struct {
@@ -162,6 +181,8 @@ func NewModel(ctx context.Context, app Application, config Config) Model {
 		multiplayer:  config.Multiplayer,
 		theme:        tokens,
 		clipboard:    config.Clipboard,
+		account:      config.Account,
+		openURL:      config.OpenURL,
 		section:      HomeSection,
 		tickEvery:    spinnerInterval,
 		flashFor:     flashDuration,
@@ -178,10 +199,14 @@ func NewModel(ctx context.Context, app Application, config Config) Model {
 
 // Init loads the first local snapshot.
 func (m Model) Init() tea.Cmd {
-	if m.app == nil {
-		return nil
+	var commands []tea.Cmd
+	if m.account != nil {
+		commands = append(commands, m.loadAccount())
 	}
-	return tea.Batch(m.loadLocal(m.localRequest), m.tick())
+	if m.app != nil {
+		commands = append(commands, m.loadLocal(m.localRequest), m.tick())
+	}
+	return tea.Batch(commands...)
 }
 
 // Update applies terminal, key, load, refresh, and spinner messages.
@@ -213,6 +238,16 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.dashboard, m.loaded, m.localError = message.dashboard, true, ""
+		if first := !m.started; first {
+			m.started = true
+			if m.dashboard.Diagnostics.LastSuccessfulCollection == nil {
+				// A first launch has nothing to show yet: scan without
+				// being asked, and greet the user with what it finds.
+				m.welcome = true
+				m.loading, m.refreshing = true, true
+				return m, m.withTick(m.refresh())
+			}
+		}
 		m.modelCursor = min(m.modelCursor, max(len(summaryFor(m.dashboard, m.period).Models)-1, 0))
 		m.scroll = min(m.scroll, m.maxScroll())
 		return m, nil
@@ -225,6 +260,13 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.localRequest++
 		return m, m.loadLocal(m.localRequest)
+	case accountResult:
+		// A vault that cannot be read is not the same as being signed out,
+		// so a failure offers no claim.
+		m.login, m.accountKnown = message.login, message.err == nil
+		return m, nil
+	case claimStarted, claimCompleted, claimSynced:
+		return m.applyClaim(message)
 	case boardLoadResult:
 		return m.applyBoardLoad(message), nil
 	case boardActionResult:
@@ -243,10 +285,20 @@ func (m Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
+	if m.claim.stage != claimClosed {
+		return m.updateClaim(key)
+	}
+	if m.share.open {
+		return m.updateShare(key)
+	}
 	if m.board.prompt.action != "" {
 		return m.updateBoardPrompt(key)
 	}
-	boards := m.section == BoardsSection
+	if m.welcome && key.Type == tea.KeyEnter {
+		m.welcome, m.help = false, false
+		return m, nil
+	}
+	boards := m.section == BoardsSection && !m.welcome
 	if boards && !m.help {
 		if handled, model, command := m.boardKey(key.String()); handled {
 			return model, command
@@ -288,6 +340,17 @@ func (m Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.scroll = min(m.scroll, m.maxScroll())
 		}
 		return m, nil
+	case "c":
+		// In BOARDS a signed-in user's c creates a group, handled above.
+		if m.canClaim() {
+			return m.openClaim()
+		}
+		return m, nil
+	case "s":
+		if m.welcome || m.section == HomeSection || m.section == BoardsSection {
+			return m.openShare()
+		}
+		return m, nil
 	case "j", "down":
 		return m.move(1)
 	case "k", "up":
@@ -317,9 +380,10 @@ func (m Model) move(delta int) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) activate(section Section) (tea.Model, tea.Cmd) {
-	if section == m.section {
+	if section == m.section && !m.welcome {
 		return m, nil
 	}
+	m.welcome = false
 	m.section = section
 	m.help = false
 	m.scroll = 0
@@ -399,8 +463,19 @@ func Run(ctx context.Context, app Application, input io.Reader, output io.Writer
 		tea.WithOutput(output),
 		tea.WithAltScreen(),
 	)
-	if _, err := program.Run(); err != nil {
+	final, err := program.Run()
+	if err != nil {
 		return fmt.Errorf("run TUI: %w", err)
 	}
+	writeSharedLink(output, final)
 	return nil
+}
+
+// writeSharedLink prints the last share link once the full-screen view is
+// gone, where it can be selected and clicked. A wrapped link inside a panel
+// cannot.
+func writeSharedLink(output io.Writer, final tea.Model) {
+	if model, ok := final.(Model); ok && model.sharedLink != "" {
+		fmt.Fprintf(output, "Share link:\n%s\n", model.sharedLink)
+	}
 }

@@ -1,0 +1,15 @@
+[1;38;2;217;128;95m▀▄     [0m  [1m▀█▀ █▀█ █ █ █▀▀ █▄ █ █ █ █▀█ █   █ █▀▀[0m
+[1;38;2;217;128;95m ▄▀    [0m  [1m █  █ █ █▀▄ █▀▀ █ ▀█ █▀█ █ █ █   █ █  [0m
+[1;38;2;217;128;95m▀   ▀▀▀[0m  [1m ▀  ▀▀▀ ▀ ▀ ▀▀▀ ▀  ▀ ▀ ▀ ▀▀▀ ▀▀▀ ▀ ▀▀▀[0m
+
+[38;2;141;146;155mSCANNED[0m  no coding agent found
+
+[1mNo supported coding-agent usage found.[0m
+
+Supported now: Claude Code, Claude Desktop coding sessions, and Codex CLI and Desktop.
+Use one of them, then press r to scan again. Run `tokenholic doctor` to check source
+detection.
+
+[1;38;2;27;18;16;48;2;217;128;95m  c  CLAIM YOUR SPOT  [0m
+[38;2;141;146;155mNothing leaves this machine until you claim.[0m
+enter [38;2;141;146;155mdashboard[0m[38;2;80;85;94m · [0mc [38;2;141;146;155mclaim[0m[38;2;80;85;94m · [0mr [38;2;141;146;155mscan again[0m[38;2;80;85;94m · [0ms [38;2;141;146;155mshare[0m[38;2;80;85;94m · [0m? [38;2;141;146;155mhelp[0m[38;2;80;85;94m · [0mq [38;2;141;146;155mquit[0m

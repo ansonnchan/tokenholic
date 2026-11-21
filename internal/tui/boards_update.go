@@ -49,6 +49,10 @@ func (m Model) applyBoardLoad(message boardLoadResult) Model {
 	case errors.Is(message.err, multiplayer.ErrSignedOut):
 		m.board.gate, m.board.loaded, m.board.failure = gateSignedOut, true, ""
 		m.board.snapshot = multiplayer.Snapshot{}
+		if m.account != nil {
+			// The server refused the session: offer the claim again.
+			m.login, m.accountKnown = "", true
+		}
 	case message.err != nil:
 		// The error can carry a URL or a response body; show a stable
 		// message and keep the last board under it.

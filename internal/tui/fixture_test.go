@@ -2,11 +2,13 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/ansonnchan/tokenholic/internal/account"
 	"github.com/ansonnchan/tokenholic/internal/application"
 	"github.com/ansonnchan/tokenholic/internal/modelcatalog"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
@@ -25,6 +27,9 @@ type fakeApplication struct {
 	refreshErr error
 	loads      int
 	refreshes  int
+	// scanned, when set, is what the machine holds once it has been
+	// scanned: the dashboard a successful refresh switches to.
+	scanned *application.Dashboard
 }
 
 func (a *fakeApplication) Load(context.Context) (application.Dashboard, error) {
@@ -34,7 +39,68 @@ func (a *fakeApplication) Load(context.Context) (application.Dashboard, error) {
 
 func (a *fakeApplication) Refresh(context.Context) error {
 	a.refreshes++
+	if a.refreshErr == nil && a.scanned != nil {
+		a.dashboard = *a.scanned
+	}
 	return a.refreshErr
+}
+
+// firstLaunch is a machine that has never been scanned and will find the
+// given usage when it is.
+func firstLaunch(found application.Dashboard) *fakeApplication {
+	never := application.Dashboard{GeneratedAt: found.GeneratedAt, Timezone: found.Timezone}
+	never.Diagnostics.IntegrityOK = true
+	return &fakeApplication{dashboard: never, scanned: &found}
+}
+
+// errHeld stands for a step that has not finished: the user is still at
+// GitHub, or the upload is still running. drain drops its result, leaving
+// the model waiting as it would be.
+var errHeld = errors.New("synthetic: not finished yet")
+
+// fakeAccount is a device that can be claimed.
+type fakeAccount struct {
+	login       string
+	loginErr    error
+	beginErr    error
+	completeErr error
+	syncErr     error
+	uploaded    int64
+	begun       int
+	completed   int
+	synced      int
+	cancelled   bool
+}
+
+func (f *fakeAccount) Login(context.Context) (string, error) { return f.login, f.loginErr }
+
+func (f *fakeAccount) Begin(context.Context) (account.DeviceStart, error) {
+	f.begun++
+	if f.beginErr != nil {
+		return account.DeviceStart{}, f.beginErr
+	}
+	return account.DeviceStart{
+		FlowToken: "synthetic-flow-token", UserCode: "WDJB-MJHT", VerificationURI: "https://github.com/login/device",
+		ExpiresIn: 15 * time.Minute, Interval: 5 * time.Second,
+	}, nil
+}
+
+func (f *fakeAccount) Complete(ctx context.Context, _ account.DeviceStart) (string, error) {
+	f.completed++
+	if ctx.Err() != nil {
+		f.cancelled = true
+		return "", ctx.Err()
+	}
+	if f.completeErr != nil {
+		return "", f.completeErr
+	}
+	f.login = "you"
+	return f.login, nil
+}
+
+func (f *fakeAccount) Sync(context.Context) (int64, error) {
+	f.synced++
+	return f.uploaded, f.syncErr
 }
 
 // fakeMultiplayer serves synthetic boards by scope and records what the
@@ -341,6 +407,18 @@ func drain(model Model, command tea.Cmd) Model {
 		case tea.BatchMsg:
 			queue = append(queue, message...)
 		case spinnerTick, flashExpired:
+		case claimCompleted:
+			if !errors.Is(message.err, errHeld) {
+				updated, following := model.Update(message)
+				model = updated.(Model)
+				queue = append(queue, following)
+			}
+		case claimSynced:
+			if !errors.Is(message.err, errHeld) {
+				updated, following := model.Update(message)
+				model = updated.(Model)
+				queue = append(queue, following)
+			}
 		default:
 			updated, following := model.Update(message)
 			model = updated.(Model)

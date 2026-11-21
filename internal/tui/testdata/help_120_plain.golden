@@ -6,8 +6,11 @@
 │ p       change period                                    │ │ ≥1.2M   a lower bound: part of the usage was not        │
 │ j / k   move the selection or scroll                     │ │         reported or has no price.                       │
 │ d       show exact token categories on HOME              │ │ —       not available. It never means zero.             │
-│ r       scan local usage again                           │ │ PRICED  the share of tokens the estimate covers.        │
-│ ?       close help                                       │ ╰─────────────────────────────────────────────────────────╯
+│ s       draft a post of your totals to share             │ │ PRICED  the share of tokens the estimate covers.        │
+│ c       claim your spot: sign in with GitHub, when       │ ╰─────────────────────────────────────────────────────────╯
+│         signed out                                       │
+│ r       scan local usage again                           │
+│ ?       close help                                       │
 │ q       quit                                             │
 ╰──────────────────────────────────────────────────────────╯
-1–5 views · p period · d detail · j/k scroll · r refresh · ? help · q quit
+1–5 views · p period · d detail · s share · j/k scroll · r refresh · ? help · q quit

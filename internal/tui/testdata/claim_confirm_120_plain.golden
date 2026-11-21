@@ -1,0 +1,13 @@
+>_ TOKENHOLIC
+
+╭─ CLAIM YOUR SPOT ────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Claiming signs this device in with GitHub and uploads your usage counts, so you can join boards.                     │
+│                                                                                                                      │
+│ UPLOADED  when, which coding agent, which model, and token counts per category                                       │
+│ NEVER     prompts, responses, code, paths, project or repository names, credentials                                  │
+│ CHECK     `tokenholic show-data` prints the exact payload                                                            │
+│                                                                                                                      │
+│ [ enter  CONTINUE WITH GITHUB ]                                                                                      │
+│ esc cancel                                                                                                           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+esc cancel · ctrl+c quit

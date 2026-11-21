@@ -59,6 +59,14 @@ func (m Model) frame() []string {
 // between them, which is zero while the terminal's height is unknown.
 func (m Model) layout(width int) (header, notices []string, available int) {
 	header = append(widget.Header(m.theme, tabs, int(m.section), m.status(width), width, stackWidth), "")
+	if m.welcome {
+		// The first launch has no tabs. Its own view draws the wordmark;
+		// an overlay opened from it gets the plain one.
+		header = nil
+		if m.overlay() {
+			header = []string{widget.Wordmark(m.theme), ""}
+		}
+	}
 	notices = m.notices(width)
 	if m.height > 0 {
 		// One row is the key bar; never squeeze the area below three rows.
@@ -93,8 +101,15 @@ func (m Model) viewWidth() int {
 // unknown; only views that window their own lists use it.
 func (m Model) body(width, height int) []string {
 	t := m.theme
-	if m.help {
+	switch {
+	case m.claim.stage != claimClosed:
+		return m.claimView(width)
+	case m.share.open:
+		return m.shareView(width)
+	case m.help:
 		return m.helpView(width)
+	case m.welcome:
+		return m.welcomeView(width)
 	}
 	if m.section == BoardsSection {
 		return m.boardsView(width, height)
@@ -152,7 +167,7 @@ func (m Model) spin() string {
 func (m Model) notices(width int) []string {
 	t := m.theme
 	var lines []string
-	if m.help {
+	if m.overlay() || m.welcome {
 		return nil
 	}
 	if m.section == BoardsSection {
@@ -167,17 +182,39 @@ func (m Model) notices(width int) []string {
 	if count := unhealthyAdapters(m.dashboard.Diagnostics.AdapterHealth); m.loaded && count > 0 && m.section != SourcesSection {
 		lines = append(lines, widget.Notice(t, widget.Warning, plural(count, "source needs", "sources need")+" attention; see 4 SOURCES.", width)...)
 	}
+	if m.section == HomeSection && m.loaded && m.canClaim() {
+		lines = append(lines, m.claimChip(width)...)
+	}
 	return lines
+}
+
+// overlay reports whether something is drawn over the active area and
+// takes its keys.
+func (m Model) overlay() bool {
+	return m.help || m.share.open || m.claim.stage != claimClosed
 }
 
 // hints is the key bar for the active area. Hints marked Keep survive the
 // narrowest width.
 func (m Model) hints() []widget.Hint {
 	g := m.theme.Glyphs
+	quit := widget.Hint{Key: "q", Label: "quit", Keep: true}
+	switch {
+	case m.claim.stage != claimClosed:
+		return []widget.Hint{{Key: "esc", Label: "cancel", Keep: true}, {Key: "ctrl+c", Label: "quit", Keep: true}}
+	case m.share.open:
+		return []widget.Hint{{Key: "o", Label: "open", Keep: true}, {Key: "y", Label: "copy", Keep: true}, {Key: "esc", Label: "close", Keep: true}}
+	case m.welcome && !m.help:
+		hints := []widget.Hint{{Key: "enter", Label: "dashboard", Keep: true}}
+		if m.canClaim() {
+			hints = append(hints, widget.Hint{Key: "c", Label: "claim", Keep: true})
+		}
+		return append(hints, widget.Hint{Key: "r", Label: "scan again"}, widget.Hint{Key: "s", Label: "share"}, widget.Hint{Key: "?", Label: "help"}, quit)
+	}
 	hints := []widget.Hint{{Key: "1" + g.Range + "5", Label: "views", Keep: true}}
 	switch m.section {
 	case HomeSection:
-		hints = append(hints, widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "d", Label: "detail"}, widget.Hint{Key: "j/k", Label: "scroll"})
+		hints = append(hints, widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "d", Label: "detail"}, widget.Hint{Key: "s", Label: "share"}, widget.Hint{Key: "j/k", Label: "scroll"})
 	case ModelsSection:
 		hints = append(hints, widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "j/k", Label: "move"})
 	case SourcesSection:
@@ -199,7 +236,7 @@ func (m Model) hints() []widget.Hint {
 		}
 		hints = append(hints,
 			widget.Hint{Key: "g", Label: "scope"}, widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "m", Label: "metric"},
-			widget.Hint{Key: "j/k", Label: "move"}, action,
+			widget.Hint{Key: "j/k", Label: "move"}, action, widget.Hint{Key: "s", Label: "share"},
 			widget.Hint{Key: "c", Label: "create"}, widget.Hint{Key: "i", Label: "join"},
 		)
 	}
@@ -220,6 +257,8 @@ func (m Model) helpView(width int) []string {
 		{"p", "change period"},
 		{"j / k", "move the selection or scroll"},
 		{"d", "show exact token categories on HOME"},
+		{"s", "draft a post of your totals to share"},
+		{"c", "claim your spot: sign in with GitHub, when signed out"},
 		{"r", "scan local usage again"},
 		{"?", "close help"},
 		{"q", "quit"},
@@ -233,6 +272,7 @@ func (m Model) helpView(width int) []string {
 			{"y", "copy an invite to this group; the owner creates it"},
 			{"c / i", "create a group / join with an invite code"},
 			{"o", "join or leave the global board"},
+			{"s", "draft a post of your totals to share"},
 			{"r", "reload"},
 			{"?", "close help"},
 			{"q", "quit"},

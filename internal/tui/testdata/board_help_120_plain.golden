@@ -9,8 +9,9 @@
 │         it                                               │ │ PRICED  the share of tokens the estimate covers.        │
 │ c / i   create a group / join with an invite code        │ │ ▲ 2     rank moved, against the same point of the       │
 │ o       join or leave the global board                   │ │         previous period.                                │
-│ r       reload                                           │ │ !       a daily total above the plausibility limit.     │
-│ ?       close help                                       │ │         Usage is self-reported.                         │
-│ q       quit                                             │ ╰─────────────────────────────────────────────────────────╯
+│ s       draft a post of your totals to share             │ │ !       a daily total above the plausibility limit.     │
+│ r       reload                                           │ │         Usage is self-reported.                         │
+│ ?       close help                                       │ ╰─────────────────────────────────────────────────────────╯
+│ q       quit                                             │
 ╰──────────────────────────────────────────────────────────╯
-1–5 views · g scope · p period · m metric · j/k move · y invite · c create · i join · r refresh · ? help · q quit
+1–5 views · g scope · p period · m metric · j/k move · y invite · s share · c create · i join · ? help · q quit

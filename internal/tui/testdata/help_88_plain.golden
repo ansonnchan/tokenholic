@@ -6,6 +6,8 @@
 │ p       change period                                                                │
 │ j / k   move the selection or scroll                                                 │
 │ d       show exact token categories on HOME                                          │
+│ s       draft a post of your totals to share                                         │
+│ c       claim your spot: sign in with GitHub, when signed out                        │
 │ r       scan local usage again                                                       │
 │ ?       close help                                                                   │
 │ q       quit                                                                         │
@@ -17,4 +19,4 @@
 │ —       not available. It never means zero.                                          │
 │ PRICED  the share of tokens the estimate covers.                                     │
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
-1–5 views · p period · d detail · j/k scroll · r refresh · ? help · q quit
+1–5 views · p period · d detail · s share · j/k scroll · r refresh · ? help · q quit

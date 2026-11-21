@@ -87,10 +87,15 @@ func (m Model) boardsView(width, height int) []string {
 			"Set TOKENHOLIC_API_URL, run `tokenholic claim`, then reopen tokenholic.",
 		))
 	case m.board.gate == gateSignedOut:
-		return widget.Panel(t, "boards", width, wrapAll(inner,
-			"Boards rank you with friends, by tokens or by estimate.",
-			"Sign in to join one: run `tokenholic claim`, then press r.",
-		))
+		lines := wrapAll(inner, "Boards rank you with friends, by tokens or by estimate.")
+		if m.account == nil {
+			return widget.Panel(t, "boards", width, append(lines, wrapAll(inner, "Sign in to join one: run `tokenholic claim`, then press r.")...))
+		}
+		lines = append(lines, "", widget.Action(t, "c", "claim your spot"))
+		for _, line := range widget.Wrap("Sign in with GitHub to join one. Nothing uploads until you claim.", inner) {
+			lines = append(lines, t.Muted.Render(line))
+		}
+		return widget.Panel(t, "boards", width, lines)
 	case !m.board.loaded && m.board.failure == "":
 		return widget.Panel(t, "boards", width, []string{t.Muted.Render(m.spin() + " Loading boards")})
 	case board == nil:
