@@ -32,9 +32,10 @@ type Cell struct {
 	Style *lipgloss.Style
 }
 
-// Row is one table line. Current marks the viewer's own row: it gets the
-// accent edge, accent text, and a tinted background, and keeps the edge
-// glyph when there is no color.
+// Row is one table line. Current marks the highlighted row, which is the
+// viewer's own row on a board and the cursor in a list: it gets the accent
+// edge, accent text, and a tinted background, and keeps the edge glyph when
+// there is no color.
 type Row struct {
 	Cells   []Cell
 	Current bool
@@ -46,6 +47,9 @@ type Table struct {
 	Rows    []Row
 	// Gap is the space between columns; zero means two cells.
 	Gap int
+	// Flush drops the cells reserved for the edge marker, for a table that
+	// never highlights a row.
+	Flush bool
 }
 
 // edgeWidth is the cells reserved before the first column for the current
@@ -58,6 +62,10 @@ func (table Table) Render(t theme.Theme, width int) []string {
 	gap := table.Gap
 	if gap <= 0 {
 		gap = 2
+	}
+	edgeWidth := edgeWidth
+	if table.Flush {
+		edgeWidth = 0
 	}
 	widths := table.widths(width-edgeWidth, gap)
 	separator := strings.Repeat(" ", gap)
@@ -74,8 +82,10 @@ func (table Table) Render(t theme.Theme, width int) []string {
 		edge := strings.Repeat(" ", edgeWidth)
 		gapText := separator
 		if row.Current {
-			edge = t.CurrentRow.Render(t.Glyphs.Edge + " ")
 			gapText = t.CurrentRow.Render(separator)
+			if !table.Flush {
+				edge = t.CurrentRow.Render(t.Glyphs.Edge + " ")
+			}
 		}
 		cells := make([]string, len(table.Columns))
 		for index, column := range table.Columns {
