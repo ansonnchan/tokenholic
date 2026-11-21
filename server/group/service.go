@@ -248,7 +248,9 @@ func (s *Service) Invite(ctx context.Context, credential, groupID string, lifeti
 	}
 	code := "ovt_" + base64.RawURLEncoding.EncodeToString(codeBytes)
 	hash := sha256.Sum256([]byte(code))
-	expiresAt := s.now().UTC().Add(lifetime)
+	// Storage keeps microseconds. Truncating here makes the expiry returned
+	// now the same instant every later read reports.
+	expiresAt := s.now().UTC().Add(lifetime).Truncate(time.Microsecond)
 	if err := s.repository.CreateInvite(ctx, principal, NewInvite{
 		ID: id, GroupID: groupID, CodeHash: hash, ExpiresAt: expiresAt, MaxUses: maxUses,
 	}); err != nil {

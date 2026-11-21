@@ -133,6 +133,25 @@ func TestServiceValidatesGroupLifecycleInput(t *testing.T) {
 	}
 }
 
+// A clock with nanosecond precision must not produce an expiry that storage,
+// which keeps microseconds, would report differently later.
+func TestServiceInviteExpiryMatchesStoragePrecision(t *testing.T) {
+	repository := &fakeRepository{}
+	service, err := NewService(fakeAuthenticator{}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.now = func() time.Time { return time.Date(2026, 11, 21, 20, 40, 24, 606640123, time.UTC) }
+	invite, err := service.Invite(t.Context(), "credential", testGroupID, time.Hour, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 11, 21, 21, 40, 24, 606640000, time.UTC)
+	if !invite.ExpiresAt.Equal(want) || !repository.invite.ExpiresAt.Equal(want) {
+		t.Fatalf("expiry returned %s, stored %s; want both %s", invite.ExpiresAt, repository.invite.ExpiresAt, want)
+	}
+}
+
 func TestServiceInviteLinksAndPreview(t *testing.T) {
 	repository := &fakeRepository{}
 	// A preview needs no credential.
