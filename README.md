@@ -37,7 +37,7 @@ The native Go command currently provides:
 - opt-in hourly macOS autosync with a stable binary, overlap lock, private logs, status, and complete removal;
 - one authenticated account usage row across active devices with independent revocation and freshness;
 - private groups with owner/member roles, expiring limited-use invites, and membership-authorized reads;
-- timezone-aware group leaderboards for total tokens, output, and API estimates with explicit coverage and freshness;
+- timezone-aware group leaderboards for total tokens and API-equivalent estimates, with cost coverage, rank trends, and freshness;
 - explicit authorization-checked deletion of the hosted account and uploaded aggregates; and
 - privacy-safe source and storage diagnostics through `tokenholic doctor`.
 

@@ -44,10 +44,16 @@ func TestClientGroupAndLeaderboardProtocol(t *testing.T) {
 		case request.Method == http.MethodDelete && strings.HasSuffix(request.URL.Path, "/membership"):
 			status = http.StatusNoContent
 		case request.Method == http.MethodGet && strings.HasSuffix(request.URL.Path, "/leaderboard"):
-			if request.URL.Query().Get("period") != "week" || request.URL.Query().Get("metric") != "output_tokens" {
+			if request.URL.Query().Get("period") != "week" || request.URL.Query().Get("metric") != "api_estimate" {
 				t.Fatalf("leaderboard query = %v", request.URL.Query())
 			}
-			body = `{"group_id":"` + groupID + `","group_name":"Quiet group","timezone":"UTC","period":"week","metric":"output_tokens","window":{"start":"2026-11-16T00:00:00Z","end":"2026-11-18T00:00:00Z"},"generated_at":"2026-11-18T00:00:00Z","rows":[]}`
+			body = `{"group_id":"` + groupID + `","group_name":"Quiet group","timezone":"UTC","period":"week","metric":"api_estimate","window":{"start":"2026-11-16T00:00:00Z","end":"2026-11-18T00:00:00Z"},"generated_at":"2026-11-18T00:00:00Z",` +
+				`"comparison":{"kind":"previous_period","window":{"start":"2026-11-09T00:00:00Z","end":"2026-11-11T00:00:00Z"}},` +
+				`"cost_rank_min_priced_basis_points":9500,"rows":[{"rank":null,"unranked_reason":"cost_coverage_below_threshold",` +
+				`"user_id":"user","display_name":"Member","value":{"value":"12","state":"partial"},` +
+				`"cost_coverage":{"priced_tokens":"94","unpriced_tokens":"6","priced_basis_points":9400},` +
+				`"trend":{"previous_value":{"value":null,"state":"empty"},"previous_rank":null,"rank_change":null,"new":true},` +
+				`"plausibility":{"daily_tokens_above_limit":true}}]}`
 		default:
 			status = http.StatusNotFound
 		}
@@ -79,9 +85,17 @@ func TestClientGroupAndLeaderboardProtocol(t *testing.T) {
 	if err := client.Leave(t.Context(), "device-credential", groupID); err != nil {
 		t.Fatalf("Leave() error = %v", err)
 	}
-	board, err := client.Leaderboard(t.Context(), "device-credential", groupID, PeriodWeek, MetricOutput)
-	if err != nil || board.Period != PeriodWeek || board.Metric != MetricOutput {
+	board, err := client.Leaderboard(t.Context(), "device-credential", groupID, PeriodWeek, MetricAPIEstimate)
+	if err != nil || board.Period != PeriodWeek || board.Metric != MetricAPIEstimate {
 		t.Fatalf("Leaderboard() = %#v, %v", board, err)
+	}
+	if board.Comparison.Kind != ComparisonPreviousPeriod || board.CostRankMinPricedBasisPoints != 9500 || len(board.Rows) != 1 {
+		t.Fatalf("board rules = %#v", board)
+	}
+	row := board.Rows[0]
+	if row.Rank != nil || row.UnrankedReason != UnrankedCostCoverage || row.Coverage.PricedBasisPoints == nil || *row.Coverage.PricedBasisPoints != 9400 ||
+		!row.Trend.New || row.Trend.PreviousValue.State != AvailabilityEmpty || !row.Plausibility.DailyTokensAboveLimit {
+		t.Fatalf("decoded row = %#v", row)
 	}
 }
 

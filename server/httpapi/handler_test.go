@@ -290,7 +290,7 @@ func TestLeaderboardRouteUsesExplicitPeriodAndMetric(t *testing.T) {
 	groupID := "10000000-0000-4000-8000-000000000001"
 	leaderboards := &fakeLeaderboardService{board: serverleaderboard.Board{
 		GroupID: groupID, GroupName: "Private group", Timezone: "America/Vancouver",
-		Period: serverleaderboard.PeriodWeek, Metric: serverleaderboard.MetricOutput,
+		Period: serverleaderboard.PeriodWeek, Metric: serverleaderboard.MetricAPIEstimate,
 	}}
 	handler, err := New(
 		&fakeAuthService{}, &fakeUsageSyncService{}, &fakeAccountUsageService{},
@@ -299,11 +299,11 @@ func TestLeaderboardRouteUsesExplicitPeriodAndMetric(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/v1/groups/"+groupID+"/leaderboard?period=week&metric=output_tokens", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/groups/"+groupID+"/leaderboard?period=week&metric=api_estimate", nil)
 	request.Header.Set("Authorization", "Bearer device")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || leaderboards.period != serverleaderboard.PeriodWeek || leaderboards.metric != serverleaderboard.MetricOutput || !strings.Contains(response.Body.String(), `"timezone":"America/Vancouver"`) {
+	if response.Code != http.StatusOK || leaderboards.period != serverleaderboard.PeriodWeek || leaderboards.metric != serverleaderboard.MetricAPIEstimate || !strings.Contains(response.Body.String(), `"timezone":"America/Vancouver"`) {
 		t.Fatalf("leaderboard response = %d %q/%#v", response.Code, response.Body.String(), leaderboards)
 	}
 }

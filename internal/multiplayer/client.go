@@ -36,12 +36,12 @@ const (
 	PeriodAllTime    Period = "all_time"
 )
 
-// Metric is the primary leaderboard value.
+// Metric is the value a leaderboard ranks by: total tokens or the
+// API-equivalent estimate.
 type Metric string
 
 const (
 	MetricTotalTokens Metric = "total_tokens"
-	MetricOutput      Metric = "output_tokens"
 	MetricAPIEstimate Metric = "api_estimate"
 )
 
@@ -96,17 +96,69 @@ type Limitations struct {
 	APIEstimateUnavailableBuckets int64 `json:"api_estimate_unavailable_buckets"`
 }
 
+// Coverage says how much of a member's usage in the window has a price.
+// PricedBasisPoints is hundredths of a percent, nil when there are no tokens.
+type Coverage struct {
+	PricedTokens      string `json:"priced_tokens"`
+	UnpricedTokens    string `json:"unpriced_tokens"`
+	PricedBasisPoints *int   `json:"priced_basis_points"`
+}
+
+// UnrankedReason says why a row has no rank.
+type UnrankedReason string
+
+const (
+	UnrankedNoUsage          UnrankedReason = "no_usage"
+	UnrankedValueUnavailable UnrankedReason = "value_unavailable"
+	UnrankedCostCoverage     UnrankedReason = "cost_coverage_below_threshold"
+)
+
+// Trend compares a row with the board's comparison window. RankChange is
+// positive for a climb and nil when either window has no rank. New marks a
+// member with usage now and none in the comparison window.
+type Trend struct {
+	PreviousValue Value `json:"previous_value"`
+	PreviousRank  *int  `json:"previous_rank"`
+	RankChange    *int  `json:"rank_change"`
+	New           bool  `json:"new"`
+}
+
+// Plausibility is the server's advisory note on self-reported usage.
+type Plausibility struct {
+	DailyTokensAboveLimit bool `json:"daily_tokens_above_limit"`
+}
+
 // Row is one active group member's leaderboard result.
 type Row struct {
-	Rank          *int        `json:"rank"`
-	UserID        string      `json:"user_id"`
-	DisplayName   string      `json:"display_name"`
-	CurrentUser   bool        `json:"current_user"`
-	Value         Value       `json:"value"`
-	LastSyncedAt  *time.Time  `json:"last_synced_at"`
-	SourceMix     []SourceMix `json:"source_mix"`
-	MostUsedModel *ModelUsage `json:"most_used_model"`
-	Limitations   Limitations `json:"limitations"`
+	Rank           *int           `json:"rank"`
+	UnrankedReason UnrankedReason `json:"unranked_reason"`
+	UserID         string         `json:"user_id"`
+	DisplayName    string         `json:"display_name"`
+	CurrentUser    bool           `json:"current_user"`
+	Value          Value          `json:"value"`
+	Coverage       Coverage       `json:"cost_coverage"`
+	Trend          Trend          `json:"trend"`
+	Plausibility   Plausibility   `json:"plausibility"`
+	LastSyncedAt   *time.Time     `json:"last_synced_at"`
+	SourceMix      []SourceMix    `json:"source_mix"`
+	MostUsedModel  *ModelUsage    `json:"most_used_model"`
+	Limitations    Limitations    `json:"limitations"`
+}
+
+// ComparisonKind names what a board's trends are measured against.
+type ComparisonKind string
+
+const (
+	// ComparisonPreviousPeriod is the preceding period at the same elapsed time.
+	ComparisonPreviousPeriod ComparisonKind = "previous_period"
+	// ComparisonDayEarlier is the all-time board as it stood 24 hours before.
+	ComparisonDayEarlier ComparisonKind = "24h_earlier"
+)
+
+// Comparison is the window every row's trend is measured against.
+type Comparison struct {
+	Kind   ComparisonKind `json:"kind"`
+	Window Window         `json:"window"`
 }
 
 // Window is the UTC range represented by a leaderboard.
@@ -117,14 +169,18 @@ type Window struct {
 
 // Board is one group leaderboard response.
 type Board struct {
-	GroupID     string    `json:"group_id"`
-	GroupName   string    `json:"group_name"`
-	Timezone    string    `json:"timezone"`
-	Period      Period    `json:"period"`
-	Metric      Metric    `json:"metric"`
-	Window      Window    `json:"window"`
-	GeneratedAt time.Time `json:"generated_at"`
-	Rows        []Row     `json:"rows"`
+	GroupID     string     `json:"group_id"`
+	GroupName   string     `json:"group_name"`
+	Timezone    string     `json:"timezone"`
+	Period      Period     `json:"period"`
+	Metric      Metric     `json:"metric"`
+	Window      Window     `json:"window"`
+	Comparison  Comparison `json:"comparison"`
+	GeneratedAt time.Time  `json:"generated_at"`
+	// CostRankMinPricedBasisPoints is the priced share an estimate needs to
+	// be ranked, as the server applied it.
+	CostRankMinPricedBasisPoints int   `json:"cost_rank_min_priced_basis_points"`
+	Rows                         []Row `json:"rows"`
 }
 
 // Client calls the hosted private-group API.

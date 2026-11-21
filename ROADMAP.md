@@ -275,6 +275,8 @@ error records, are excluded before normalization.
   lower bound with the unpriced share visible.
 - A user is ranked on cost when at least 95% of their tokens in the window are
   priced; otherwise the row shows its lower bound and coverage without a rank.
+- A user is ranked on tokens whenever a total is known, including a lower
+  bound from a source that does not report every category.
 - Service tier and prompt length select among a model's prices, from evidence
   the source records for each request. A proven tier or length with no
   vendored rate stays unpriced, and so does usage of a prompt-length-priced
@@ -653,13 +655,17 @@ Goal: reach social-product parity with honest ranking rules.
     proves a settings event without a tier keeps the previous one.
   - Depends on: TKH-064.
 
-- [ ] **TKH-070: Leaderboard v2** (`feat/leaderboard-v2`)
+- [x] **TKH-070: Leaderboard v2** (`feat/leaderboard-v2`)
   - Metrics: total tokens and API-equivalent estimate.
   - Cost ranking requires at least 95% priced tokens; otherwise show the
     lower bound and coverage without a rank.
   - Trends compare rank and value with the previous period truncated to the
     same elapsed time. All-time compares with 24 hours ago and says so.
-  - Add an advisory plausibility flag for implausible daily totals.
+  - Add an advisory plausibility flag for implausible daily totals: more than
+    5 billion tokens on one local day, about ten times the heaviest day
+    observed during development.
+  - Token ranks include lower-bound totals, because a source that never
+    reports a category would otherwise never rank.
   - Acceptance: SQL tests cover non-UTC boundaries, ties, coverage, trends,
     and first-period entrants.
   - Depends on: TKH-074.

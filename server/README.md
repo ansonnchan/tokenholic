@@ -22,11 +22,24 @@ fixed use limit, and are stored only as SHA-256 hashes. PostgreSQL locks invite
 and membership state in the same transaction so retries cannot over-consume a
 code or leave a group without its owner.
 
-`leaderboard` defines timezone-relative periods, ranking metrics, explicit
-coverage, and competition ties. Its PostgreSQL repository authorizes active
-membership and aggregates active devices in one repeatable-read snapshot.
-Partial values remain visible but unranked; freshness and model/price
-limitations travel with every row.
+`leaderboard` defines timezone-relative periods, the two ranking metrics, cost
+coverage, trends, and competition ties. Its PostgreSQL repository authorizes
+active membership and aggregates active devices over the current window and
+its comparison window in one repeatable-read snapshot; the package then ranks
+both. The rules it applies:
+
+| Rule | Value |
+| --- | --- |
+| Metrics | `total_tokens` and `api_estimate`. Any other metric is invalid input |
+| Token rank | Every member with a known total, including a lower bound |
+| Estimate rank | Only members with at least 95% of their tokens priced; others show their lower bound and coverage without a rank |
+| Trend | Rank and value against the previous day, week, or 30 days at the same elapsed time; all-time against 24 hours earlier |
+| New entrant | Usage in the current window and none in the comparison window |
+| Plausibility note | More than 5 billion tokens on one local day. Advisory only: nothing is capped, dropped, or unranked |
+
+The board response states the coverage threshold and the plausibility limit,
+so a client explains them without copying server policy. Freshness and
+model/price limitations travel with every row.
 
 The schema contains users, stable GitHub identities, independently revocable
 devices and hashed credentials, pricing revisions, privacy-limited absolute
