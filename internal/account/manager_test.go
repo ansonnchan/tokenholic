@@ -50,6 +50,53 @@ func TestManagerLoginRefreshAndLogout(t *testing.T) {
 	}
 }
 
+func TestBeginShowsTheCodeAndCompleteStoresOnlyAfterAuthorization(t *testing.T) {
+	session := Session{Credential: "credential", UserID: "user", DeviceID: "device", Login: "synthetic-user"}
+	challenge := DeviceStart{FlowToken: "flow", UserCode: "ABCD-1234", VerificationURI: "https://github.com/login/device", ExpiresIn: time.Minute, Interval: time.Second}
+	client := &fakeClient{start: challenge, polls: []PollResult{{Pending: true}, {Pending: true}, {Session: session}}}
+	store := &memoryStore{}
+	manager, err := NewManager(client, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := manager.Begin(t.Context(), "test")
+	if err != nil || started != challenge {
+		t.Fatalf("Begin() = %#v, %v", started, err)
+	}
+	if store.session.Credential != "" {
+		t.Fatal("Begin stored a credential before the user authorized anything")
+	}
+
+	// Cancelling while the user is still at GitHub stores nothing.
+	ctx, cancel := context.WithCancel(t.Context())
+	waited := 0
+	manager.sleep = func(ctx context.Context, _ time.Duration) error {
+		waited++
+		if waited == 2 {
+			cancel()
+		}
+		return ctx.Err()
+	}
+	if _, err := manager.Complete(ctx, started); err == nil || store.session.Credential != "" {
+		t.Fatalf("cancelled Complete() = %v with stored %#v", err, store.session)
+	}
+
+	manager.sleep = func(context.Context, time.Duration) error { return nil }
+	client.polls = []PollResult{{Pending: true}, {Session: session}}
+	got, err := manager.Complete(t.Context(), started)
+	if err != nil || got != session || store.session != session {
+		t.Fatalf("Complete() = %#v, %v with stored %#v", got, err, store.session)
+	}
+
+	// A challenge that has already expired never polls.
+	client.polls = nil
+	started.ExpiresIn = 0
+	manager.sleep = sleepContext
+	if _, err := manager.Complete(t.Context(), started); err == nil {
+		t.Fatal("Complete() accepted an expired challenge")
+	}
+}
+
 func TestManagerKeepsCredentialWhenRevocationFails(t *testing.T) {
 	client := &fakeClient{logoutErr: errors.New("network unavailable")}
 	store := &memoryStore{session: Session{Credential: "still-live"}}
