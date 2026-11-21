@@ -391,6 +391,11 @@ func (f fixedLeaderboardRepository) Leaderboard(ctx context.Context, principal s
 	return f.repository.Leaderboard(ctx, principal, query)
 }
 
+func (f fixedLeaderboardRepository) PublicGroupLeaderboard(ctx context.Context, slug string, query leaderboard.Query) (leaderboard.Board, error) {
+	query.GeneratedAt = f.now
+	return f.repository.PublicGroupLeaderboard(ctx, slug, query)
+}
+
 func (f fixedLeaderboardRepository) GlobalLeaderboard(ctx context.Context, query leaderboard.Query) (leaderboard.Board, error) {
 	query.GeneratedAt = f.now
 	return f.repository.GlobalLeaderboard(ctx, query)

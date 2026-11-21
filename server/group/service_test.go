@@ -3,6 +3,7 @@ package group
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,11 +80,97 @@ func TestServiceAuthenticatesEveryOperation(t *testing.T) {
 		},
 		func() error { return service.Leave(t.Context(), "bad", testGroupID) },
 		func() error { return service.Revoke(t.Context(), "bad", testGroupID, testUserID) },
+		func() error {
+			_, err := service.SetVisibility(t.Context(), "bad", testGroupID, VisibilityPublic)
+			return err
+		},
+		func() error { return service.Delete(t.Context(), "bad", testGroupID) },
+		func() error { return service.Transfer(t.Context(), "bad", testGroupID, "member") },
 	}
 	for index, operation := range operations {
 		if err := operation(); !errors.Is(err, serverauth.ErrUnauthorized) {
 			t.Fatalf("operation %d error = %v", index, err)
 		}
+	}
+}
+
+func TestServiceValidatesGroupLifecycleInput(t *testing.T) {
+	repository := &fakeRepository{}
+	service, err := NewService(fakeAuthenticator{}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slugs := map[string]bool{}
+	for attempt := 0; attempt < 3; attempt++ {
+		group, err := service.SetVisibility(t.Context(), "credential", testGroupID, VisibilityPublic)
+		if err != nil || group.Visibility != VisibilityPublic || len(repository.slug) != 10 || !strings.HasPrefix(repository.slug, "g-") || strings.ToLower(repository.slug) != repository.slug {
+			t.Fatalf("SetVisibility() = %#v, %v with slug %q", group, err, repository.slug)
+		}
+		slugs[repository.slug] = true
+	}
+	if len(slugs) != 3 {
+		t.Fatalf("candidate slugs = %v, want a fresh random one each time", slugs)
+	}
+	if _, err := service.SetVisibility(t.Context(), "credential", testGroupID, "unlisted"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("invalid visibility error = %v", err)
+	}
+	if _, err := service.SetVisibility(t.Context(), "credential", "bad", VisibilityPublic); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("invalid group error = %v", err)
+	}
+	if err := service.Delete(t.Context(), "credential", "bad"); !errors.Is(err, ErrNotFound) || repository.deleted != "" {
+		t.Fatalf("Delete(bad) = %v, deleted %q", err, repository.deleted)
+	}
+	if err := service.Delete(t.Context(), "credential", testGroupID); err != nil || repository.deleted != testGroupID {
+		t.Fatalf("Delete() = %v, deleted %q", err, repository.deleted)
+	}
+	if err := service.Transfer(t.Context(), "credential", testGroupID, "  New-Owner "); err != nil || repository.transferred != "New-Owner" {
+		t.Fatalf("Transfer() = %v, target %q", err, repository.transferred)
+	}
+	for _, login := range []string{"", "   ", strings.Repeat("a", 40)} {
+		if err := service.Transfer(t.Context(), "credential", testGroupID, login); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("Transfer(%q) error = %v", login, err)
+		}
+	}
+}
+
+func TestServiceInviteLinksAndPreview(t *testing.T) {
+	repository := &fakeRepository{}
+	// A preview needs no credential.
+	service, err := NewService(fakeAuthenticator{err: serverauth.ErrUnauthorized}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview, err := service.InvitePreview(t.Context(), "ovt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); err != nil || preview.GroupName != "Team" {
+		t.Fatalf("InvitePreview() = %#v, %v", preview, err)
+	}
+	for _, code := range []string{"", "ovt_short", "xyz_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", strings.Repeat("a", 500)} {
+		if _, err := service.InvitePreview(t.Context(), code); !errors.Is(err, ErrInvalidInvite) {
+			t.Fatalf("InvitePreview(%q) error = %v", code, err)
+		}
+	}
+	if repository.previewed != 1 {
+		t.Fatalf("%d previews reached storage, want only the well-formed code", repository.previewed)
+	}
+
+	signedIn, err := NewService(fakeAuthenticator{}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invite, err := signedIn.Invite(t.Context(), "credential", testGroupID, time.Hour, 1)
+	if err != nil || invite.Link != "" {
+		t.Fatalf("invite without a website origin = %#v, %v; want no link", invite, err)
+	}
+	for _, origin := range []string{"http://tokenholic.example", "https://tokenholic.example/app", "https://user@tokenholic.example", "https://tokenholic.example?x=1", "tokenholic.example", ""} {
+		if err := signedIn.SetWebOrigin(origin); err == nil {
+			t.Fatalf("SetWebOrigin(%q) error = nil", origin)
+		}
+	}
+	if err := signedIn.SetWebOrigin("https://tokenholic.example/"); err != nil {
+		t.Fatal(err)
+	}
+	invite, err = signedIn.Invite(t.Context(), "credential", testGroupID, time.Hour, 1)
+	if err != nil || invite.Link != "https://tokenholic.example/invite/#"+invite.Code {
+		t.Fatalf("invite link = %q for code %q, %v", invite.Link, invite.Code, err)
 	}
 }
 
@@ -101,8 +188,30 @@ func (f fakeAuthenticator) Authenticate(context.Context, string) (serverauth.Pri
 }
 
 type fakeRepository struct {
-	created NewGroup
-	invite  NewInvite
+	created     NewGroup
+	invite      NewInvite
+	visibility  Visibility
+	slug        string
+	deleted     string
+	transferred string
+	previewed   int
+}
+
+func (f *fakeRepository) SetVisibility(_ context.Context, _ serverauth.Principal, groupID string, visibility Visibility, slug string) (Group, error) {
+	f.visibility, f.slug = visibility, slug
+	return Group{ID: groupID, Visibility: visibility, PublicSlug: slug}, nil
+}
+func (f *fakeRepository) DeleteGroup(_ context.Context, _ serverauth.Principal, groupID string) error {
+	f.deleted = groupID
+	return nil
+}
+func (f *fakeRepository) TransferOwnership(_ context.Context, _ serverauth.Principal, _, login string) error {
+	f.transferred = login
+	return nil
+}
+func (f *fakeRepository) InvitePreview(context.Context, [32]byte, time.Time) (InvitePreview, error) {
+	f.previewed++
+	return InvitePreview{GroupName: "Team"}, nil
 }
 
 func (f *fakeRepository) CreateGroup(_ context.Context, _ serverauth.Principal, input NewGroup) (Group, error) {

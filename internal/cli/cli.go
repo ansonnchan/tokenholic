@@ -55,6 +55,11 @@ type groupManager interface {
 	Invite(context.Context, string, time.Duration, int) (multiplayer.Invite, error)
 	Leave(context.Context, string) error
 	SetGlobalParticipation(context.Context, bool) error
+	Profile(context.Context) (multiplayer.Profile, error)
+	SetProfileVisibility(context.Context, bool) error
+	SetGroupVisibility(context.Context, string, bool) (multiplayer.Group, error)
+	DeleteGroup(context.Context, string) error
+	TransferGroup(context.Context, string, string) error
 }
 
 type autosyncManager interface {
@@ -120,6 +125,9 @@ func run(args []string, stdout, stderr io.Writer, deps dependencies) int {
 	}
 	if len(args) > 0 && args[0] == "global" {
 		return runGlobalCommand(args[1:], stdout, stderr, deps)
+	}
+	if len(args) > 0 && args[0] == "profile" {
+		return runProfileCommand(args[1:], stdout, stderr, deps)
 	}
 	if len(args) > 0 && args[0] == "account" {
 		return runAccountCommand(args[1:], stdout, stderr, deps)

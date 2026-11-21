@@ -42,6 +42,9 @@ func (r *AuthRepository) RegisterDevice(ctx context.Context, githubUser serverau
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, githubUser.ID); err != nil {
 		return identity, fmt.Errorf("lock GitHub identity: %w", err)
 	}
+	// The schema accepts only GitHub's avatar host. Dropping anything else
+	// here keeps an unexpected URL from failing the login itself.
+	githubUser.AvatarURL = serverauth.AvatarURL(githubUser.AvatarURL)
 	var userID string
 	err = tx.QueryRow(ctx, `SELECT user_id::text FROM github_identities WHERE github_user_id = $1`, githubUser.ID).Scan(&userID)
 	switch {
@@ -50,13 +53,14 @@ func (r *AuthRepository) RegisterDevice(ctx context.Context, githubUser serverau
 		if _, err = tx.Exec(ctx, `INSERT INTO users(id, display_name) VALUES ($1::uuid, $2)`, userID, githubUser.Login); err != nil {
 			return identity, fmt.Errorf("create tokenholic user: %w", err)
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO github_identities(github_user_id, user_id, login) VALUES ($1, $2::uuid, $3)`, githubUser.ID, userID, githubUser.Login); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO github_identities(github_user_id, user_id, login, avatar_url) VALUES ($1, $2::uuid, $3, NULLIF($4, ''))`, githubUser.ID, userID, githubUser.Login, githubUser.AvatarURL); err != nil {
 			return identity, fmt.Errorf("create GitHub identity: %w", err)
 		}
 	case err != nil:
 		return identity, fmt.Errorf("lookup GitHub identity: %w", err)
 	default:
-		if _, err = tx.Exec(ctx, `UPDATE github_identities SET login = $2, updated_at = CURRENT_TIMESTAMP WHERE github_user_id = $1`, githubUser.ID, githubUser.Login); err != nil {
+		// Each login refreshes the avatar, including clearing one GitHub no longer reports.
+		if _, err = tx.Exec(ctx, `UPDATE github_identities SET login = $2, avatar_url = NULLIF($3, ''), updated_at = CURRENT_TIMESTAMP WHERE github_user_id = $1`, githubUser.ID, githubUser.Login, githubUser.AvatarURL); err != nil {
 			return identity, fmt.Errorf("refresh GitHub identity: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `UPDATE users SET display_name = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1::uuid`, userID, githubUser.Login); err != nil {

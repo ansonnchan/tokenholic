@@ -30,7 +30,8 @@ func NewLeaderboardRepository(pool *pgxpool.Pool) (*LeaderboardRepository, error
 }
 
 // boardScope selects whose usage a board aggregates. members is the body of a
-// CTE yielding (user_id, display_name) and takes exactly one parameter, $1.
+// CTE yielding (user_id, display_name, avatar_url) and takes exactly one
+// parameter, $1.
 // Every board query is built from it, so no query can read a user the scope
 // does not include.
 type boardScope struct {
@@ -41,9 +42,21 @@ type boardScope struct {
 // groupScope is the active members of one group.
 func groupScope(groupID string) boardScope {
 	return boardScope{argument: groupID, members: `
-		SELECT m.user_id, u.display_name
+		SELECT m.user_id, u.display_name, NULL::text AS avatar_url
 		FROM group_memberships m
 		JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+		WHERE m.group_id = $1::uuid AND m.revoked_at IS NULL`}
+}
+
+// publicGroupScope is the active members of one group whose own profile is
+// public. A member with a private profile is left out entirely, so a public
+// board cannot show that a private account belongs to the group.
+func publicGroupScope(groupID string) boardScope {
+	return boardScope{argument: groupID, members: `
+		SELECT m.user_id, u.display_name, gi.avatar_url
+		FROM group_memberships m
+		JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL AND u.profile_visibility = 'public'
+		LEFT JOIN github_identities gi ON gi.user_id = u.id
 		WHERE m.group_id = $1::uuid AND m.revoked_at IS NULL`}
 }
 
@@ -51,7 +64,7 @@ func groupScope(groupID string) boardScope {
 // is false by default, so an account appears only after choosing to.
 func globalScope() boardScope {
 	return boardScope{argument: true, members: `
-		SELECT u.id AS user_id, u.display_name
+		SELECT u.id AS user_id, u.display_name, NULL::text AS avatar_url
 		FROM users u
 		WHERE u.global_opt_in = $1::boolean AND u.deleted_at IS NULL`}
 }
@@ -113,6 +126,39 @@ func (r *LeaderboardRepository) GlobalLeaderboard(ctx context.Context, query lea
 	return board, nil
 }
 
+// PublicGroupLeaderboard reads a public group's board by slug. Visibility is
+// part of the lookup: a private or unknown slug matches no row and returns
+// the same ErrNotFound, with no later branch that could tell them apart.
+func (r *LeaderboardRepository) PublicGroupLeaderboard(ctx context.Context, slug string, query leaderboard.Query) (board leaderboard.Board, err error) {
+	board = leaderboard.Board{
+		Scope: leaderboard.ScopePublicGroup, PublicSlug: slug, Period: query.Period, Metric: query.Metric,
+		GeneratedAt: query.GeneratedAt.UTC(), Rows: make([]leaderboard.Row, 0),
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return board, fmt.Errorf("begin public leaderboard snapshot: %w", err)
+	}
+	defer rollbackOnError(ctx, tx, &err)
+	var groupID string
+	err = tx.QueryRow(ctx, `
+		SELECT g.id::text, g.name, g.timezone FROM groups g
+		WHERE g.public_slug = $1 AND g.visibility = 'public'
+	`, slug).Scan(&groupID, &board.GroupName, &board.Timezone)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return leaderboard.Board{}, servergroup.ErrNotFound
+	}
+	if err != nil {
+		return board, fmt.Errorf("find public group: %w", err)
+	}
+	if err = readBoard(ctx, tx, publicGroupScope(groupID), &board); err != nil {
+		return board, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return board, fmt.Errorf("commit public leaderboard snapshot: %w", err)
+	}
+	return board, nil
+}
+
 // readBoard fills a board's windows and rows for one scope. The board's
 // timezone, period, metric, and generation time must already be set.
 func readBoard(ctx context.Context, tx pgx.Tx, scope boardScope, board *leaderboard.Board) error {
@@ -137,8 +183,9 @@ func readBoard(ctx context.Context, tx pgx.Tx, scope boardScope, board *leaderbo
 	for rows.Next() {
 		var row leaderboard.Row
 		var current, previous memberWindowScan
+		var avatar *string
 		if err := rows.Scan(
-			&row.UserID, &row.DisplayName, &row.LastSyncedAt,
+			&row.UserID, &row.DisplayName, &avatar, &row.LastSyncedAt,
 			&current.buckets, &current.total.value, &current.total.known, &current.total.complete,
 			&current.estimate.value, &current.estimate.known, &current.estimate.complete,
 			&current.priced, &current.unpriced,
@@ -151,6 +198,9 @@ func readBoard(ctx context.Context, tx pgx.Tx, scope boardScope, board *leaderbo
 		); err != nil {
 			rows.Close()
 			return fmt.Errorf("decode leaderboard member: %w", err)
+		}
+		if avatar != nil {
+			row.AvatarURL = *avatar
 		}
 		row.Value, row.Coverage = current.value(board.Metric), leaderboard.NewCoverage(current.priced, current.unpriced)
 		row.Trend.PreviousValue, row.PreviousCoverage = previous.value(board.Metric), leaderboard.NewCoverage(previous.priced, previous.unpriced)
@@ -311,6 +361,7 @@ const memberAggregateSQL = `, usage AS (
 	SELECT
 		m.user_id::text,
 		m.display_name,
+		m.avatar_url,
 		MAX(u.received_at),
 		COUNT(*) FILTER (WHERE u.in_current),
 		SUM(u.total_tokens) FILTER (WHERE u.in_current)::text,
@@ -335,7 +386,7 @@ const memberAggregateSQL = `, usage AS (
 		COUNT(*) FILTER (WHERE u.in_current AND u.api_estimate_microusd IS NULL)
 	FROM members m
 	LEFT JOIN usage u ON u.user_id = m.user_id
-	GROUP BY m.user_id, m.display_name
+	GROUP BY m.user_id, m.display_name, m.avatar_url
 `
 
 // windowBucketsSQL selects the members' active-device buckets inside the

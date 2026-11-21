@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base32"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -36,6 +38,20 @@ var (
 	ErrGroupFull = errors.New("group member limit has been reached")
 	// ErrInvalidInput means a group request failed public input validation.
 	ErrInvalidInput = errors.New("invalid group input")
+	// ErrNotMember means an ownership transfer named someone who is not an
+	// active member of the group. Only the owner can reach it, and the owner
+	// can already list the members.
+	ErrNotMember = errors.New("transfer target is not an active group member")
+)
+
+// Visibility says whether a group has a public, read-only board.
+type Visibility string
+
+const (
+	// VisibilityPrivate is the default: only members can see the group.
+	VisibilityPrivate Visibility = "private"
+	// VisibilityPublic exposes a read-only board at the group's public slug.
+	VisibilityPublic Visibility = "public"
 )
 
 // Role is a private-group authorization role.
@@ -46,13 +62,17 @@ const (
 	RoleMember Role = "member"
 )
 
-// Group is a group visible to one of its active members.
+// Group is a group visible to one of its active members. PublicSlug is set
+// once the group has ever been public and names its board only while
+// Visibility is public.
 type Group struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Timezone  string    `json:"timezone"`
-	Role      Role      `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Timezone   string     `json:"timezone"`
+	Role       Role       `json:"role"`
+	Visibility Visibility `json:"visibility"`
+	PublicSlug string     `json:"public_slug,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 // Member is one active group member.
@@ -69,11 +89,22 @@ type Detail struct {
 	Members []Member `json:"members"`
 }
 
-// Invite is the one-time plaintext result of creating an invitation.
+// Invite is the one-time plaintext result of creating an invitation. Link is
+// the same code as a URL to the website's invite page, present only when the
+// server knows the website's origin. The code sits in the URL fragment, which
+// browsers never send to a server.
 type Invite struct {
 	Code      string    `json:"code"`
+	Link      string    `json:"link,omitempty"`
 	ExpiresAt time.Time `json:"expires_at"`
 	MaxUses   int       `json:"max_uses"`
+}
+
+// InvitePreview is what the bearer of a usable invite code may learn before
+// signing in: which group it joins and until when.
+type InvitePreview struct {
+	GroupName string    `json:"group_name"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // NewGroup is validated group creation input.
@@ -106,6 +137,16 @@ type Repository interface {
 	Join(context.Context, serverauth.Principal, [32]byte, time.Time) (Group, error)
 	Leave(context.Context, serverauth.Principal, string) error
 	RevokeMember(context.Context, serverauth.Principal, string, string) error
+	// SetVisibility is owner-only. slug is the candidate public slug, used
+	// only if the group has none yet.
+	SetVisibility(ctx context.Context, principal serverauth.Principal, groupID string, visibility Visibility, slug string) (Group, error)
+	// DeleteGroup is owner-only and removes memberships and invites with it.
+	DeleteGroup(context.Context, serverauth.Principal, string) error
+	// TransferOwnership is owner-only. The new owner is the active member
+	// with the given GitHub login.
+	TransferOwnership(ctx context.Context, principal serverauth.Principal, groupID, login string) error
+	// InvitePreview returns ErrInvalidInvite unless the code is usable now.
+	InvitePreview(ctx context.Context, codeHash [32]byte, now time.Time) (InvitePreview, error)
 }
 
 // Service authenticates group operations and validates external input.
@@ -113,6 +154,20 @@ type Service struct {
 	authenticator Authenticator
 	repository    Repository
 	now           func() time.Time
+	// webOrigin is the website's origin for invite links; empty disables them.
+	webOrigin string
+}
+
+// SetWebOrigin enables invite links that point at the website. The origin
+// must be an HTTPS origin with no path, query, or fragment.
+func (s *Service) SetWebOrigin(origin string) error {
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+		strings.Trim(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("website origin must be an HTTPS origin without a path")
+	}
+	s.webOrigin = "https://" + parsed.Host
+	return nil
 }
 
 // NewService constructs the private-group application boundary.
@@ -199,7 +254,73 @@ func (s *Service) Invite(ctx context.Context, credential, groupID string, lifeti
 	}); err != nil {
 		return Invite{}, err
 	}
-	return Invite{Code: code, ExpiresAt: expiresAt, MaxUses: maxUses}, nil
+	invite := Invite{Code: code, ExpiresAt: expiresAt, MaxUses: maxUses}
+	if s.webOrigin != "" {
+		invite.Link = s.webOrigin + "/invite/#" + code
+	}
+	return invite, nil
+}
+
+// InvitePreview tells the bearer of a usable invite code which group it
+// joins, without authentication. An unknown, expired, exhausted, revoked, or
+// malformed code all get ErrInvalidInvite.
+func (s *Service) InvitePreview(ctx context.Context, code string) (InvitePreview, error) {
+	if !validInviteCode(code) {
+		return InvitePreview{}, ErrInvalidInvite
+	}
+	return s.repository.InvitePreview(ctx, sha256.Sum256([]byte(code)), s.now().UTC())
+}
+
+// SetVisibility makes a group's board public or private. Only the owner may
+// call it. The first time a group becomes public it is given a random slug,
+// so the board's address reveals nothing about the group and cannot be
+// guessed from its name.
+func (s *Service) SetVisibility(ctx context.Context, credential, groupID string, visibility Visibility) (Group, error) {
+	principal, err := s.authenticate(ctx, credential)
+	if err != nil {
+		return Group{}, err
+	}
+	if !validUUID(groupID) {
+		return Group{}, ErrNotFound
+	}
+	if visibility != VisibilityPrivate && visibility != VisibilityPublic {
+		return Group{}, fmt.Errorf("%w: visibility must be public or private", ErrInvalidInput)
+	}
+	suffix := make([]byte, 5)
+	if _, err := rand.Read(suffix); err != nil {
+		return Group{}, fmt.Errorf("generate group slug: %w", err)
+	}
+	return s.repository.SetVisibility(ctx, principal, groupID, visibility, "g-"+strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(suffix)))
+}
+
+// Delete permanently removes a group with its memberships and invitations.
+// Only the owner may call it. Members' usage is untouched.
+func (s *Service) Delete(ctx context.Context, credential, groupID string) error {
+	principal, err := s.authenticate(ctx, credential)
+	if err != nil {
+		return err
+	}
+	if !validUUID(groupID) {
+		return ErrNotFound
+	}
+	return s.repository.DeleteGroup(ctx, principal, groupID)
+}
+
+// Transfer hands ownership to another active member, named by GitHub login,
+// and makes the previous owner an ordinary member. Only the owner may call it.
+func (s *Service) Transfer(ctx context.Context, credential, groupID, login string) error {
+	principal, err := s.authenticate(ctx, credential)
+	if err != nil {
+		return err
+	}
+	if !validUUID(groupID) {
+		return ErrNotFound
+	}
+	login = strings.TrimSpace(login)
+	if len(login) < 1 || len(login) > 39 {
+		return fmt.Errorf("%w: a GitHub login is required", ErrInvalidInput)
+	}
+	return s.repository.TransferOwnership(ctx, principal, groupID, login)
 }
 
 // Join consumes one use of an active invite and creates a member role.
@@ -208,7 +329,7 @@ func (s *Service) Join(ctx context.Context, credential, code string) (Group, err
 	if err != nil {
 		return Group{}, err
 	}
-	if !strings.HasPrefix(code, "ovt_") || len(code) != 36 {
+	if !validInviteCode(code) {
 		return Group{}, ErrInvalidInvite
 	}
 	hash := sha256.Sum256([]byte(code))
@@ -247,6 +368,10 @@ func (s *Service) authenticate(ctx context.Context, credential string) (serverau
 		return serverauth.Principal{}, serverauth.ErrUnauthorized
 	}
 	return s.authenticator.Authenticate(ctx, credential)
+}
+
+func validInviteCode(code string) bool {
+	return strings.HasPrefix(code, "ovt_") && len(code) == 36
 }
 
 func randomUUID() (string, error) {

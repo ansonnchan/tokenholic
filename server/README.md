@@ -16,11 +16,42 @@ contributes to active account totals. Its deletion operation authenticates the
 presented device and hard-deletes the owning user so every account-owned row is
 erased by foreign-key cascades in one transaction.
 
-`group` implements private group creation, member-authorized reads, and
-owner-only invitation and revocation operations. Invitations expire, have a
-fixed use limit, and are stored only as SHA-256 hashes. PostgreSQL locks invite
-and membership state in the same transaction so retries cannot over-consume a
-code or leave a group without its owner.
+`group` implements group creation, member-authorized reads, and owner-only
+invitation, revocation, visibility, ownership transfer, and deletion.
+Invitations expire, have a fixed use limit, and are stored only as SHA-256
+hashes. PostgreSQL locks invite and membership state in the same transaction
+so retries cannot over-consume a code or leave a group without its owner.
+Every owner-only operation goes through one check that locks the caller's
+membership: a member gets `403`, and a non-member gets the same `404` as for a
+group that does not exist.
+
+## Public routes
+
+Routes under `/v1/public/` take no credential and are read-only:
+
+| Route | Shows | Requires |
+| --- | --- | --- |
+| `GET /v1/public/users/{login}` | GitHub login, avatar, and aggregate totals over UTC windows | The account's profile is public |
+| `GET /v1/public/groups/{slug}/leaderboard` | A group board, limited to members whose own profile is public | The owner made the group public |
+| `GET /v1/public/invites/{code}` | The name of the group a code joins, and its expiry | The code is usable now |
+
+Everything else is `404 {"error":"not_found"}`, identical in status, headers,
+and body for a private, deleted, or nonexistent record. Keep it that way when
+adding a public route:
+
+- put the visibility condition in the lookup query, never in a branch after
+  the row is loaded;
+- validate input before the lookup, so a malformed request is refused the
+  same way whatever it names;
+- end every miss in `writePublicNotFound`;
+- return no account, device, or group identifier and no sync time.
+
+The integration suite compares complete responses for private and nonexistent
+records on every public route. Profiles and group visibility are private by
+default and change only through an authenticated request that names `public`
+or `private` exactly. `TOKENHOLIC_WEB_ORIGIN`, when set to the website's HTTPS
+origin, adds a link to each new invitation; the code sits in the link's
+fragment and is never sent to a web server.
 
 `leaderboard` defines timezone-relative periods, the two ranking metrics, cost
 coverage, trends, and competition ties. Its PostgreSQL repository authorizes

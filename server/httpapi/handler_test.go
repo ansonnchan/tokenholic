@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -286,6 +287,120 @@ func TestGroupRoutesPreserveAuthorizationAndStableErrors(t *testing.T) {
 	}
 }
 
+// Every public route answers a miss with the same bytes, whatever the reason
+// and whichever kind of record was asked for, and takes no credential.
+func TestPublicRoutesAnswerEveryMissIdentically(t *testing.T) {
+	handler, err := New(&fakeAuthService{}, &fakeUsageSyncService{}, &fakeAccountUsageService{}, &fakeGroupService{}, &fakeLeaderboardService{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(path string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		return response
+	}
+	for path, want := range map[string]string{
+		"/v1/public/users/public-member":           `"login":"public-member"`,
+		"/v1/public/groups/g-publicab/leaderboard": `"scope":"public_group"`,
+		"/v1/public/invites/ovt_valid":             `"group_name":"Private group"`,
+	} {
+		if response := get(path); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), want) {
+			t.Fatalf("GET %s = %d %q", path, response.Code, response.Body.String())
+		}
+	}
+	misses := []string{
+		"/v1/public/users/private-member", "/v1/public/users/nobody",
+		"/v1/public/groups/g-privatea/leaderboard", "/v1/public/groups/g-nothere/leaderboard",
+		"/v1/public/invites/ovt_expired", "/v1/public/invites/unknown",
+	}
+	reference := get(misses[0])
+	if reference.Code != http.StatusNotFound || reference.Body.String() != "{\"error\":\"not_found\"}\n" {
+		t.Fatalf("miss = %d %q", reference.Code, reference.Body.String())
+	}
+	for _, path := range misses[1:] {
+		response := get(path)
+		if response.Code != reference.Code || response.Body.String() != reference.Body.String() || !reflect.DeepEqual(response.Header(), reference.Header()) {
+			t.Fatalf("GET %s = %d %q %v, want exactly the reference miss", path, response.Code, response.Body.String(), response.Header())
+		}
+	}
+	// A bad period is refused the same way for a public and a private slug.
+	public, private := get("/v1/public/groups/g-publicab/leaderboard?period=future"), get("/v1/public/groups/g-privatea/leaderboard?period=future")
+	if public.Code != http.StatusBadRequest || private.Code != public.Code || private.Body.String() != public.Body.String() {
+		t.Fatalf("invalid period = %d/%d", public.Code, private.Code)
+	}
+	// Public routes are read-only.
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(method, "/v1/public/users/public-member", strings.NewReader("{}")))
+		if response.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s on a public route = %d, want 405", method, response.Code)
+		}
+	}
+}
+
+func TestProfileAndGroupLifecycleRoutes(t *testing.T) {
+	account, groups := &fakeAccountUsageService{}, &fakeGroupService{group: servergroup.Group{ID: "10000000-0000-4000-8000-000000000001", Name: "Private group"}}
+	handler, err := New(&fakeAuthService{}, &fakeUsageSyncService{}, account, groups, &fakeLeaderboardService{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const group = "/v1/groups/10000000-0000-4000-8000-000000000001"
+	tests := []struct {
+		name, method, path, body, credential string
+		wantStatus                           int
+		wantBody                             string
+	}{
+		{name: "read own profile", method: http.MethodGet, path: "/v1/account/profile", credential: "device", wantStatus: http.StatusOK, wantBody: `"visibility":"private"`},
+		{name: "profile needs a credential", method: http.MethodGet, path: "/v1/account/profile", wantStatus: http.StatusUnauthorized},
+		{name: "publish profile", method: http.MethodPut, path: "/v1/account/profile", body: `{"visibility":"public"}`, credential: "device", wantStatus: http.StatusOK, wantBody: `"visibility":"public"`},
+		{name: "invalid profile visibility", method: http.MethodPut, path: "/v1/account/profile", body: `{"visibility":"unlisted"}`, credential: "device", wantStatus: http.StatusBadRequest},
+		{name: "profile visibility omitted", method: http.MethodPut, path: "/v1/account/profile", body: `{}`, credential: "device", wantStatus: http.StatusBadRequest},
+		{name: "profile change needs a credential", method: http.MethodPut, path: "/v1/account/profile", body: `{"visibility":"public"}`, wantStatus: http.StatusUnauthorized},
+		{name: "publish group", method: http.MethodPut, path: group + "/visibility", body: `{"visibility":"public"}`, credential: "device", wantStatus: http.StatusOK, wantBody: `"visibility":"public"`},
+		{name: "group visibility needs a credential", method: http.MethodPut, path: group + "/visibility", body: `{"visibility":"public"}`, wantStatus: http.StatusUnauthorized},
+		{name: "transfer ownership", method: http.MethodPut, path: group + "/owner", body: `{"login":"new-owner"}`, credential: "device", wantStatus: http.StatusNoContent},
+		{name: "transfer needs a credential", method: http.MethodPut, path: group + "/owner", body: `{"login":"new-owner"}`, wantStatus: http.StatusUnauthorized},
+		{name: "delete without confirmation", method: http.MethodDelete, path: group, body: `{}`, credential: "device", wantStatus: http.StatusBadRequest, wantBody: "confirmation_required"},
+		{name: "delete needs a credential", method: http.MethodDelete, path: group, body: `{"confirmation":"DELETE"}`, wantStatus: http.StatusUnauthorized},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+			if test.credential != "" {
+				request.Header.Set("Authorization", "Bearer "+test.credential)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.wantStatus || !strings.Contains(response.Body.String(), test.wantBody) {
+				t.Fatalf("%s %s = %d %q, want %d containing %q", test.method, test.path, response.Code, response.Body.String(), test.wantStatus, test.wantBody)
+			}
+		})
+	}
+	if account.visibility != serveraccount.VisibilityPublic || groups.transferred != "new-owner" || groups.deleted {
+		t.Fatalf("state after the table = visibility %q, transfer %q, deleted %t", account.visibility, groups.transferred, groups.deleted)
+	}
+	request := httptest.NewRequest(http.MethodDelete, group, strings.NewReader(`{"confirmation":"DELETE"}`))
+	request.Header.Set("Authorization", "Bearer device")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || !groups.deleted {
+		t.Fatalf("confirmed delete = %d, deleted %t", response.Code, groups.deleted)
+	}
+	// Owner-only failures keep their distinct, existing meanings for members.
+	for wantStatus, serviceErr := range map[int]error{
+		http.StatusForbidden: servergroup.ErrForbidden, http.StatusNotFound: servergroup.ErrNotFound, http.StatusConflict: servergroup.ErrNotMember,
+	} {
+		groups.err = serviceErr
+		request := httptest.NewRequest(http.MethodPut, group+"/owner", strings.NewReader(`{"login":"new-owner"}`))
+		request.Header.Set("Authorization", "Bearer device")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != wantStatus {
+			t.Fatalf("transfer with %v = %d, want %d", serviceErr, response.Code, wantStatus)
+		}
+	}
+}
+
 func TestGlobalBoardRoutes(t *testing.T) {
 	account := &fakeAccountUsageService{}
 	leaderboards := &fakeLeaderboardService{board: serverleaderboard.Board{Scope: serverleaderboard.ScopeGlobal, Timezone: "UTC"}}
@@ -435,6 +550,26 @@ type fakeAccountUsageService struct {
 	deleteErr  error
 	optIn      *bool
 	optInErr   error
+	visibility serveraccount.Visibility
+}
+
+func (f *fakeAccountUsageService) Profile(context.Context, string) (serveraccount.Profile, error) {
+	return serveraccount.Profile{Login: "member", Visibility: serveraccount.VisibilityPrivate}, nil
+}
+
+func (f *fakeAccountUsageService) SetProfileVisibility(_ context.Context, _ string, visibility serveraccount.Visibility) error {
+	if visibility != serveraccount.VisibilityPublic && visibility != serveraccount.VisibilityPrivate {
+		return serveraccount.ErrInvalidVisibility
+	}
+	f.visibility = visibility
+	return nil
+}
+
+func (f *fakeAccountUsageService) PublicProfile(_ context.Context, login string) (serveraccount.PublicProfile, error) {
+	if login != "public-member" {
+		return serveraccount.PublicProfile{}, serveraccount.ErrProfileNotFound
+	}
+	return serveraccount.PublicProfile{Login: login}, nil
 }
 
 func (f *fakeAccountUsageService) SetGlobalOptIn(_ context.Context, credential string, participating bool) error {
@@ -446,10 +581,12 @@ func (f *fakeAccountUsageService) SetGlobalOptIn(_ context.Context, credential s
 }
 
 type fakeGroupService struct {
-	group  servergroup.Group
-	detail servergroup.Detail
-	invite servergroup.Invite
-	err    error
+	group       servergroup.Group
+	detail      servergroup.Detail
+	invite      servergroup.Invite
+	err         error
+	deleted     bool
+	transferred string
 }
 
 type fakeLeaderboardService struct {
@@ -458,6 +595,16 @@ type fakeLeaderboardService struct {
 	metric serverleaderboard.Metric
 	global bool
 	err    error
+}
+
+func (f *fakeLeaderboardService) PublicGroup(_ context.Context, slug string, period serverleaderboard.Period, _ serverleaderboard.Metric) (serverleaderboard.Board, error) {
+	if !period.Valid() {
+		return serverleaderboard.Board{}, servergroup.ErrInvalidInput
+	}
+	if slug != "g-publicab" {
+		return serverleaderboard.Board{}, servergroup.ErrNotFound
+	}
+	return serverleaderboard.Board{Scope: serverleaderboard.ScopePublicGroup, PublicSlug: slug}, nil
 }
 
 func (f *fakeLeaderboardService) Global(_ context.Context, _ string, period serverleaderboard.Period, metric serverleaderboard.Metric) (serverleaderboard.Board, error) {
@@ -487,6 +634,25 @@ func (f *fakeGroupService) Join(context.Context, string, string) (servergroup.Gr
 	return f.group, f.err
 }
 func (f *fakeGroupService) Leave(context.Context, string, string) error { return f.err }
+func (f *fakeGroupService) SetVisibility(_ context.Context, _, _ string, visibility servergroup.Visibility) (servergroup.Group, error) {
+	group := f.group
+	group.Visibility = visibility
+	return group, f.err
+}
+func (f *fakeGroupService) Delete(context.Context, string, string) error {
+	f.deleted = true
+	return f.err
+}
+func (f *fakeGroupService) Transfer(_ context.Context, _, _, login string) error {
+	f.transferred = login
+	return f.err
+}
+func (f *fakeGroupService) InvitePreview(_ context.Context, code string) (servergroup.InvitePreview, error) {
+	if code != "ovt_valid" {
+		return servergroup.InvitePreview{}, servergroup.ErrInvalidInvite
+	}
+	return servergroup.InvitePreview{GroupName: "Private group"}, nil
+}
 func (f *fakeGroupService) Revoke(context.Context, string, string, string) error {
 	return f.err
 }

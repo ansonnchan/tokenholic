@@ -151,6 +151,82 @@ func TestServiceLoadsSelectionAndResolvesGroupCommands(t *testing.T) {
 			t.Fatalf("SetGlobalParticipation(%t) = %v, sent %v", participating, err, client.participating)
 		}
 	}
+	// Lifecycle commands resolve a group by name before acting on its ID.
+	if group, err := service.SetGroupVisibility(t.Context(), "One", true); err != nil || client.visibilityGroup != "group-one" || group.PublicSlug == "" {
+		t.Fatalf("SetGroupVisibility() = %#v, %v, group %q", group, err, client.visibilityGroup)
+	}
+	if err := service.TransferGroup(t.Context(), "One", "new-owner"); err != nil || client.transferGroup != "group-one" || client.transferLogin != "new-owner" {
+		t.Fatalf("TransferGroup() = %v, %q to %q", err, client.transferGroup, client.transferLogin)
+	}
+	if err := service.DeleteGroup(t.Context(), "Unknown"); !errors.Is(err, ErrNotFound) || client.deletedGroup != "" {
+		t.Fatalf("DeleteGroup(unknown) = %v, deleted %q", err, client.deletedGroup)
+	}
+	if err := service.DeleteGroup(t.Context(), "Two"); err != nil || client.deletedGroup != "group-two" {
+		t.Fatalf("DeleteGroup() = %v, deleted %q", err, client.deletedGroup)
+	}
+	if profile, err := service.Profile(t.Context()); err != nil || profile.Login != "member" {
+		t.Fatalf("Profile() = %#v, %v", profile, err)
+	}
+	if err := service.SetProfileVisibility(t.Context(), true); err != nil || client.profilePublic == nil || !*client.profilePublic {
+		t.Fatalf("SetProfileVisibility() = %v, sent %v", err, client.profilePublic)
+	}
+}
+
+// The client reports a visibility change only when the server's reply says
+// the same thing, and sends the confirmation word a deletion requires.
+func TestClientProfileAndGroupLifecycleRequests(t *testing.T) {
+	t.Parallel()
+	const groupID = "10000000-0000-4000-8000-000000000001"
+	replies := map[string]string{
+		"GET /v1/account/profile":                   `{"login":"member","visibility":"private","global_opt_in":false}`,
+		"PUT /v1/account/profile":                   `{"visibility":"public"}`,
+		"PUT /v1/groups/" + groupID + "/visibility": `{"id":"` + groupID + `","name":"Quiet group","timezone":"UTC","role":"owner","visibility":"public","public_slug":"g-publicab"}`,
+		"PUT /v1/groups/" + groupID + "/owner":      ``,
+		"DELETE /v1/groups/" + groupID:              ``,
+	}
+	sent := map[string]string{}
+	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		key := request.Method + " " + request.URL.Path
+		reply, known := replies[key]
+		if !known || request.Header.Get("Authorization") != "Bearer device-credential" {
+			t.Fatalf("unexpected request %s", key)
+		}
+		if request.Body != nil {
+			body, _ := io.ReadAll(request.Body)
+			sent[key] = string(body)
+		}
+		status := http.StatusOK
+		if reply == "" {
+			status = http.StatusNoContent
+		}
+		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(reply)), Request: request}, nil
+	})}
+	client, err := NewClient("https://api.example.test", httpClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile, err := client.Profile(t.Context(), "device-credential"); err != nil || profile.Login != "member" || profile.Visibility != "private" {
+		t.Fatalf("Profile() = %#v, %v", profile, err)
+	}
+	if err := client.SetProfileVisibility(t.Context(), "device-credential", true); err != nil {
+		t.Fatalf("SetProfileVisibility(public) = %v", err)
+	}
+	// The server still says public, so going private is not confirmed.
+	if err := client.SetProfileVisibility(t.Context(), "device-credential", false); err == nil {
+		t.Fatal("SetProfileVisibility(private) reported a change the server did not confirm")
+	}
+	if group, err := client.SetGroupVisibility(t.Context(), "device-credential", groupID, true); err != nil || group.PublicSlug != "g-publicab" {
+		t.Fatalf("SetGroupVisibility(public) = %#v, %v", group, err)
+	}
+	if _, err := client.SetGroupVisibility(t.Context(), "device-credential", groupID, false); err == nil {
+		t.Fatal("SetGroupVisibility(private) reported a change the server did not confirm")
+	}
+	if err := client.TransferGroup(t.Context(), "device-credential", groupID, "new-owner"); err != nil || sent["PUT /v1/groups/"+groupID+"/owner"] != `{"login":"new-owner"}` {
+		t.Fatalf("TransferGroup() = %v after sending %q", err, sent["PUT /v1/groups/"+groupID+"/owner"])
+	}
+	if err := client.DeleteGroup(t.Context(), "device-credential", groupID); err != nil || sent["DELETE /v1/groups/"+groupID] != `{"confirmation":"DELETE"}` {
+		t.Fatalf("DeleteGroup() = %v after sending %q", err, sent["DELETE /v1/groups/"+groupID])
+	}
 }
 
 func TestClientSetsGlobalParticipationOnlyWhenTheServerConfirms(t *testing.T) {
@@ -215,6 +291,31 @@ type fakeClient struct {
 	leftGroup       string
 	joinedCode      string
 	participating   *bool
+	visibilityGroup string
+	deletedGroup    string
+	transferGroup   string
+	transferLogin   string
+	profilePublic   *bool
+}
+
+func (f *fakeClient) Profile(context.Context, string) (Profile, error) {
+	return Profile{Login: "member", Visibility: "private"}, nil
+}
+func (f *fakeClient) SetProfileVisibility(_ context.Context, _ string, public bool) error {
+	f.profilePublic = &public
+	return nil
+}
+func (f *fakeClient) SetGroupVisibility(_ context.Context, _, groupID string, public bool) (Group, error) {
+	f.visibilityGroup = groupID
+	return Group{ID: groupID, Visibility: visibilityName(public), PublicSlug: "g-publicab"}, nil
+}
+func (f *fakeClient) DeleteGroup(_ context.Context, _, groupID string) error {
+	f.deletedGroup = groupID
+	return nil
+}
+func (f *fakeClient) TransferGroup(_ context.Context, _, groupID, login string) error {
+	f.transferGroup, f.transferLogin = groupID, login
+	return nil
 }
 
 func (f *fakeClient) SetGlobalParticipation(_ context.Context, _ string, participating bool) error {
