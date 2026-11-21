@@ -1,7 +1,7 @@
 # Design direction
 
-Status: MVP views implemented; retro-terminal revamp (M8) and website (M9) accepted
-Last updated: November 20, 2026
+Status: MVP views implemented; TUI design system built, views in progress (M8); website (M9) accepted
+Last updated: November 21, 2026
 
 ## Intent
 
@@ -29,39 +29,54 @@ remains plain diagnostic output.
 - One coral accent for selection, primary actions, the current user, and the
   wordmark caret. Everything else is foreground, muted gray, or a semantic
   status color.
-- Uppercase, letter-spaced labels for navigation, chips, panel titles, and
-  table headers. Values use normal case and tabular alignment.
+- Uppercase labels for navigation, chips, panel titles, and table headers.
+  Values use normal case and tabular alignment. The website also tracks
+  labels out; the TUI does not, because spacing letters in a cell grid
+  doubles their width and reads as separate characters.
 - Rounded titled panels with a thin muted border; section labels followed by
   a dashed rule that fills the panel width.
-- Selection is shown by a solid coral chip, never by color alone: selected
-  items are also bracketed in no-color mode.
+- Selection is shown by a solid coral chip, never by color alone: without
+  color the same cells hold brackets, so `[BOARDS]` replaces the chip and
+  nothing moves when selection or color changes.
 - The TUI uses the terminal's own background; it never paints the full
   viewport. The website is dark-only.
 - No neon palettes, gradients, glow, ASCII-art backgrounds, or idle animation.
 
 ### Palette
 
-Exact values are tuned in the design-system PR and must keep readable contrast
-on dark and light terminal backgrounds through adaptive colors.
+The TUI never paints the viewport, so every color has a value for dark and
+for light terminal backgrounds. Color is the default. At startup the TUI asks
+the terminal for its background color and uses the matching column; a
+terminal that does not answer is treated as dark. `TOKENHOLIC_THEME=light` or
+`dark` overrides a wrong guess. The choice is made once per launch.
+Each degrades to the 256-color value shown, then to the nearest of the 16
+ANSI colors. `internal/tui/theme` is the source of these values; the website
+and share cards use the dark column.
 
-| Role | Direction |
-| --- | --- |
-| Accent | Coral/terracotta (about `#D9805F`; 256-color fallback 209) |
-| Accent text on chip | Near-black on coral |
-| Primary text | Terminal foreground / off-white on the web |
-| Muted text and rules | Neutral gray |
-| Panel border | Dim gray |
-| Rank 1–3 | Muted gold, silver, bronze |
-| Up / positive | Muted teal |
-| Down / negative | Coral-red |
-| Warning / error | Muted amber / restrained red |
-| Web background | Deep navy with slightly lighter panels |
+| Role | Dark background | Light background |
+| --- | --- | --- |
+| Accent (coral) | `#D9805F` (209) | `#B4502F` (166) |
+| Text on an accent chip | `#1B1210` (233) | `#FFFFFF` (231) |
+| Primary text | Terminal foreground | Terminal foreground |
+| Muted text | `#8D929B` (245) | `#6A6F78` (242) |
+| Panel border and rules | `#50555E` (240) | `#B4B8C0` (250) |
+| Current-user row tint | `#33231D` (236) | `#F8E6DE` (224) |
+| Rank 1 / 2 / 3 | `#D9B45B` / `#BCC2CB` / `#C08253` | `#8A6510` / `#646B76` / `#93532A` |
+| Up / positive | `#62B8A5` (73) | `#1F7A68` (30) |
+| Down / negative | `#E36A62` (167) | `#B3362E` (124) |
+| Warning | `#D9A64E` (179) | `#8A5F00` (94) |
+| Error | `#D95C53` (167) | `#A82A22` (124) |
+| Web background | Deep navy with slightly lighter panels | — |
+
+Bold marks titles, section labels, headline values, and anything in the
+accent. With `NO_COLOR` the TUI emits no escape sequences at all, bold
+included.
 
 ### Wordmark
 
 `>_ TOKENHOLIC` in bold, with the `>_` caret in the accent. Wide Home views may
-show a three-line block-letter version; it always falls back to the one-line
-mark on narrow terminals and without Unicode.
+show a three-line version drawn in half-block characters; it always falls
+back to the one-line mark on narrow terminals and without Unicode.
 
 ## Number and money formatting
 
@@ -75,6 +90,9 @@ mark on narrow terminals and without Unicode.
   "spent".
 - Lower bounds display `≥$640.00` with the priced share (`92% priced`).
   Unavailable values display `—` (ASCII `-`) with a reason, never `$0.00`.
+- Shares are cut to one decimal, never rounded up, so a share just under a
+  threshold cannot display as having reached it: 94.99% is `94.9%`. A
+  non-zero share below that displays `<0.1%`.
 
 ## TUI information architecture
 
@@ -223,9 +241,26 @@ The website (M9) shares the TUI's tokens and voice and stays read-only.
 ## Accessibility
 
 - Support `NO_COLOR`: brackets mark selection, text labels carry status.
+  This is a fallback a user opts into, never the default look.
 - Test light and dark terminal backgrounds.
 - Do not use color alone for rank movement, coverage, or errors.
-- Provide ASCII fallbacks for every Unicode glyph used for meaning.
+- Provide ASCII fallbacks for every Unicode glyph used for meaning. The
+  fallback set is one switch for the whole interface, independent of color,
+  chosen by `TOKENHOLIC_ASCII` or a terminal that declares itself `dumb`:
+
+  | Meaning | Unicode | ASCII |
+  | --- | --- | --- |
+  | Panel frame | `╭─╮│╰╯` | `+-+|+-+` |
+  | Rank up / down / unchanged / new | `▲ 2` `▼ 1` `–` `NEW` | `+2` `-1` `=` `new` |
+  | Current-user edge and tag | `▌` `★ YOU` | `>` `* YOU` |
+  | Lower bound / unavailable | `≥` `—` | `>=` `-` |
+  | Sparkline levels, low to high | `▁▂▃▄▅▆▇█` | `_.-=#` |
+  | Phrase separator / range / truncation | `·` `–` `…` | `|` `-` `~` |
+  | Step done / failed | `✓` `✗` | `ok` `x` |
+
+- A sparkline cell with no recorded value is blank, which is not the lowest
+  bar: an unknown day is not a zero day.
+- Notices name their level in words (`WARNING`, `ERROR`, `DONE`, `NOTE`).
 
 ## Non-goals
 

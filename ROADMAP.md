@@ -1,6 +1,6 @@
 # tokenholic roadmap
 
-Status: MVP complete; product-parity revamp in progress (M6 and M7 complete except one blocked item, M8–M11 planned)
+Status: MVP complete; product-parity revamp in progress (M6 and M7 complete except one blocked item, M8 in progress, M9–M11 planned)
 Last updated: November 21, 2026
 
 ## Product definition
@@ -721,10 +721,12 @@ Goal: reach social-product parity with honest ranking rules.
 
 Goal: deliver the retro-terminal dashboard described in `docs/design.md`.
 
-- [ ] **TKH-080: Build the TUI design system** (`feat/tui-design-system`)
+- [x] **TKH-080: Build the TUI design system** (`feat/tui-design-system`)
   - Theme tokens, chip tabs, titled panels, tables, sparklines, delta
     markers, and the compact number and money formatter.
   - Acceptance: golden snapshots at 48, 88, and 120 columns, with and without color.
+  - Built as `internal/tui/theme`, `internal/tui/widget`, and `internal/numfmt`.
+    The views still use the earlier text layout until TKH-081 to TKH-083.
   - Depends on: TKH-060 (may run beside M6–M7 against fixtures).
 
 - [ ] **TKH-081: Redesign the personal dashboard** (`feat/tui-dashboard`)
