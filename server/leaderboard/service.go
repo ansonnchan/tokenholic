@@ -41,12 +41,32 @@ const (
 	// estimate omits too much usage to compare with anyone else's.
 	CostRankMinPricedBasisPoints = 9500
 
+	// GlobalMinRankedMembers is how many members the global board must be
+	// able to rank before it shows any rank. With one or two members a rank
+	// says nothing, and the board would read as a list of who signed up.
+	// A private group has no such floor: its members chose to compare.
+	GlobalMinRankedMembers = 3
+
+	// GlobalMaxRows bounds a global board response. The viewer's own row is
+	// kept even when it ranks below the cut.
+	GlobalMaxRows = 100
+
 	// PlausibleDailyTokens is the advisory limit on one member's tokens in a
 	// single local day. It is about ten times the heaviest day observed while
 	// building this, 432 million tokens. Usage is self-reported, so a total
 	// above it is flagged for a human to judge. It is never capped, dropped,
 	// or excluded from a rank.
 	PlausibleDailyTokens = 5_000_000_000
+)
+
+// Scope names whose usage a board ranks.
+type Scope string
+
+const (
+	// ScopeGroup is the active members of one private group.
+	ScopeGroup Scope = "group"
+	// ScopeGlobal is every account that opted in to the global board.
+	ScopeGlobal Scope = "global"
 )
 
 // Window is the UTC query range for one period. End is exclusive and Start is
@@ -115,6 +135,9 @@ const (
 	// UnrankedCostCoverage means too little of the member's usage is priced
 	// for the estimate to be ranked. The value is a lower bound.
 	UnrankedCostCoverage UnrankedReason = "cost_coverage_below_threshold"
+	// UnrankedScopeTooSmall means the board has too few rankable members to
+	// show ranks at all. The value is shown as it is.
+	UnrankedScopeTooSmall UnrankedReason = "scope_too_small"
 )
 
 // Trend compares a row with the board's comparison window.
@@ -158,10 +181,12 @@ type Row struct {
 	PreviousCoverage Coverage `json:"-"`
 }
 
-// Board is one leaderboard snapshot.
+// Board is one leaderboard snapshot. GroupID and GroupName are set only for a
+// group board.
 type Board struct {
-	GroupID     string     `json:"group_id"`
-	GroupName   string     `json:"group_name"`
+	Scope       Scope      `json:"scope"`
+	GroupID     string     `json:"group_id,omitempty"`
+	GroupName   string     `json:"group_name,omitempty"`
 	Timezone    string     `json:"timezone"`
 	Period      Period     `json:"period"`
 	Metric      Metric     `json:"metric"`
@@ -173,7 +198,15 @@ type Board struct {
 	// explain them without hard-coding server policy.
 	CostRankMinPricedBasisPoints int    `json:"cost_rank_min_priced_basis_points"`
 	PlausibleDailyTokens         string `json:"plausible_daily_tokens"`
-	Rows                         []Row  `json:"rows"`
+	// MinRankedMembers is how many members must be rankable before the board
+	// shows ranks; zero means no floor. RanksHidden reports that the current
+	// window is below it.
+	MinRankedMembers int  `json:"min_ranked_members"`
+	RanksHidden      bool `json:"ranks_hidden"`
+	// TotalMembers counts every member of the scope, including rows a long
+	// board leaves out.
+	TotalMembers int   `json:"total_members"`
+	Rows         []Row `json:"rows"`
 }
 
 // Query is validated repository input.
@@ -189,10 +222,13 @@ type Authenticator interface {
 	Authenticate(context.Context, string) (serverauth.Principal, error)
 }
 
-// Repository reads one authorized group ranking snapshot. Rows carry values
-// and coverage for both windows; ranks and trends are assigned by the service.
+// Repository reads ranking snapshots. Rows carry values and coverage for both
+// windows; ranks and trends are assigned by the service.
 type Repository interface {
+	// Leaderboard reads a group board the principal is a member of.
 	Leaderboard(context.Context, serverauth.Principal, Query) (Board, error)
+	// GlobalLeaderboard reads the board of accounts that opted in.
+	GlobalLeaderboard(context.Context, Query) (Board, error)
 }
 
 // Service owns leaderboard input validation, authentication, ranking, and
@@ -233,6 +269,44 @@ func (s *Service) Get(ctx context.Context, credential, groupID string, period Pe
 		board.Rows[index].CurrentUser = board.Rows[index].UserID == principal.UserID
 	}
 	Rank(&board)
+	return board, nil
+}
+
+// Global authenticates one device and returns the opt-in global board.
+//
+// Any signed-in account may read it; only accounts that opted in are listed.
+// The viewer is marked when they are among them. Other rows carry what a
+// member agreed to show, a name beside aggregate totals, and nothing that
+// identifies their account or when their devices last synced.
+func (s *Service) Global(ctx context.Context, credential string, period Period, metric Metric) (Board, error) {
+	principal, err := s.auth.Authenticate(ctx, credential)
+	if err != nil {
+		return Board{}, err
+	}
+	if !period.Valid() || !metric.Valid() {
+		return Board{}, servergroup.ErrInvalidInput
+	}
+	board, err := s.repository.GlobalLeaderboard(ctx, Query{Period: period, Metric: metric, GeneratedAt: s.now().UTC()})
+	if err != nil {
+		return Board{}, err
+	}
+	board.MinRankedMembers = GlobalMinRankedMembers
+	for index := range board.Rows {
+		board.Rows[index].CurrentUser = board.Rows[index].UserID == principal.UserID
+	}
+	Rank(&board)
+	kept := board.Rows[:0]
+	for index, row := range board.Rows {
+		if index >= GlobalMaxRows && !row.CurrentUser {
+			continue
+		}
+		if !row.CurrentUser {
+			row.UserID = ""
+		}
+		row.LastSyncedAt = nil
+		kept = append(kept, row)
+	}
+	board.Rows = kept
 	return board, nil
 }
 
@@ -330,18 +404,33 @@ func NewCoverage(priced, unpriced string) Coverage {
 // labelled as one. An estimate is ranked only when at least
 // CostRankMinPricedBasisPoints of the member's tokens are priced. Equal
 // values share a rank and the next rank skips, as in a competition.
+//
+// A board with MinRankedMembers shows no rank in a window that has fewer
+// rankable members than that. Rows keep their order and values.
 func Rank(board *Board) {
 	board.CostRankMinPricedBasisPoints = CostRankMinPricedBasisPoints
 	board.PlausibleDailyTokens = new(big.Int).SetUint64(PlausibleDailyTokens).String()
+	board.TotalMembers = len(board.Rows)
 	rows := board.Rows
 
 	previous := make(map[string]*int, len(rows))
-	assignRanks(rows, board.Metric,
+	previousRanked := assignRanks(rows, board.Metric,
 		func(row *Row) (serveraccount.Value, Coverage) { return row.Trend.PreviousValue, row.PreviousCoverage },
 		func(row *Row, rank *int, _ UnrankedReason) { previous[row.UserID] = rank })
-	assignRanks(rows, board.Metric,
+	if previousRanked < board.MinRankedMembers {
+		clear(previous)
+	}
+	ranked := assignRanks(rows, board.Metric,
 		func(row *Row) (serveraccount.Value, Coverage) { return row.Value, row.Coverage },
 		func(row *Row, rank *int, reason UnrankedReason) { row.Rank, row.UnrankedReason = rank, reason })
+	board.RanksHidden = ranked < board.MinRankedMembers
+	if board.RanksHidden {
+		for index := range rows {
+			if rows[index].Rank != nil {
+				rows[index].Rank, rows[index].UnrankedReason = nil, UnrankedScopeTooSmall
+			}
+		}
+	}
 
 	for index := range rows {
 		row := &rows[index]
@@ -356,10 +445,11 @@ func Rank(board *Board) {
 	}
 }
 
-// assignRanks sorts rows by the selected window's value and reports each
-// row's rank. Rows end in display order: ranked rows by rank, then unranked
-// rows that still have a value, then rows without one.
-func assignRanks(rows []Row, metric Metric, selectValue func(*Row) (serveraccount.Value, Coverage), assign func(*Row, *int, UnrankedReason)) {
+// assignRanks sorts rows by the selected window's value, reports each row's
+// rank, and returns how many rows it ranked. Rows end in display order:
+// ranked rows by rank, then unranked rows that still have a value, then rows
+// without one.
+func assignRanks(rows []Row, metric Metric, selectValue func(*Row) (serveraccount.Value, Coverage), assign func(*Row, *int, UnrankedReason)) (ranked int) {
 	type entry struct {
 		value  *big.Int
 		reason UnrankedReason
@@ -401,7 +491,9 @@ func assignRanks(rows []Row, metric Metric, selectValue func(*Row) (serveraccoun
 		}
 		previousValue, previousRank = current.value, rank
 		assign(&rows[index], &rank, "")
+		ranked++
 	}
+	return ranked
 }
 
 // unrankedReason returns why a value cannot be ranked, or "" when it can.

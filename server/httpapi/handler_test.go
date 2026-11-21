@@ -286,6 +286,75 @@ func TestGroupRoutesPreserveAuthorizationAndStableErrors(t *testing.T) {
 	}
 }
 
+func TestGlobalBoardRoutes(t *testing.T) {
+	account := &fakeAccountUsageService{}
+	leaderboards := &fakeLeaderboardService{board: serverleaderboard.Board{Scope: serverleaderboard.ScopeGlobal, Timezone: "UTC"}}
+	handler, err := New(&fakeAuthService{}, &fakeUsageSyncService{}, account, &fakeGroupService{}, leaderboards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(method, path, body, credential string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
+		if credential != "" {
+			request.Header.Set("Authorization", "Bearer "+credential)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	tests := []struct {
+		name       string
+		body       string
+		credential string
+		wantStatus int
+		wantOptIn  *bool
+	}{
+		{name: "join", body: `{"participating":true}`, credential: "device", wantStatus: http.StatusOK, wantOptIn: boolPointer(true)},
+		{name: "leave", body: `{"participating":false}`, credential: "device", wantStatus: http.StatusOK, wantOptIn: boolPointer(false)},
+		// Nothing short of an explicit choice may opt an account in.
+		{name: "empty object", body: `{}`, credential: "device", wantStatus: http.StatusBadRequest},
+		{name: "null choice", body: `{"participating":null}`, credential: "device", wantStatus: http.StatusBadRequest},
+		{name: "choice as text", body: `{"participating":"true"}`, credential: "device", wantStatus: http.StatusBadRequest},
+		{name: "unknown field", body: `{"participating":true,"profile":"public"}`, credential: "device", wantStatus: http.StatusBadRequest},
+		{name: "no body", body: ``, credential: "device", wantStatus: http.StatusBadRequest},
+		{name: "no credential", body: `{"participating":true}`, wantStatus: http.StatusUnauthorized},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			account.optIn = nil
+			response := send(http.MethodPut, "/v1/account/global-board", test.body, test.credential)
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d %q, want %d", response.Code, response.Body.String(), test.wantStatus)
+			}
+			if (account.optIn == nil) != (test.wantOptIn == nil) || account.optIn != nil && *account.optIn != *test.wantOptIn {
+				t.Fatalf("stored choice = %v, want %v", account.optIn, test.wantOptIn)
+			}
+		})
+	}
+	account.optInErr = serverauth.ErrUnauthorized
+	if response := send(http.MethodPut, "/v1/account/global-board", `{"participating":true}`, "revoked"); response.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked credential status = %d", response.Code)
+	}
+
+	response := send(http.MethodGet, "/v1/global/leaderboard?period=week&metric=api_estimate", "", "device")
+	if response.Code != http.StatusOK || !leaderboards.global || leaderboards.period != serverleaderboard.PeriodWeek ||
+		leaderboards.metric != serverleaderboard.MetricAPIEstimate || !strings.Contains(response.Body.String(), `"scope":"global"`) {
+		t.Fatalf("global board = %d %q (period %s, metric %s)", response.Code, response.Body.String(), leaderboards.period, leaderboards.metric)
+	}
+	if strings.Contains(response.Body.String(), "group_id") {
+		t.Fatalf("global board names a group: %q", response.Body.String())
+	}
+	if response := send(http.MethodGet, "/v1/global/leaderboard", "", "device"); response.Code != http.StatusOK ||
+		leaderboards.period != serverleaderboard.PeriodToday || leaderboards.metric != serverleaderboard.MetricTotalTokens {
+		t.Fatalf("default global board = %d (period %s, metric %s)", response.Code, leaderboards.period, leaderboards.metric)
+	}
+	if response := send(http.MethodGet, "/v1/global/leaderboard", "", ""); response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous global board status = %d, want 401: no public read yet", response.Code)
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }
+
 func TestLeaderboardRouteUsesExplicitPeriodAndMetric(t *testing.T) {
 	groupID := "10000000-0000-4000-8000-000000000001"
 	leaderboards := &fakeLeaderboardService{board: serverleaderboard.Board{
@@ -364,6 +433,16 @@ type fakeAccountUsageService struct {
 	usage      serveraccount.Usage
 	deleted    bool
 	deleteErr  error
+	optIn      *bool
+	optInErr   error
+}
+
+func (f *fakeAccountUsageService) SetGlobalOptIn(_ context.Context, credential string, participating bool) error {
+	f.credential = credential
+	if f.optInErr == nil {
+		f.optIn = &participating
+	}
+	return f.optInErr
 }
 
 type fakeGroupService struct {
@@ -377,7 +456,13 @@ type fakeLeaderboardService struct {
 	board  serverleaderboard.Board
 	period serverleaderboard.Period
 	metric serverleaderboard.Metric
+	global bool
 	err    error
+}
+
+func (f *fakeLeaderboardService) Global(_ context.Context, _ string, period serverleaderboard.Period, metric serverleaderboard.Metric) (serverleaderboard.Board, error) {
+	f.period, f.metric, f.global = period, metric, true
+	return f.board, f.err
 }
 
 func (f *fakeLeaderboardService) Get(_ context.Context, _, _ string, period serverleaderboard.Period, metric serverleaderboard.Metric) (serverleaderboard.Board, error) {

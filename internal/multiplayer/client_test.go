@@ -146,6 +146,47 @@ func TestServiceLoadsSelectionAndResolvesGroupCommands(t *testing.T) {
 	if err := service.Leave(t.Context(), "Two"); err != nil || client.leftGroup != "group-two" {
 		t.Fatalf("Leave() error/group = %v/%q", err, client.leftGroup)
 	}
+	for _, participating := range []bool{true, false} {
+		if err := service.SetGlobalParticipation(t.Context(), participating); err != nil || client.participating == nil || *client.participating != participating {
+			t.Fatalf("SetGlobalParticipation(%t) = %v, sent %v", participating, err, client.participating)
+		}
+	}
+}
+
+func TestClientSetsGlobalParticipationOnlyWhenTheServerConfirms(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		reply   string
+		status  int
+		wantErr bool
+	}{
+		{name: "confirmed", reply: `{"participating":true}`, status: http.StatusOK},
+		{name: "server reports the opposite", reply: `{"participating":false}`, status: http.StatusOK, wantErr: true},
+		{name: "server confirms nothing", reply: `{}`, status: http.StatusOK, wantErr: true},
+		{name: "rejected", reply: `{"error":"invalid_request"}`, status: http.StatusBadRequest, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var sent string
+			httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				if request.Method != http.MethodPut || request.URL.Path != "/v1/account/global-board" || request.Header.Get("Authorization") != "Bearer device-credential" {
+					t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+				}
+				body, _ := io.ReadAll(request.Body)
+				sent = string(body)
+				return &http.Response{StatusCode: test.status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(test.reply)), Request: request}, nil
+			})}
+			client, err := NewClient("https://api.example.test", httpClient)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = client.SetGlobalParticipation(t.Context(), "device-credential", true)
+			if (err != nil) != test.wantErr || sent != `{"participating":true}` {
+				t.Fatalf("SetGlobalParticipation() error = %v after sending %q", err, sent)
+			}
+		})
+	}
 }
 
 func TestServiceRequiresStoredSession(t *testing.T) {
@@ -173,6 +214,12 @@ type fakeClient struct {
 	inviteGroup     string
 	leftGroup       string
 	joinedCode      string
+	participating   *bool
+}
+
+func (f *fakeClient) SetGlobalParticipation(_ context.Context, _ string, participating bool) error {
+	f.participating = &participating
+	return nil
 }
 
 func (f *fakeClient) List(context.Context, string) ([]Group, error) { return f.groups, nil }

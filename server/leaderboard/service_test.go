@@ -3,6 +3,7 @@ package leaderboard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -296,6 +297,123 @@ func TestServiceAuthenticatesValidatesAndMarksCurrentUser(t *testing.T) {
 	}
 }
 
+func TestGlobalBoardHidesRanksBelowTheMinimumPopulation(t *testing.T) {
+	complete := serveraccount.AvailabilityComplete
+	rows := func(names ...string) []Row {
+		result := make([]Row, 0, len(names))
+		for index, name := range names {
+			// Later names have less: 300, 200, 100, ... now and before.
+			result = append(result, member(name, int64(100*(len(names)-index)), int64(100*(len(names)-index)), complete, 10_000, 10_000))
+		}
+		return result
+	}
+	tests := []struct {
+		name       string
+		rows       []Row
+		metric     Metric
+		wantHidden bool
+		wantRanks  []int // 0 is no rank
+		wantReason []UnrankedReason
+	}{
+		{name: "three rankable members", rows: rows("Alpha", "Beta", "Charlie"), metric: MetricTotalTokens, wantRanks: []int{1, 2, 3}, wantReason: []UnrankedReason{"", "", ""}},
+		{name: "two rankable members", rows: rows("Alpha", "Beta"), metric: MetricTotalTokens, wantHidden: true,
+			wantRanks: []int{0, 0}, wantReason: []UnrankedReason{UnrankedScopeTooSmall, UnrankedScopeTooSmall}},
+		{name: "nobody", rows: nil, metric: MetricTotalTokens, wantHidden: true},
+		// Three members, but one has no usage: only two can be ranked.
+		{name: "a member without usage does not count", rows: append(rows("Alpha", "Beta"), member("Charlie", -1, -1, complete, 10_000, 10_000)),
+			metric: MetricTotalTokens, wantHidden: true, wantRanks: []int{0, 0, 0},
+			wantReason: []UnrankedReason{UnrankedScopeTooSmall, UnrankedScopeTooSmall, UnrankedNoUsage}},
+		// Three members with estimates, but one is below cost coverage.
+		{name: "an unranked estimate does not count", rows: append(rows("Alpha", "Beta"), member("Charlie", 50, 50, complete, 5_000, 5_000)),
+			metric: MetricAPIEstimate, wantHidden: true, wantRanks: []int{0, 0, 0},
+			wantReason: []UnrankedReason{UnrankedScopeTooSmall, UnrankedScopeTooSmall, UnrankedCostCoverage}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repository := &fakeRepository{board: Board{Scope: ScopeGlobal, Metric: tt.metric, Rows: tt.rows}}
+			service, err := NewService(fakeAuthenticator{}, repository)
+			if err != nil {
+				t.Fatal(err)
+			}
+			board, err := service.Global(t.Context(), "credential", PeriodToday, tt.metric)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if board.RanksHidden != tt.wantHidden || board.MinRankedMembers != GlobalMinRankedMembers || board.TotalMembers != len(tt.rows) {
+				t.Fatalf("board = hidden %t, minimum %d, members %d", board.RanksHidden, board.MinRankedMembers, board.TotalMembers)
+			}
+			for index, row := range board.Rows {
+				rank := 0
+				if row.Rank != nil {
+					rank = *row.Rank
+				}
+				if rank != tt.wantRanks[index] || row.UnrankedReason != tt.wantReason[index] {
+					t.Errorf("row %d (%s) = rank %d reason %q, want %d %q", index, row.DisplayName, rank, row.UnrankedReason, tt.wantRanks[index], tt.wantReason[index])
+				}
+				// Hidden ranks leave values and order untouched, and no
+				// movement is reported from a rank that is not shown.
+				if row.Value.Value == nil && row.UnrankedReason != UnrankedNoUsage || tt.wantHidden && row.Trend.RankChange != nil {
+					t.Errorf("row %d (%s) = value %v, rank change %v", index, row.DisplayName, row.Value.Value, row.Trend.RankChange)
+				}
+			}
+		})
+	}
+	// A private group ranks any number of members.
+	board := Board{Scope: ScopeGroup, Metric: MetricTotalTokens, Rows: rows("Alpha", "Beta")}
+	Rank(&board)
+	if board.RanksHidden || board.MinRankedMembers != 0 || board.Rows[0].Rank == nil || *board.Rows[1].Rank != 2 {
+		t.Fatalf("two-member group = %#v", board)
+	}
+}
+
+func TestGlobalBoardShowsOnlyWhatMembersAgreedToShow(t *testing.T) {
+	complete := serveraccount.AvailabilityComplete
+	synced := time.Date(2026, 11, 18, 11, 0, 0, 0, time.UTC)
+	var rows []Row
+	for index := 0; index < GlobalMaxRows+20; index++ {
+		row := member(fmt.Sprintf("Member %03d", index), int64(10_000-index), int64(10_000-index), complete, 10_000, 10_000)
+		row.LastSyncedAt = &synced
+		rows = append(rows, row)
+	}
+	// The viewer ranks below the cut.
+	viewer := GlobalMaxRows + 10
+	rows[viewer].UserID = testUserID
+	repository := &fakeRepository{board: Board{Scope: ScopeGlobal, Metric: MetricTotalTokens, Rows: rows}}
+	service, err := NewService(fakeAuthenticator{}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board, err := service.Global(t.Context(), "credential", PeriodWeek, MetricTotalTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repository.query.Period != PeriodWeek || repository.query.GroupID != "" || board.TotalMembers != GlobalMaxRows+20 || len(board.Rows) != GlobalMaxRows+1 {
+		t.Fatalf("board = %d rows of %d members, query %#v", len(board.Rows), board.TotalMembers, repository.query)
+	}
+	for index, row := range board.Rows {
+		if row.LastSyncedAt != nil {
+			t.Fatalf("row %d exposes when its devices last synced", index)
+		}
+		if row.CurrentUser != (index == GlobalMaxRows) || row.CurrentUser != (row.UserID != "") {
+			t.Fatalf("row %d = current %t, user ID %q; only the viewer's own row may carry an account ID", index, row.CurrentUser, row.UserID)
+		}
+	}
+	last := board.Rows[GlobalMaxRows]
+	if last.Rank == nil || *last.Rank != viewer+1 || last.UserID != testUserID {
+		t.Fatalf("viewer row = rank %v, want its true rank %d kept below the cut", last.Rank, viewer+1)
+	}
+	if _, err := service.Global(t.Context(), "credential", "future", MetricTotalTokens); !errors.Is(err, servergroup.ErrInvalidInput) {
+		t.Fatalf("bad period error = %v", err)
+	}
+	unauthorized, err := NewService(fakeAuthenticator{err: serverauth.ErrUnauthorized}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unauthorized.Global(t.Context(), "bad", PeriodToday, MetricTotalTokens); !errors.Is(err, serverauth.ErrUnauthorized) {
+		t.Fatalf("unauthorized error = %v", err)
+	}
+}
+
 const (
 	testGroupID = "50000000-0000-4000-8000-000000000001"
 	testUserID  = "50000000-0000-4000-8000-000000000002"
@@ -318,4 +436,12 @@ type fakeRepository struct {
 func (f *fakeRepository) Leaderboard(_ context.Context, _ serverauth.Principal, query Query) (Board, error) {
 	f.query = query
 	return f.board, f.err
+}
+
+func (f *fakeRepository) GlobalLeaderboard(_ context.Context, query Query) (Board, error) {
+	f.query = query
+	// Each call gets its own rows: the service orders and trims them in place.
+	board := f.board
+	board.Rows = append([]Row(nil), f.board.Rows...)
+	return board, f.err
 }

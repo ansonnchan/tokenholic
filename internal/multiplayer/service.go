@@ -26,6 +26,7 @@ type apiClient interface {
 	Invite(context.Context, string, string, time.Duration, int) (Invite, error)
 	Leave(context.Context, string, string) error
 	Leaderboard(context.Context, string, string, Period, Metric) (Board, error)
+	SetGlobalParticipation(context.Context, string, bool) error
 }
 
 type sessionStore interface {
@@ -132,6 +133,16 @@ func (s *Service) Leave(ctx context.Context, groupName string) error {
 		return err
 	}
 	return normalizeSessionError(s.client.Leave(ctx, credential, group.ID))
+}
+
+// SetGlobalParticipation joins or leaves the opt-in global board for the
+// signed-in account.
+func (s *Service) SetGlobalParticipation(ctx context.Context, participating bool) error {
+	credential, err := s.credential()
+	if err != nil {
+		return err
+	}
+	return normalizeSessionError(s.client.SetGlobalParticipation(ctx, credential, participating))
 }
 
 func (s *Service) resolveGroup(ctx context.Context, credential, name string) (Group, error) {

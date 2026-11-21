@@ -36,8 +36,8 @@ func (r *AccountRepository) AccountUsage(ctx context.Context, principal serverau
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if err := tx.QueryRow(ctx, `
-		SELECT display_name FROM users WHERE id = $1::uuid AND deleted_at IS NULL
-	`, principal.UserID).Scan(&usage.DisplayName); errors.Is(err, pgx.ErrNoRows) {
+		SELECT display_name, global_opt_in FROM users WHERE id = $1::uuid AND deleted_at IS NULL
+	`, principal.UserID).Scan(&usage.DisplayName, &usage.GlobalOptIn); errors.Is(err, pgx.ErrNoRows) {
 		return serveraccount.Usage{}, serverauth.ErrUnauthorized
 	} else if err != nil {
 		return serveraccount.Usage{}, fmt.Errorf("read account identity: %w", err)
@@ -138,6 +138,24 @@ func (r *AccountRepository) DeleteAccount(ctx context.Context, principal servera
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit account deletion: %w", err)
+	}
+	return nil
+}
+
+// SetGlobalOptIn records whether the account is listed on the global board.
+// It requires the presenting device to still be active, so a revoked device
+// cannot change what its former account shows.
+func (r *AccountRepository) SetGlobalOptIn(ctx context.Context, principal serverauth.Principal, participating bool) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE users u SET global_opt_in = $3, updated_at = CURRENT_TIMESTAMP
+		WHERE u.id = $1::uuid AND u.deleted_at IS NULL
+		  AND EXISTS (SELECT 1 FROM devices d WHERE d.id = $2::uuid AND d.user_id = u.id AND d.revoked_at IS NULL)
+	`, principal.UserID, principal.DeviceID, participating)
+	if err != nil {
+		return fmt.Errorf("update global board participation: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return serverauth.ErrUnauthorized
 	}
 	return nil
 }

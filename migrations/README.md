@@ -26,5 +26,9 @@ payload hash and read back when history is repriced. Existing rows keep NULL,
 which means unproven. The schema checks the shape of both values and the API
 validates the names, so a new tier or ladder step needs no migration.
 
+`0005_global_board_opt_in` adds `users.global_opt_in`, false by default. An
+account is listed outside its own groups only where that column, or a later
+visibility column like it, is true.
+
 Do not add deployment state before its roadmap stage. Server migrations must
 never introduce columns for raw local records or prohibited source material.

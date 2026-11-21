@@ -394,6 +394,18 @@ Every row also includes last-upload freshness, source mix, most-used model,
 and counts for unknown or inferred model resolution and unavailable API
 estimates. Revoked devices and inactive memberships do not contribute.
 
+The global board ranks every account that opted in, with the same rules and
+UTC boundaries, since its members share no timezone. `users.global_opt_in` is
+false by default and changes only through an authenticated request that states
+the choice explicitly. Every board query is built from one definition of the
+scope's members, so no query can read an account the scope does not include.
+Any signed-in account may read the board. Its rows carry a display name and
+aggregate values: the account ID is present only on the viewer's own row, and
+sync times are omitted. Ranks are hidden while fewer than three members can be
+ranked, because a rank among one or two accounts says nothing; values and
+order stay. A private group has no such floor. A long board returns its first
+100 rows plus the viewer's own.
+
 ### Pricing
 
 Pricing is a versioned registry built from a pinned LiteLLM `model_prices`
@@ -504,9 +516,9 @@ client: observed model ID + token categories (protocol v2)
 
 ### Leaderboard v2
 
-Metrics, the cost-coverage rule, trends, and the plausibility note are
-implemented for private groups and described under "Leaderboards" above. The
-public-group and global scopes follow.
+Metrics, the cost-coverage rule, trends, the plausibility note, and the
+global scope are implemented and described under "Leaderboards" above. The
+public-group scope follows.
 
 - Scopes: a private group (membership-authorized), a public group (by slug,
   read-only), and the opt-in global board.
@@ -520,7 +532,8 @@ public-group and global scopes follow.
   truncated to the same elapsed time, computed in the same snapshot query.
   All-time compares with the state 24 hours earlier. First-period entrants
   are marked new.
-- A scope with fewer than three ranked users shows values without ranks.
+- The global board shows values without ranks until three members can be
+  ranked. Private groups rank any number of members.
 - No Redis or materialized rollup: indexed minute buckets are sufficient until
   a measured query shows otherwise.
 
@@ -528,7 +541,7 @@ public-group and global scopes follow.
 
 - Login stores the GitHub avatar URL alongside the stable numeric identity.
 - `users.profile_visibility` and `groups.visibility` default to private;
-  `users.global_opt_in` defaults to false. Public endpoints must return the
+  `users.global_opt_in` defaults to false (implemented). Public endpoints must return the
   same not-found result for private and nonexistent users or groups.
 - Group lifecycle adds invite links, owner deletion, and ownership transfer.
 - Implemented: an in-memory token-bucket limiter runs before every route
