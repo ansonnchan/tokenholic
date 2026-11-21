@@ -33,7 +33,7 @@ type dependencies struct {
 	getenv     func(string) string
 	diagnose   func(context.Context, string, string) doctor.Report
 	input      io.Reader
-	launch     func(context.Context, string, string, string, io.Reader, io.Writer, bool) error
+	launch     func(context.Context, string, string, string, io.Reader, io.Writer, displayOptions) error
 	timeout    time.Duration
 	account    func(string) (accountManager, error)
 	groups     func(string) (groupManager, error)
@@ -295,7 +295,7 @@ func runTUI(stdout, stderr io.Writer, deps dependencies) int {
 		fmt.Fprintln(stderr, "could not start the local application")
 		return 1
 	}
-	if err := deps.launch(context.Background(), home, codexHome, strings.TrimSpace(deps.getenv("TOKENHOLIC_API_URL")), deps.input, stdout, deps.getenv("NO_COLOR") != ""); err != nil {
+	if err := deps.launch(context.Background(), home, codexHome, strings.TrimSpace(deps.getenv("TOKENHOLIC_API_URL")), deps.input, stdout, displayFromEnvironment(deps.getenv)); err != nil {
 		// Runtime errors can wrap private local paths. Keep CLI output stable and
 		// direct detailed investigation through the redacted doctor report.
 		fmt.Fprintln(stderr, "could not start the local application; run `tokenholic doctor`")

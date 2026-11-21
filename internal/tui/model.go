@@ -10,6 +10,7 @@ import (
 
 	"github.com/ansonnchan/tokenholic/internal/application"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
+	"github.com/ansonnchan/tokenholic/internal/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -76,8 +77,15 @@ type Multiplayer interface {
 
 // Config controls environment-sensitive shell behavior.
 type Config struct {
+	// NoColor disables all styling; ASCII swaps glyphs for their fallbacks;
+	// Background overrides light or dark detection. They are independent.
 	NoColor     bool
+	ASCII       bool
+	Background  theme.Background
 	Multiplayer Multiplayer
+	// theme is detected from the output by Run. A model built without it
+	// renders unstyled text.
+	theme *theme.Theme
 }
 
 // Model is the Bubble Tea model for the local application shell.
@@ -142,11 +150,15 @@ func NewModel(ctx context.Context, app Application, config Config) Model {
 	if app == nil {
 		state = StateEmpty
 	}
+	tokens := theme.Fixed(false, true, config.ASCII)
+	if config.theme != nil {
+		tokens = *config.theme
+	}
 	return Model{
 		ctx:         ctx,
 		app:         app,
 		multiplayer: config.Multiplayer,
-		styles:      newStyles(config.NoColor),
+		styles:      newStyles(tokens),
 		section:     OverviewSection,
 		state:       state,
 		requestID:   1,
@@ -476,6 +488,9 @@ func Run(ctx context.Context, app Application, input io.Reader, output io.Writer
 	if input == nil || output == nil {
 		return errors.New("run TUI: input and output are required")
 	}
+	// Detect color depth and background before the program reads input.
+	tokens := theme.New(output, theme.Options{NoColor: config.NoColor, ASCII: config.ASCII, Background: config.Background})
+	config.theme = &tokens
 	program := tea.NewProgram(
 		NewModel(ctx, app, config),
 		tea.WithContext(ctx),

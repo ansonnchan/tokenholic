@@ -16,11 +16,38 @@ import (
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
 	"github.com/ansonnchan/tokenholic/internal/store"
 	"github.com/ansonnchan/tokenholic/internal/tui"
+	"github.com/ansonnchan/tokenholic/internal/tui/theme"
 )
 
 const localCloseTimeout = 5 * time.Second
 
-func launchLocalTUI(ctx context.Context, home, codexHome, apiURL string, input io.Reader, output io.Writer, noColor bool) (err error) {
+// displayOptions are the presentation switches a user can set.
+type displayOptions struct {
+	noColor    bool
+	ascii      bool
+	background theme.Background
+}
+
+// displayFromEnvironment reads the presentation switches. Color is on unless
+// NO_COLOR is set. TOKENHOLIC_THEME names the terminal background when
+// detection gets it wrong; any other value leaves detection on.
+// TOKENHOLIC_ASCII, or a terminal that declares itself dumb, selects the
+// ASCII glyph set.
+func displayFromEnvironment(getenv func(string) string) displayOptions {
+	options := displayOptions{
+		noColor: getenv("NO_COLOR") != "",
+		ascii:   getenv("TOKENHOLIC_ASCII") != "" || getenv("TERM") == "dumb",
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv("TOKENHOLIC_THEME"))) {
+	case "dark":
+		options.background = theme.DarkBackground
+	case "light":
+		options.background = theme.LightBackground
+	}
+	return options
+}
+
+func launchLocalTUI(ctx context.Context, home, codexHome, apiURL string, input io.Reader, output io.Writer, display displayOptions) (err error) {
 	database, service, err := openLocalApplication(ctx, home, codexHome)
 	if err != nil {
 		return err
@@ -43,7 +70,9 @@ func launchLocalTUI(ctx context.Context, home, codexHome, apiURL string, input i
 			return clientErr
 		}
 	}
-	return tui.Run(ctx, service, input, output, tui.Config{NoColor: noColor, Multiplayer: groups})
+	return tui.Run(ctx, service, input, output, tui.Config{
+		NoColor: display.noColor, ASCII: display.ascii, Background: display.background, Multiplayer: groups,
+	})
 }
 
 func localTimezone() string {
