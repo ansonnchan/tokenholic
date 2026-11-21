@@ -59,20 +59,21 @@ func launchLocalTUI(ctx context.Context, home, codexHome, apiURL string, input i
 			err = closeErr
 		}
 	}()
-	var groups *multiplayer.Service
+	config := tui.Config{NoColor: display.noColor, ASCII: display.ascii, Background: display.background}
 	if apiURL != "" {
 		client, clientErr := multiplayer.NewClient(apiURL, nil)
 		if clientErr != nil {
 			return clientErr
 		}
-		groups, clientErr = multiplayer.NewService(client, account.NewKeyringStore(apiURL), localTimezone())
+		groups, clientErr := multiplayer.NewService(client, account.NewKeyringStore(apiURL), localTimezone())
 		if clientErr != nil {
 			return clientErr
 		}
+		// Assign only a real service: a nil *Service stored in the interface
+		// would not compare equal to nil, and the board area would call it.
+		config.Multiplayer = groups
 	}
-	return tui.Run(ctx, service, input, output, tui.Config{
-		NoColor: display.noColor, ASCII: display.ascii, Background: display.background, Multiplayer: groups,
-	})
+	return tui.Run(ctx, service, input, output, config)
 }
 
 func localTimezone() string {
