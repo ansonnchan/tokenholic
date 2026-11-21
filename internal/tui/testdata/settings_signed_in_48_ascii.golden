@@ -1,0 +1,40 @@
+>_ TOKENHOLIC                     scanned 4m ago
+ HOME  BOARDS  MODELS  SOURCES [SETTINGS]
+
++- PRIVACY ------------------------------------+
+| STORED ON THIS DEVICE                        |
+| Normalized usage counts only: when, which    |
+| coding agent, which model, and how many      |
+| tokens in each category.                     |
+|                                              |
+| NEVER STORED                                 |
+| Prompts, responses, source code, command     |
+| text, or credentials.                        |
+|                                              |
+| NEVER STORED                                 |
+| Paths, project names, repository names, or   |
+| branch names.                                |
+|                                              |
+| UPLOADED                                     |
+| Nothing, until you claim an account. Then    |
+| the same counts, and nothing else.           |
+| `tokenholic show-data` prints the exact      |
+| payload.                                     |
++----------------------------------------------+
++- THIS DEVICE --------------------------------+
+| ACCOUNT      signed in as @you               |
+| TIMEZONE     America/Vancouver               |
+| LAST SCAN    4m ago                          |
+| TO UPLOAD    3 buckets                       |
+| DATABASE     schema 7 of 7 | integrity ok    |
++----------------------------------------------+
++- DISPLAY ------------------------------------+
+| TOKENHOLIC_THEME                             |
+|   light or dark, when the terminal's         |
+|   background is detected wrongly             |
+| NO_COLOR                                     |
+|   any value turns all styling off            |
+| TOKENHOLIC_ASCII                             |
+|   any value replaces symbols with ASCII      |
++----------------------------------------------+
+1-5 views | j/k scroll | ? help | q quit

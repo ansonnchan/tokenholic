@@ -16,7 +16,7 @@
 │ `tokenholic show-data` prints the exact payload.                                     │
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ THIS DEVICE ────────────────────────────────────────────────────────────────────────╮
-│ MODE         local; no account is required                                           │
+│ ACCOUNT      local only; no API is configured                                        │
 │ TIMEZONE     America/Vancouver                                                       │
 │ LAST SCAN    4m ago                                                                  │
 │ TO UPLOAD    3 buckets                                                               │

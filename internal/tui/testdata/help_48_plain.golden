@@ -7,6 +7,9 @@
 │ p       change period                        │
 │ j / k   move the selection or scroll         │
 │ d       show exact token categories on HOME  │
+│ s       draft a post of your totals to share │
+│ c       claim your spot: sign in with        │
+│         GitHub, when signed out              │
 │ r       scan local usage again               │
 │ ?       close help                           │
 │ q       quit                                 │

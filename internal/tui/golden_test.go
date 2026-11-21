@@ -10,6 +10,7 @@ import (
 	"github.com/ansonnchan/tokenholic/internal/store"
 	"github.com/ansonnchan/tokenholic/internal/tui/goldentest"
 	"github.com/ansonnchan/tokenholic/internal/tui/theme"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // screen is one frame the snapshots fix: a starting dashboard, the keys that
@@ -22,6 +23,12 @@ type screen struct {
 	height    int
 	// remote is the signed-in account behind the board area, when any.
 	remote func() *fakeMultiplayer
+	// account is the device's claim state, when an API is configured.
+	account func() *fakeAccount
+	// firstLaunch starts from a machine that has never been scanned.
+	firstLaunch bool
+	// scanning stops at the first frame of that launch, mid-scan.
+	scanning bool
 }
 
 var screens = []screen{
@@ -48,7 +55,29 @@ var screens = []screen{
 		return &fakeMultiplayer{loadError: multiplayer.ErrSignedOut}
 	}, keys: []string{"2"}},
 	{name: "board_help", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2", "?"}},
+	{name: "welcome_scanning", dashboard: sampleDashboard, account: signedOut, firstLaunch: true, scanning: true},
+	{name: "welcome", dashboard: sampleDashboard, account: signedOut, firstLaunch: true},
+	{name: "welcome_local_only", dashboard: sampleDashboard, firstLaunch: true},
+	{name: "welcome_no_sources", dashboard: emptyDashboard, account: signedOut, firstLaunch: true},
+	{name: "home_signed_out", dashboard: sampleDashboard, account: signedOut},
+	{name: "claim_confirm", dashboard: sampleDashboard, account: signedOut, firstLaunch: true, keys: []string{"c"}},
+	{name: "claim_code", dashboard: sampleDashboard, account: func() *fakeAccount { return &fakeAccount{completeErr: errHeld} }, keys: []string{"c", "enter", "y"}},
+	{name: "claim_uploading", dashboard: sampleDashboard, account: func() *fakeAccount { return &fakeAccount{syncErr: errHeld} }, keys: []string{"c", "enter"}},
+	{name: "claim_failed", dashboard: sampleDashboard, account: func() *fakeAccount {
+		return &fakeAccount{completeErr: errors.New("synthetic: expired")}
+	}, keys: []string{"c", "enter"}},
+	{name: "claim_upload_failed", dashboard: sampleDashboard, account: func() *fakeAccount {
+		return &fakeAccount{syncErr: ErrUpgradeRequired}
+	}, keys: []string{"c", "enter"}},
+	{name: "claimed", dashboard: sampleDashboard, remote: sampleRemote, account: func() *fakeAccount { return &fakeAccount{uploaded: 4014} }, keys: []string{"c", "enter"}},
+	{name: "board_claim", dashboard: sampleDashboard, account: signedOut, remote: func() *fakeMultiplayer {
+		return &fakeMultiplayer{loadError: multiplayer.ErrSignedOut}
+	}, keys: []string{"2"}},
+	{name: "share", dashboard: sampleDashboard, keys: []string{"s", "y"}},
+	{name: "settings_signed_in", dashboard: sampleDashboard, account: func() *fakeAccount { return &fakeAccount{login: "you"} }, keys: []string{"5"}},
 }
+
+func signedOut() *fakeAccount { return &fakeAccount{} }
 
 // listedRemote is sampleRemote already on the small global board.
 func listedRemote() *fakeMultiplayer {
@@ -75,9 +104,24 @@ func needsAttentionDashboard() application.Dashboard {
 func renderScreen(t *testing.T, screen screen, tokens theme.Theme, width int) []string {
 	t.Helper()
 	app := &fakeApplication{dashboard: screen.dashboard(), loadError: screen.loadError}
-	config := Config{Theme: &tokens, Clipboard: func(string) {}}
+	if screen.firstLaunch {
+		app = firstLaunch(screen.dashboard())
+	}
+	config := Config{Theme: &tokens, Clipboard: func(string) {}, OpenURL: func(string) error { return nil }}
 	if screen.remote != nil {
 		config.Multiplayer = screen.remote()
+	}
+	if screen.account != nil {
+		config.Account = screen.account()
+	}
+	if screen.scanning {
+		// Deliver the account and the first load, and stop before the scan
+		// they start has finished.
+		model := NewModel(t.Context(), app, config)
+		sized, _ := model.Update(tea.WindowSizeMsg{Width: width, Height: screen.height})
+		known, _ := sized.(Model).Update(accountResult{})
+		loaded, _ := known.(Model).Update(loadResult{requestID: 1, dashboard: app.dashboard})
+		return loaded.(Model).frame()
 	}
 	model := start(t, app, config, width, screen.height)
 	return press(model, screen.keys...).frame()

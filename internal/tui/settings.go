@@ -54,11 +54,25 @@ func (m Model) deviceLines(width int) []string {
 		integrity = "failed; run `tokenholic doctor`"
 	}
 	return []string{
-		field("mode", "local; no account is required"),
+		field("account", m.accountText()),
 		field("timezone", m.dashboard.Timezone),
 		field("last scan", age(diagnostics.LastSuccessfulCollection, m.dashboard.GeneratedAt)),
 		field("to upload", plural(diagnostics.PendingOutbox, "bucket", "buckets")),
 		field("database", "schema "+strconv.Itoa(diagnostics.SchemaVersion)+" of "+strconv.Itoa(diagnostics.SupportedSchemaVersion)+" "+t.Glyphs.Separator+" integrity "+integrity),
+	}
+}
+
+// accountText says who this device is signed in as, or how to sign in.
+func (m Model) accountText() string {
+	switch {
+	case m.account == nil:
+		return "local only; no API is configured"
+	case !m.accountKnown:
+		return "not checked yet"
+	case m.login == "":
+		return "not signed in; press c to claim"
+	default:
+		return "signed in as " + memberLogin(m.login)
 	}
 }
 

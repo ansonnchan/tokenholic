@@ -12,6 +12,7 @@
 | c / i   create a group / join with an invite |
 |         code                                 |
 | o       join or leave the global board       |
+| s       draft a post of your totals to share |
 | r       reload                               |
 | ?       close help                           |
 | q       quit                                 |
