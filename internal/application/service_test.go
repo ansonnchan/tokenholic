@@ -17,6 +17,7 @@ type fakeStorage struct {
 	summaries    map[store.Period]store.UsageSummary
 	diagnostics  store.DiagnosticSnapshot
 	queryErr     error
+	dailyErr     error
 	nextRevision uint64
 	nextErr      error
 	rebuildErr   error
@@ -31,6 +32,13 @@ func (s *fakeStorage) QueryUsage(_ context.Context, period store.Period, _ time.
 		return store.UsageSummary{}, s.queryErr
 	}
 	return s.summaries[period], nil
+}
+
+func (s *fakeStorage) QueryDailyUsage(_ context.Context, _ time.Time, _ *time.Location, days int) ([]store.DailyUsage, error) {
+	if s.dailyErr != nil {
+		return nil, s.dailyErr
+	}
+	return make([]store.DailyUsage, days), nil
 }
 
 func (s *fakeStorage) Diagnostics(context.Context) (store.DiagnosticSnapshot, error) {
@@ -105,6 +113,13 @@ func TestServiceLoadsEveryLocalPeriodAndDiagnostics(t *testing.T) {
 	}
 	if !dashboard.Diagnostics.IntegrityOK || dashboard.AllTime.Period != store.PeriodAllTime {
 		t.Fatalf("Load() = %#v", dashboard)
+	}
+	if len(dashboard.Daily) != DailyDays {
+		t.Fatalf("Load() daily series has %d days, want %d", len(dashboard.Daily), DailyDays)
+	}
+	storage.dailyErr = errors.New("synthetic failure")
+	if _, err := service.Load(t.Context()); err == nil {
+		t.Fatal("Load() ignored a daily usage failure")
 	}
 }
 

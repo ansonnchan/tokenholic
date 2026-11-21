@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,6 +53,53 @@ type TokenBreakdown struct {
 	InputCacheWrite1h AggregateValue `json:"input_cache_write_1h"`
 	Output            AggregateValue `json:"output"`
 	ReasoningOutput   AggregateValue `json:"reasoning_output"`
+}
+
+// Total is total tokens: uncached input, cache read, cache write, and output.
+// Reasoning is already inside output and the cache-write lifetimes inside
+// cache write, so neither is added again. The total is partial when any part
+// is, and saturates rather than wrapping.
+func (t TokenBreakdown) Total() AggregateValue {
+	var total valueAccumulator
+	for _, part := range []AggregateValue{t.InputUncached, t.InputCacheRead, t.InputCacheWrite, t.Output} {
+		if part.State == "" || part.State == AvailabilityEmpty {
+			continue
+		}
+		total.seen = true
+		if part.Value != nil {
+			total.known = true
+			if math.MaxUint64-total.sum < *part.Value {
+				total.sum, total.missing = math.MaxUint64, true
+			} else {
+				total.sum += *part.Value
+			}
+		}
+		if part.State != AvailabilityComplete {
+			total.missing = true
+		}
+	}
+	return total.value()
+}
+
+// Coverage says how many tokens of a total this build's preview could price.
+// PricedBasisPoints is the priced share in hundredths of a percent, cut not
+// rounded, and nil when there are no tokens to take a share of.
+type Coverage struct {
+	PricedTokens      uint64
+	UnpricedTokens    uint64
+	PricedBasisPoints *int
+}
+
+func newCoverage(priced, unpriced uint64) Coverage {
+	coverage := Coverage{PricedTokens: priced, UnpricedTokens: unpriced}
+	total := new(big.Int).Add(new(big.Int).SetUint64(priced), new(big.Int).SetUint64(unpriced))
+	if total.Sign() == 0 {
+		return coverage
+	}
+	share := new(big.Int).Mul(new(big.Int).SetUint64(priced), big.NewInt(10_000))
+	basisPoints := int(share.Quo(share, total).Int64())
+	coverage.PricedBasisPoints = &basisPoints
+	return coverage
 }
 
 // UsageBucket is an absolute one-minute UTC usage snapshot. Its JSON form is
@@ -143,6 +191,7 @@ type ModelBreakdown struct {
 	UnpricedReason   string
 	Tokens           TokenBreakdown
 	APIEstimate      AggregateValue
+	Coverage         Coverage
 }
 
 // NamedBreakdown is one source or surface aggregate.
@@ -150,6 +199,7 @@ type NamedBreakdown struct {
 	Name        string
 	Tokens      TokenBreakdown
 	APIEstimate AggregateValue
+	Coverage    Coverage
 }
 
 // UsageSummary is a timezone-aware local period query.
@@ -159,6 +209,7 @@ type UsageSummary struct {
 	End         time.Time
 	Tokens      TokenBreakdown
 	APIEstimate AggregateValue
+	Coverage    Coverage
 	Models      []ModelBreakdown
 	Sources     []NamedBreakdown
 	Surfaces    []NamedBreakdown
@@ -459,6 +510,65 @@ func (db *DB) QueryUsage(ctx context.Context, period Period, now time.Time, loca
 		return UsageSummary{}, fmt.Errorf("iterate usage buckets: %w", err)
 	}
 	return accumulator.summary(), nil
+}
+
+// DailyUsage is one local calendar day's total tokens. Tokens is empty for a
+// day with no usage buckets.
+type DailyUsage struct {
+	Day    time.Time
+	Tokens AggregateValue
+}
+
+// QueryDailyUsage returns total tokens for each of the last days local dates
+// in location, oldest first and ending with today. Days follow the calendar,
+// so one across a clock change is 23 or 25 hours long.
+func (db *DB) QueryDailyUsage(ctx context.Context, now time.Time, location *time.Location, days int) ([]DailyUsage, error) {
+	if location == nil {
+		return nil, errors.New("usage period location is required")
+	}
+	if days < 1 {
+		return nil, errors.New("daily usage needs at least one day")
+	}
+	local := now.In(location)
+	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
+	series := make([]DailyUsage, days)
+	for index := range series {
+		series[index].Day = today.AddDate(0, 0, index-days+1)
+	}
+	end := now.UTC().Truncate(bucketInterval).Add(bucketInterval)
+	rows, err := db.sql.QueryContext(ctx,
+		`SELECT payload_json FROM usage_buckets WHERE bucket_start >= ? AND bucket_start < ? ORDER BY bucket_start, bucket_key`,
+		formatTime(series[0].Day.UTC()), formatTime(end))
+	if err != nil {
+		return nil, fmt.Errorf("query daily usage buckets: %w", err)
+	}
+	defer rows.Close()
+	totals := make([]tokenAccumulator, days)
+	for rows.Next() {
+		var payload []byte
+		if err := rows.Scan(&payload); err != nil {
+			return nil, fmt.Errorf("decode daily usage bucket row: %w", err)
+		}
+		var stored bucketPayload
+		if err := json.Unmarshal(payload, &stored); err != nil {
+			return nil, fmt.Errorf("decode daily usage bucket payload: %w", err)
+		}
+		// The last day that starts at or before the bucket owns it.
+		day := sort.Search(days, func(index int) bool { return series[index].Day.After(stored.Bucket.Start) }) - 1
+		if day < 0 {
+			continue
+		}
+		if err := totals[day].addBreakdown(stored.Bucket.Tokens); err != nil {
+			return nil, err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily usage buckets: %w", err)
+	}
+	for index := range series {
+		series[index].Tokens = totals[index].value().Total()
+	}
+	return series, nil
 }
 
 type valueAccumulator struct {
@@ -826,9 +936,15 @@ type summaryAccumulator struct {
 	sources, surfaces map[string]*summaryValues
 }
 type summaryValues struct {
-	tokens   tokenAccumulator
-	estimate valueAccumulator
+	tokens           tokenAccumulator
+	estimate         valueAccumulator
+	priced, unpriced uint64
 }
+
+func (v summaryValues) coverage() Coverage {
+	return newCoverage(v.priced, v.unpriced)
+}
+
 type modelSummaryAccumulator struct {
 	key    ModelBreakdown
 	values summaryValues
@@ -881,15 +997,26 @@ func addSummaryValues(values *summaryValues, bucket UsageBucket) error {
 	if err := values.tokens.addBreakdown(bucket.Tokens); err != nil {
 		return err
 	}
+	// Saturating: these two only form a share, and a share of sums this
+	// large is not worth failing the whole query for.
+	values.priced = saturatingAdd(values.priced, bucket.Preview.PricedTokens)
+	values.unpriced = saturatingAdd(values.unpriced, bucket.Preview.UnpricedTokens)
 	return values.estimate.addAggregate(bucket.Preview.APIEstimate)
 }
+func saturatingAdd(left, right uint64) uint64 {
+	if math.MaxUint64-left < right {
+		return math.MaxUint64
+	}
+	return left + right
+}
 func (a *summaryAccumulator) summary() UsageSummary {
-	result := UsageSummary{Period: a.period, Start: a.start, End: a.end, Tokens: a.all.tokens.value(), APIEstimate: a.all.estimate.value()}
+	result := UsageSummary{Period: a.period, Start: a.start, End: a.end, Tokens: a.all.tokens.value(), APIEstimate: a.all.estimate.value(), Coverage: a.all.coverage()}
 	modelKeys := sortedMapKeys(a.models)
 	for _, key := range modelKeys {
 		entry := a.models[key]
 		entry.key.Tokens = entry.values.tokens.value()
 		entry.key.APIEstimate = entry.values.estimate.value()
+		entry.key.Coverage = entry.values.coverage()
 		// Show the reason behind the most unpriced tokens; names break ties.
 		for _, reason := range sortedMapKeys(entry.unpriced) {
 			if entry.key.UnpricedReason == "" || entry.unpriced[reason] > entry.unpriced[entry.key.UnpricedReason] {
@@ -904,7 +1031,7 @@ func (a *summaryAccumulator) summary() UsageSummary {
 	}{{a.sources, &result.Sources}, {a.surfaces, &result.Surfaces}} {
 		for _, name := range sortedMapKeys(pair.source) {
 			values := pair.source[name]
-			*pair.target = append(*pair.target, NamedBreakdown{Name: name, Tokens: values.tokens.value(), APIEstimate: values.estimate.value()})
+			*pair.target = append(*pair.target, NamedBreakdown{Name: name, Tokens: values.tokens.value(), APIEstimate: values.estimate.value(), Coverage: values.coverage()})
 		}
 	}
 	return result
