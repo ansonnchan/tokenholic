@@ -726,12 +726,15 @@ Goal: deliver the retro-terminal dashboard described in `docs/design.md`.
     markers, and the compact number and money formatter.
   - Acceptance: golden snapshots at 48, 88, and 120 columns, with and without color.
   - Built as `internal/tui/theme`, `internal/tui/widget`, and `internal/numfmt`.
-    The views still use the earlier text layout until TKH-081 to TKH-083.
   - Depends on: TKH-060 (may run beside M6–M7 against fixtures).
 
-- [ ] **TKH-081: Redesign the personal dashboard** (`feat/tui-dashboard`)
+- [x] **TKH-081: Redesign the personal dashboard** (`feat/tui-dashboard`)
   - Headline tokens and estimate, 30-day sparkline, model and source
     breakdown with category detail, coverage, and freshness.
+  - Also moves the shell to the HOME, BOARDS, MODELS, SOURCES, SETTINGS
+    order and rebuilds the three other local views. BOARDS keeps its earlier
+    text inside the new shell until TKH-082. The claim chip on HOME arrives
+    with TKH-083.
   - Depends on: TKH-080, TKH-064.
 
 - [ ] **TKH-082: Build the board view** (`feat/tui-board`)
