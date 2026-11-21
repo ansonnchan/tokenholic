@@ -1,6 +1,6 @@
 # Design direction
 
-Status: TUI design system and personal views built, board and onboarding in progress (M8); website (M9) accepted
+Status: TUI design system, personal views, and boards built; onboarding in progress (M8); website (M9) accepted
 Last updated: November 21, 2026
 
 ## Intent
@@ -169,24 +169,32 @@ panel. Below that they stack under it.
 Wide layout (120 columns or more):
 
 ```text
->_ TOKENHOLIC   HOME  [BOARDS]  MODELS  SOURCES  SETTINGS              synced 4m ago
+>_ TOKENHOLIC    HOME [BOARDS] MODELS  SOURCES  SETTINGS              scanned 4m ago
 
-╭─ NIGHT-SHIFT ──────────────────────────────────────╮ ╭─ YOUR STANDING ──────────╮
-│  TODAY [THIS WEEK] 30 DAYS ALL-TIME   [$ EST] TOKENS │ │ @you            RANK #5  │
-│                                                      │ │ $640.00 EST        ▲ 2   │
-│ STANDINGS - - - - - - - - - - - - -  ▲▼ VS LAST WEEK │ ╰──────────────────────────╯
-│   1  @dana                 $1,180.00          ▲ 1    │ ╭─ NIGHT-SHIFT ────────────╮
-│   2  @kai                  $1,090.00          ▼ 1    │ │ MEMBERS               12 │
-│   3  @rio                    $840.50          –      │ │ INVITE  Q7M2KX   y copy  │
-│ ▌ 5  @you  ★ YOU             $640.00          ▲ 2    │ │ RESETS MON 00:00 LOCAL   │
-│   6  @sam                ≥$560.75  71% priced        │ ╰──────────────────────────╯
-│                                                      │  [ s  SHARE ]
-│ 1–6 OF 12 · RESETS MON 00:00 America/Vancouver       │
-╰──────────────────────────────────────────────────────╯
-1–5 views · g scope · p period · m metric · j/k move · y copy · s share · ? help · q quit
+╭─ NIGHT-SHIFT ─────────────────────────────────────────╮ ╭─ YOUR STANDING ──────────╮
+│  TODAY [THIS WEEK] 30 DAYS  ALL-TIME   [$ EST] TOKENS  │ │ @you             RANK #5 │
+│                                                        │ │ $640.00 EST          ▲ 2 │
+│ STANDINGS - - - - - - - - - - - - - -  ▲▼ VS LAST WEEK │ │ LAST WEEK        $512.10 │
+│    1  @dana                   $1,180.00  ▲ 1           │ ╰──────────────────────────╯
+│    2  @kai                    $1,090.00  ▼ 1           │ ╭─ GROUP ──────────────────╮
+│    3  @rio                      $840.50  –             │ │ SCOPE    1 of 3   g next │
+│ ▸  5  @you  ★ YOU               $640.00  ▲ 2           │ │ MEMBERS  8               │
+│    —  @sam                     ≥$560.75  71% priced    │ │ ROLE     owner           │
+│                                                        │ │ INVITE            y copy │
+│ 1–5 OF 8 · RESETS MON 00:00 America/Vancouver          │ │ ovt_…                    │
+│                                                        │ ╰──────────────────────────╯
+│ @YOU - - - - - - - - - - - - - - - - - - - - - - - - - │
+│ Rank #5, was #7 last week · $640.00 EST · last week …  │
+│ mostly claude-opus-5-5 (resolved) · Claude 1.92B, …    │
+╰────────────────────────────────────────────────────────╯
+1–5 views · g scope · p period · m metric · j/k move · y invite · c create · i join · ? help · q quit
 ```
 
-- Scope switcher cycles the user's groups and `GLOBAL` (opt-in).
+- The board is rendered exactly as the server ranked it. The TUI never
+  orders rows, assigns a rank, or judges coverage.
+- `g` cycles the user's groups and then `GLOBAL`. The panel title names the
+  scope. An account in no group can still open `GLOBAL`.
+- The board opens on `THIS WEEK` and `$ EST`.
 - Metric chips: `$ EST | TOKENS`.
 - Trend legend names its comparison: `VS YESTERDAY`, `VS LAST WEEK`,
   `VS PRIOR 30 DAYS`, or `VS 24H AGO`. Comparisons use the previous period
@@ -195,15 +203,41 @@ Wide layout (120 columns or more):
 - The current-user row has an accent edge (`▌`), a `★ YOU` tag, a subtle
   adaptive background, and accent text. If it falls outside the visible page,
   it is pinned after the list.
+- `j`/`k` move a cursor (`▸`, bold, no tint; the tint belongs to the
+  viewer's row). The cursor starts on the viewer's row and the list scrolls
+  around it, with as many rows as the terminal's height leaves.
+- Under the standings, the row under the cursor is explained in words: its
+  rank and previous rank, its value in the comparison window, the server's
+  reason when it has no rank, its most-used model with attribution, its
+  source mix, when it last synced, and any coverage limits.
 - Rows below the cost-coverage threshold show a lower bound and coverage
-  without a rank. The global board shows values without ranks until three
-  members can be ranked; a private group ranks any number of members.
-- The group panel shows members, the invite code (owners), the reset
-  boundary, and copy via OSC 52 where supported, otherwise prints the code.
+  without a rank (`—`). The last column holds movement for a ranked row and
+  the reason for an unranked one: `71% priced`, `no estimate`, `no usage`. A
+  reason this build does not know is shown as sent.
+- The global board shows values without ranks until three members can be
+  ranked, and says so under the list; a private group ranks any number of
+  members.
+- A member whose daily total is above the plausibility limit carries a `!`
+  after their name. The tags after a name are never cut off by a long name.
+- YOUR STANDING shows the viewer's rank, value, movement, and value in the
+  comparison window, or says why they have no rank.
+- The scope panel shows position among scopes, members, role, and board
+  visibility. `y` copies an invite: the owner's first press creates one
+  (24 hours, 10 uses) and later presses copy the same code. Copying uses
+  OSC 52; because a terminal may ignore it, the whole code is also shown,
+  never truncated. The server keeps only invite hashes, so a code is
+  available only in the session that created it.
+- On `GLOBAL`, `o` joins or leaves the board. Either one is a visibility
+  change and asks first; only `y` confirms.
+- `c` creates a group and `i` joins with a code. While a prompt is open
+  every key is text for it. An invite code is never echoed.
+- A success (`Invite copied`) shows for a few seconds as a `DONE` notice.
+- A failed load keeps the last board on screen under the failure.
 
-From 88 to 119 columns the rail stacks below the standings. From 48 to 87
-columns the view is one column: chips wrap, the trend column shortens, and
-the rail collapses to one summary line.
+From 88 to 119 columns the rail stacks below the standings as two panels
+side by side. From 48 to 87 columns the view is one column: chips wrap and
+the rail collapses to one summary line (`@you · RANK #5 · $640.00 EST ·
+▲ 2`), plus a line for an invite created in the session.
 
 ### Onboarding
 
@@ -248,7 +282,8 @@ visible per panel. Destructive actions require an inline typed confirmation.
 | `d` | Show exact token categories on HOME |
 | `c` | Claim when signed out; create group in BOARDS |
 | `i` | Join with an invite code (input masked) |
-| `y` | Copy invite |
+| `y` | Copy invite, creating one first for an owner |
+| `o` | Join or leave the global board, after confirming |
 | `s` | Share (prints an `x.com/intent/post` link) |
 | `r` | Refresh |
 | `?` | Help |
@@ -302,7 +337,8 @@ The website (M9) shares the TUI's tokens and voice and stays read-only.
   | --- | --- | --- |
   | Panel frame | `╭─╮│╰╯` | `+-+|+-+` |
   | Rank up / down / unchanged / new | `▲ 2` `▼ 1` `–` `NEW` | `+2` `-1` `=` `new` |
-  | Current-user edge and tag | `▌` `★ YOU` | `>` `* YOU` |
+  | Current-user edge and tag | `▌` `★ YOU` | `\|` `* YOU` |
+  | List cursor | `▸` | `>` |
   | Lower bound / unavailable | `≥` `—` | `>=` `-` |
   | Sparkline levels, low to high | `▁▂▃▄▅▆▇█` | `_.-=#` |
   | Phrase separator / range / truncation | `·` `–` `…` | `|` `-` `~` |

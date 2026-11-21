@@ -737,9 +737,13 @@ Goal: deliver the retro-terminal dashboard described in `docs/design.md`.
     with TKH-083.
   - Depends on: TKH-080, TKH-064.
 
-- [ ] **TKH-082: Build the board view** (`feat/tui-board`)
+- [x] **TKH-082: Build the board view** (`feat/tui-board`)
   - Standings, current-user row, standing panel, group panel with invite copy,
     period and metric chips, group/global switching, scrolling, and trends.
+  - The native client gains a read of the global board, and the board area
+    can join or leave it after a confirmation.
+  - Not in the TUI yet, and still CLI-only: profile and group visibility,
+    group deletion, ownership transfer, and leaving a group.
   - Depends on: TKH-081, TKH-073.
 
 - [ ] **TKH-083: Add in-TUI onboarding and sharing** (`feat/tui-onboarding`)
