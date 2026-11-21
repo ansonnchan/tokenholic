@@ -921,8 +921,11 @@ The local, multiplayer, packaging, and autosync implementation is complete,
 and `@tokenholic/cli` 0.1.0 is published. M6, usage and cost correctness, is
 complete, and so is M7, leaderboards, profiles, and integrity, except for
 Codex compaction usage (TKH-075), which waits on real records to build a
-fixture from. The remaining parity revamp continues in order: the TUI revamp,
-the website and share cards, and finally Linux, Windows, and a validated
-release. The free demo environment's end-to-end
+fixture from. M8, the TUI revamp, is complete: the design system, the
+personal views, the board view, and in-TUI onboarding, claim, and sharing.
+The remaining parity revamp continues in order: the website and share cards,
+then Linux, Windows, and a validated release, which must also give builds a
+default API address before a new user can claim without configuration. The
+free demo environment's end-to-end
 validation (TKH-043) folds into TKH-102. Long-tail agents through ccusage
 follow in M11, after the release. A measured private beta remains optional.
