@@ -20,5 +20,11 @@ devices, and groups are kept, and clients upload their history again after
 upgrading. A destructive migration must say so in its header comment and in
 the release notes.
 
+`0004_pricing_evidence` is additive. It adds the nullable `service_tier` and
+`prompt_band` columns, which are client evidence: they are covered by the
+payload hash and read back when history is repriced. Existing rows keep NULL,
+which means unproven. The schema checks the shape of both values and the API
+validates the names, so a new tier or ladder step needs no migration.
+
 Do not add deployment state before its roadmap stage. Server migrations must
 never introduce columns for raw local records or prohibited source material.

@@ -46,12 +46,18 @@ also fingerprinted before SQL execution; the schema has no path or raw
 source-identifier fields.
 
 The one exception to the no-op is a record arriving from a different adapter
-revision. Its token categories and warnings replace the stored ones, so a
-corrected parser repairs history whose source files still exist. Records whose
-files are gone keep their earlier values; for cache writes that means a
-combined total with an unknown time-to-live. Model attribution, measurement,
-and normalization version are never replaced, because they identify the usage
-bucket and moving them would strand the old bucket.
+revision. Its token categories, warnings, and pricing evidence replace the
+stored ones, so a corrected parser repairs history whose source files still
+exist. Records whose files are gone keep their earlier values; for cache
+writes that means a combined total with an unknown time-to-live, and for
+pricing evidence it means none. Model attribution, measurement, and
+normalization version are never replaced.
+
+Pricing evidence is the service tier and the prompt size of one request (see
+the [normalized contract](../normalize/README.md)). Both columns are nullable,
+and NULL means the source did not prove the fact. Evidence is part of the
+usage-bucket identity, so a record that gains it moves to another bucket and
+the next rebuild retracts the bucket it left.
 
 `CommitScan` extends the same invariant across every source completed by one
 application scan: either all observation/checkpoint/health batches commit, or
@@ -69,14 +75,21 @@ schema but are no longer written.
 
 Committed observations reduce into absolute one-minute UTC buckets keyed by
 source, surface, observed model, model evidence quality, measurement quality,
-and normalization version. The key holds observed evidence only, so a catalog
-update never moves a bucket.
+normalization version, and pricing evidence: the service tier and the prompt
+band. The key holds observed evidence only, so a catalog update never moves a
+bucket. The server prices a bucket from one rate card, which is why requests
+at different tiers or on different sides of a price threshold never share one.
+
+A bucket with no pricing evidence omits both fields from its key and its JSON.
+It is byte-identical to a bucket built before the evidence existed, keeps its
+content hash, and is not uploaded again. A test pins that key, hash, and JSON.
+`internal/sync` recomputes the key from the payload and must stay in step.
 
 Each bucket row keeps two JSON documents:
 
 | Column | Contents | Uploaded |
 | --- | --- | --- |
-| `payload_json` | Observed model, evidence quality, and token categories | Yes, exactly as stored |
+| `payload_json` | Observed model, evidence quality, pricing evidence, and token categories | Yes, exactly as stored |
 | `preview_json` | This build's canonical model, unpriced reason, estimate, and priced/unpriced tokens | Never |
 
 A bucket's revision changes only when `payload_json` content changes. A higher
@@ -96,6 +109,10 @@ Only the newest pending revision for each bucket remains in the local outbox.
 Its JSON is the upload payload and has no source record, session, path, or
 client-derived model or price field. This package does not implement a network
 client.
+
+Migration `0007` adds the two nullable pricing-evidence columns to
+observations. Existing rows stay NULL until their source file is read again by
+an adapter revision that reports the evidence.
 
 Migration `0006` discards stored Codex observations. Earlier Codex adapter
 revisions counted replayed history and misordered snapshots, the affected rows

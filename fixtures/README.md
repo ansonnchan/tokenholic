@@ -8,11 +8,11 @@ Only synthetic or explicitly approved sanitized source records belong here. Fixt
 
 | Directory | Contract exercised |
 | --- | --- |
-| `claude-code` | Claude Code incremental assistant usage, duplicates, malformed-line recovery, cache-write lifetimes, and excluded local notices |
+| `claude-code` | Claude Code incremental assistant usage, duplicates, malformed-line recovery, cache-write lifetimes, service tier and speed, and excluded local notices |
 | `claude-desktop/code` | Claude Desktop Code records and overlap with CLI-compatible evidence |
 | `claude-desktop/agent` | Claude Desktop local Agent records |
 | `claude-desktop/cowork` | Claude Desktop Cowork audit records |
-| `codex-cli` | Codex context attribution, per-request usage, a forked rollout replaying its parent, legacy cumulative snapshots, resets, and malformed-line recovery |
+| `codex-cli` | Codex context attribution, per-request usage, service-tier settings events, prompt sizes on each side of the price ladder, a forked rollout replaying its parent, legacy cumulative snapshots, resets, and malformed-line recovery |
 | `codex-desktop` | Codex Desktop/shared records and full or midstream overlap |
 | `ccusage` | Pinned Claude and Codex daily JSON schemas |
 
