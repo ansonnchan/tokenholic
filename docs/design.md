@@ -1,6 +1,6 @@
 # Design direction
 
-Status: MVP views implemented; TUI design system built, views in progress (M8); website (M9) accepted
+Status: TUI design system and personal views built, board and onboarding in progress (M8); website (M9) accepted
 Last updated: November 21, 2026
 
 ## Intent
@@ -106,14 +106,63 @@ back to the one-line mark on narrow terminals and without Unicode.
 
 ### HOME
 
-- Period chips: `TODAY | THIS WEEK | 30 DAYS | ALL-TIME`.
-- Headline: total tokens and the API-equivalent estimate for the period.
-- A 30-day sparkline of daily tokens (`▁▂▃▄▅▆▇█`, ASCII fallback `_.-=#`).
-- Breakdown by source and by model, each with tokens, estimate, and share.
-- Category detail on demand: uncached input, cache read, cache write 5m and
-  1h, output, and reasoning (shown as part of output).
-- Freshness (`synced 4m ago`, `3 buckets pending`) and coverage warnings.
-- When signed out, a primary chip: `[ c  CLAIM YOUR SPOT ]`.
+```text
+>_ TOKENHOLIC   [HOME] BOARDS  MODELS  SOURCES  SETTINGS        scanned 4m ago · 3 to upload
+
+╭─ YOUR USAGE ─────────────────────────────────────╮ ╭─ BY SOURCE ───────────────────────╮
+│  TODAY  THIS WEEK [30 DAYS] ALL-TIME             │ │ SOURCE    TOKENS      $ EST  SHARE │
+│                                                  │ │ Claude     2.92B    $820.40  68.4% │
+│ TOKENS          $ EST            PRICED          │ │ Codex     ≥1.34B   ≥$360.02  31.5% │
+│ ≥4.26B          ≥$1,180.42       92.3%           │ ╰───────────────────────────────────╯
+│                                                  │ ╭─ BY MODEL ────────────────────────╮
+│ DAILY TOKENS - - - - - - - -  PEAK ≥338M OCT 27  │ │ MODEL     TOKENS      $ EST  SHARE │
+│ ▆▆▂▂▂▂▄▄██▆▆▃▃▇▇▁▁▃▃▆▆▄▄██▅▅  ▅▅▃▃▇▇▄▄██▆▆▂▂     │ │ …                                  │
+│ OCT 23                              TODAY        │ │ 2 more models · press 3            │
+╰──────────────────────────────────────────────────╯ ╰───────────────────────────────────╯
+1–5 views · p period · d detail · j/k scroll · r refresh · ? help · q quit
+```
+
+- Period chips: `TODAY | THIS WEEK | 30 DAYS | ALL-TIME`, opening on
+  30 days. The period is shared with MODELS and SOURCES.
+- Headline tiles: total tokens, the API-equivalent estimate under a `$ EST`
+  label, and the share of tokens the estimate covers. A period with no usage
+  shows `—` in each tile and says so; it never shows `0`.
+- A sparkline of the last 30 local days of total tokens (`▁▂▃▄▅▆▇█`, ASCII
+  fallback `_.-=#`), two cells a day where there is room, with the peak day
+  named. A day with no usage is the lowest bar. A day whose records carry no
+  counts is a gap, because its total is unknown.
+- Breakdown by source and by the five largest models, each with tokens,
+  estimate, and share of the period's tokens.
+- `d` adds the exact categories: uncached input, cache read, cache write
+  with its 5-minute and 1-hour parts, and output with its reasoning part.
+  Parts are indented under their parent and have no share of their own. A
+  category a source never reports reads `not reported`.
+- The header shows freshness of the local scan (`scanned 4m ago`) and, when
+  wide, how many buckets wait to upload. It says `scanned`, not `synced`:
+  this device does not record when it last uploaded.
+- When signed out, a primary chip: `[ c  CLAIM YOUR SPOT ]` (arrives with
+  onboarding).
+
+At 120 columns the breakdowns sit in a 50-column rail beside the usage
+panel. Below that they stack under it.
+
+### MODELS, SOURCES, and SETTINGS
+
+- MODELS lists every model in the period with a cursor (`j`/`k`). Beside it,
+  or below it when narrow, the selected model shows the identifier the source
+  recorded, how it was attributed, the priced share, why any usage is
+  unpriced, and its exact categories. The attribution column is the first to
+  go when the list is narrow; the detail panel always states it. Inferred and
+  unknown attributions are named as such.
+- SOURCES shows each adapter's state in words (`detected`, `not found`,
+  `no permission`, `no records`), its record count, and when it was last
+  read, then the period's usage by source and by surface. It never shows a
+  path.
+- SETTINGS states what is stored, what never is, what uploading sends, this
+  device's timezone, scan and database state, and the display switches.
+- A view taller than the terminal scrolls with `j`/`k` and says how many
+  lines are above and below. MODELS instead keeps its list short enough to
+  fit and drops the detail panel's categories before it drops rows.
 
 ### BOARDS
 
@@ -196,6 +245,7 @@ visible per panel. Destructive actions require an inline typed confirmation.
 | `tab` / `shift+tab` | Move between controls |
 | `j` / `k`, arrows | Move selection or scroll |
 | `p` / `m` / `g` | Period / metric / scope |
+| `d` | Show exact token categories on HOME |
 | `c` | Claim when signed out; create group in BOARDS |
 | `i` | Join with an invite code (input masked) |
 | `y` | Copy invite |

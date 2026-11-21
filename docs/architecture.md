@@ -102,7 +102,10 @@ observation commit before rebuilding absolute usage buckets from committed
 observations. Presentation retains its last stable page while that work runs.
 
 Dashboard loads query Today, This week, 30 days, and All time using the local
-timezone, then attach the privacy-safe database diagnostic snapshot. The TUI
+timezone, add total tokens for each of the last 30 local dates, and attach the
+privacy-safe database diagnostic snapshot. Storage, not presentation, defines
+total tokens (the four categories that are not subsets of another) and the
+priced share of each total, so every view states them the same way. The TUI
 receives no source paths, record identities, observation rows, or raw provider
 content. Startup and refresh failures are reduced to stable messages and refer
 users to `tokenholic doctor` for path-redacted detail.

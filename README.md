@@ -153,7 +153,8 @@ go build -o ./bin/tokenholic ./cmd/tokenholic
 ```
 
 The TUI starts in local mode. Press `r` to collect supported evidence and
-refresh committed totals, `1`–`4` to switch views, `?` for help, and `q` to
+refresh committed totals, `1`–`5` to switch views, `p` to change the period,
+`d` for exact token categories, `?` for help, and `q` to
 quit. The minimum supported width is 48 columns.
 
 The TUI is in color by default and picks its light or dark palette from the
