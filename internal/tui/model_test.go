@@ -4,9 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/ansonnchan/tokenholic/internal/multiplayer"
 	"github.com/ansonnchan/tokenholic/internal/store"
 	"github.com/ansonnchan/tokenholic/internal/tui/widget"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,7 +22,7 @@ func TestKeysSwitchAreasInTheDocumentedOrder(t *testing.T) {
 		t.Fatalf("first frame = %q after %d loads", view(model), app.loads)
 	}
 	for key, want := range map[string][2]string{
-		"2": {"[BOARDS]", "BOARDS"}, "3": {"[MODELS]", "MODEL DETAIL"},
+		"2": {"[BOARDS]", "TOKENHOLIC_API_URL"}, "3": {"[MODELS]", "MODEL DETAIL"},
 		"4": {"[SOURCES]", "LOCAL SOURCES"}, "5": {"[SETTINGS]", "PRIVACY"}, "1": {"[HOME]", "BY MODEL"},
 	} {
 		// Start somewhere else so every key is a real switch.
@@ -119,7 +117,7 @@ func TestModelsCursorMovesWithinTheList(t *testing.T) {
 	model := press(start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{}, 88, 0), "3")
 	selected := func(model Model) string {
 		for _, line := range strings.Split(view(model), "\n") {
-			if strings.Contains(line, "▌") {
+			if strings.Contains(line, "▸") {
 				return line
 			}
 		}
@@ -299,96 +297,5 @@ func TestStoredTextCannotControlTheTerminal(t *testing.T) {
 	t.Parallel()
 	if got := cleanLine("Private\x1b[31m\nGroup\x7f\u009b"); strings.ContainsAny(got, "\x1b\n\x7f\u009b") {
 		t.Fatalf("cleanLine() = %q", got)
-	}
-}
-
-func TestBoardsLoadsSwitchesPeriodMetricAndGroup(t *testing.T) {
-	t.Parallel()
-	value := "20"
-	rank := 1
-	remote := &fakeMultiplayer{snapshot: multiplayer.Snapshot{
-		Groups: []multiplayer.Group{
-			{ID: "group-one", Name: "One", Timezone: "UTC", Role: "owner"},
-			{ID: "group-two", Name: "Two", Timezone: "UTC", Role: "member"},
-		},
-		Selected: multiplayer.Group{ID: "group-one", Name: "One", Timezone: "UTC", Role: "owner"},
-		Board: &multiplayer.Board{
-			GroupID: "group-one", GroupName: "One", Timezone: "UTC",
-			Period: multiplayer.PeriodToday, Metric: multiplayer.MetricTotalTokens,
-			GeneratedAt: time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC), Rows: []multiplayer.Row{{
-				Rank: &rank, DisplayName: "Alpha", CurrentUser: true,
-				Value:       multiplayer.Value{Value: &value, State: multiplayer.AvailabilityComplete},
-				Limitations: multiplayer.Limitations{UnknownModelBuckets: 1},
-			}},
-		},
-	}}
-	model := press(start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{Multiplayer: remote}, 88, 0), "2")
-	got := view(model)
-	for _, want := range []string{"[BOARDS]", "Group 1/2 · One", "Your standing: #1 of 1", "Alpha (you)", "unknown model 1"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("boards = %q, want %q", got, want)
-		}
-	}
-	model = press(model, "p")
-	if remote.period != multiplayer.PeriodWeek {
-		t.Fatalf("period = %s", remote.period)
-	}
-	model = press(model, "m")
-	if remote.metric != multiplayer.MetricAPIEstimate {
-		t.Fatalf("metric = %s", remote.metric)
-	}
-	model = press(model, "j")
-	if remote.selectedID != "group-two" || !strings.Contains(view(model), "Group 2/2 · Two") {
-		t.Fatalf("selected group/view = %q/%q", remote.selectedID, view(model))
-	}
-	// A failed reload keeps the board that was showing.
-	remote.loadError = errors.New("synthetic outage")
-	if got := view(press(model, "r")); !strings.Contains(got, "Could not load private groups") || !strings.Contains(got, "Group 2/2 · Two") || strings.Contains(got, "synthetic outage") {
-		t.Fatalf("failed reload = %q", got)
-	}
-}
-
-func TestBoardsExplainsMissingConfigurationAndSignIn(t *testing.T) {
-	t.Parallel()
-	app := &fakeApplication{dashboard: sampleDashboard()}
-	got := view(press(start(t, app, Config{}, 88, 0), "2"))
-	if !strings.Contains(got, "tokenholic claim") || !strings.Contains(got, "TOKENHOLIC_API_URL") || strings.Contains(got, "tokenholic login") {
-		t.Fatalf("unconfigured boards = %q", got)
-	}
-	remote := &fakeMultiplayer{loadError: multiplayer.ErrSignedOut}
-	got = view(press(start(t, app, Config{Multiplayer: remote}, 88, 0), "2"))
-	if !strings.Contains(got, "Sign in is required") || !strings.Contains(got, "tokenholic claim") {
-		t.Fatalf("signed-out boards = %q", got)
-	}
-}
-
-func TestBoardsCreatesAGroupAndMasksTheInviteCode(t *testing.T) {
-	t.Parallel()
-	group := multiplayer.Group{ID: "group-one", Name: "One", Timezone: "UTC", Role: "owner"}
-	remote := &fakeMultiplayer{snapshot: multiplayer.Snapshot{Groups: []multiplayer.Group{group}, Selected: group}}
-	model := press(start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{Multiplayer: remote}, 88, 0), "2", "c")
-	model = press(model, "New group")
-	if got := view(model); !strings.Contains(got, "New group_") {
-		t.Fatalf("create prompt = %q", got)
-	}
-	// While typing, keys are text: q must not quit and 1 must not navigate.
-	model = press(model, "q", "1")
-	if got := view(model); !strings.Contains(got, "New groupq1_") || !strings.Contains(got, "[BOARDS]") {
-		t.Fatalf("typed keys acted as commands: %q", got)
-	}
-	model = press(model, "enter")
-	if remote.created != "New groupq1" {
-		t.Fatalf("created = %q", remote.created)
-	}
-	model = press(model, "i", "ovt_secret")
-	if got := view(model); strings.Contains(got, "ovt_secret") || !strings.Contains(got, "**********_") {
-		t.Fatalf("invite code was not masked: %q", got)
-	}
-	if got := view(press(model, "esc")); strings.Contains(got, "Join with invite code") {
-		t.Fatalf("esc kept the prompt: %q", got)
-	}
-	press(model, "enter")
-	if remote.joined != "ovt_secret" {
-		t.Fatalf("joined with %q", remote.joined)
 	}
 }

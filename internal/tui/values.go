@@ -98,6 +98,20 @@ func age(then *time.Time, now time.Time) string {
 	}
 }
 
+// until describes how far away something is: "in 23h", "in 3d".
+func until(remaining time.Duration) string {
+	switch {
+	case remaining <= 0:
+		return "now"
+	case remaining < time.Hour:
+		return fmt.Sprintf("in %dm", max(int(remaining.Minutes()), 1))
+	case remaining < 48*time.Hour:
+		return fmt.Sprintf("in %dh", int(remaining.Hours()))
+	default:
+		return fmt.Sprintf("in %dd", int(remaining.Hours()/24))
+	}
+}
+
 // dayLabel is a short uppercase date such as "NOV 21".
 func dayLabel(day time.Time) string {
 	return strings.ToUpper(day.Format("Jan 2"))

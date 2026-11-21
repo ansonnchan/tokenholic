@@ -6,7 +6,7 @@
 │                                              │
 │   MODEL           TOKENS        $ EST  SHARE │
 │   claude-opus-…    2.12B      $688.30  49.6% │
-│ ▌ gpt-5.2-codex   ≥1.02B     ≥$318.90  23.9% │
+│ ▸ gpt-5.2-codex   ≥1.02B     ≥$318.90  23.9% │
 │   claude-sonne…     707M      $121.75  16.5% │
 │   codex-auto-r…    ≥242M            —   5.6% │
 │   claude-haiku…      92M       $10.35   2.1% │

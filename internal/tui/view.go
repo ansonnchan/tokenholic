@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ansonnchan/tokenholic/internal/multiplayer"
 	"github.com/ansonnchan/tokenholic/internal/tui/widget"
 )
 
@@ -96,7 +97,7 @@ func (m Model) body(width, height int) []string {
 		return m.helpView(width)
 	}
 	if m.section == BoardsSection {
-		return m.boardsView(width)
+		return m.boardsView(width, height)
 	}
 	switch {
 	case m.app == nil:
@@ -123,11 +124,8 @@ func (m Model) body(width, height int) []string {
 func (m Model) status(width int) string {
 	g := m.theme.Glyphs
 	switch {
-	case m.section == BoardsSection:
-		if m.board.loading {
-			return m.spin() + " loading"
-		}
-		return ""
+	case m.section == BoardsSection && m.board.loading:
+		return m.spin() + " loading"
 	case m.refreshing:
 		return m.spin() + " scanning"
 	case !m.loaded:
@@ -154,7 +152,13 @@ func (m Model) spin() string {
 func (m Model) notices(width int) []string {
 	t := m.theme
 	var lines []string
-	if m.section == BoardsSection || m.help {
+	if m.help {
+		return nil
+	}
+	if m.section == BoardsSection {
+		if m.board.flash != "" {
+			return widget.Notice(t, widget.Success, m.board.flash, width)
+		}
 		return nil
 	}
 	if m.localError != "" {
@@ -181,8 +185,21 @@ func (m Model) hints() []widget.Hint {
 	case SettingsSection:
 		hints = append(hints, widget.Hint{Key: "j/k", Label: "scroll"})
 	case BoardsSection:
+		if m.board.gate != gateOpen || m.multiplayer == nil {
+			break
+		}
+		// The scope's own action: an invite for a group, opting in or out
+		// for the global board.
+		action := widget.Hint{Key: "y", Label: "invite"}
+		if board := m.board.snapshot.Board; board != nil && board.Scope == multiplayer.ScopeGlobal {
+			action = widget.Hint{Key: "o", Label: "join global"}
+			if viewerRow(board) >= 0 {
+				action.Label = "leave global"
+			}
+		}
 		hints = append(hints,
-			widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "m", Label: "metric"}, widget.Hint{Key: "j/k", Label: "group"},
+			widget.Hint{Key: "g", Label: "scope"}, widget.Hint{Key: "p", Label: "period"}, widget.Hint{Key: "m", Label: "metric"},
+			widget.Hint{Key: "j/k", Label: "move"}, action,
 			widget.Hint{Key: "c", Label: "create"}, widget.Hint{Key: "i", Label: "join"},
 		)
 	}
@@ -209,10 +226,13 @@ func (m Model) helpView(width int) []string {
 	}
 	if m.section == BoardsSection {
 		keys = [][2]string{
-			{"j / k", "switch group"},
+			{"g", "next board: each of your groups, then GLOBAL"},
 			{"p", "change period"},
-			{"m", "change metric"},
-			{"c / i", "create a group / join with an invite"},
+			{"m", "rank by estimate or by tokens"},
+			{"j / k", "move through the standings"},
+			{"y", "copy an invite to this group; the owner creates it"},
+			{"c / i", "create a group / join with an invite code"},
+			{"o", "join or leave the global board"},
 			{"r", "reload"},
 			{"?", "close help"},
 			{"q", "quit"},
@@ -223,6 +243,12 @@ func (m Model) helpView(width int) []string {
 		{g.AtLeast + "1.2M", "a lower bound: part of the usage was not reported or has no price."},
 		{g.Unavailable, "not available. It never means zero."},
 		{"PRICED", "the share of tokens the estimate covers."},
+	}
+	if m.section == BoardsSection {
+		legend = append(legend,
+			[2]string{g.Up + " 2", "rank moved, against the same point of the previous period."},
+			[2]string{"!", "a daily total above the plausibility limit. Usage is self-reported."},
+		)
 	}
 	render := func(rows [][2]string, inner int) []string {
 		var lines []string

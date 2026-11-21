@@ -16,6 +16,8 @@ type Glyphs struct {
 	New string
 	// Edge and Star mark the current user's row.
 	Edge, Star string
+	// Pointer marks the row the cursor is on.
+	Pointer string
 
 	// AtLeast prefixes a lower bound. The ASCII form is two cells wide.
 	AtLeast string
@@ -42,7 +44,7 @@ var unicodeGlyphs = Glyphs{
 	TopLeft: "╭", TopRight: "╮", BottomLeft: "╰", BottomRight: "╯",
 	Horizontal: "─", Vertical: "│", Dash: "-",
 	Up: "▲", Down: "▼", Same: "–", New: "NEW",
-	Edge: "▌", Star: "★",
+	Edge: "▌", Star: "★", Pointer: "▸",
 	AtLeast: "≥", Unavailable: "—", Separator: "·", Range: "–", Ellipsis: "…",
 	Check: "✓", Cross: "✗",
 	Bars:    []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"},
@@ -54,7 +56,7 @@ var asciiGlyphs = Glyphs{
 	TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+",
 	Horizontal: "-", Vertical: "|", Dash: "-",
 	Up: "+", Down: "-", Same: "=", New: "new",
-	Edge: ">", Star: "*",
+	Edge: "|", Star: "*", Pointer: ">",
 	AtLeast: ">=", Unavailable: "-", Separator: "|", Range: "-", Ellipsis: "~",
 	Check: "ok", Cross: "x",
 	Bars:    []string{"_", ".", "-", "=", "#"},
