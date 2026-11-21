@@ -154,8 +154,16 @@ go build -o ./bin/tokenholic ./cmd/tokenholic
 
 The TUI starts in local mode. Press `r` to collect supported evidence and
 refresh committed totals, `1`–`4` to switch views, `?` for help, and `q` to
-quit. Set `NO_COLOR` to any non-empty value to disable styled output. The
-minimum supported width is 48 columns.
+quit. The minimum supported width is 48 columns.
+
+The TUI is in color by default and picks its light or dark palette from the
+terminal's background. Three environment variables adjust that:
+
+| Variable | Effect |
+| --- | --- |
+| `TOKENHOLIC_THEME=light` or `dark` | Use that palette when the terminal's background is detected wrongly |
+| `NO_COLOR` (any value) | Disable all styling; selection and status use brackets and words |
+| `TOKENHOLIC_ASCII` (any value) | Replace box-drawing and symbol characters with ASCII |
 
 Run the source diagnostic:
 

@@ -31,9 +31,12 @@ multiplayer owns authenticated group and leaderboard HTTP calls
 | `fixturecheck` | Privacy validation for committed fixtures | Runtime validation of user data |
 | `modelcatalog` | Versioned canonical model and API-equivalent pricing resolution | Source parsing |
 | `multiplayer` | Native private-group commands, leaderboard DTOs, and authenticated API calls | Credentials, server policy, aggregation, or terminal rendering |
+| `numfmt` | Compact token counts, estimate amounts, and shares as every surface displays them | Deciding how an unknown or unavailable value is shown |
 | `store` | SQLite lifecycle, migrations, and local persistence | Source-specific behavior |
 | `sync` | Allowlisted absolute-bucket batches, retry, dry run, and acknowledgements | Raw local records or provider credentials |
 | `tui` | Keyboard-first presentation of committed local state | Collection, SQL, or synchronization logic |
+| `tui/theme` | Palette, text styles, and the glyph set with its ASCII fallbacks | Layout or content |
+| `tui/widget` | Stateless building blocks: chips, panels, rules, tables, sparklines, movement marks, key bar | Usage, ranking, or availability semantics |
 
 Interfaces should be declared at the package that consumes them. Provider-specific identifiers may pass through normalized contracts as observed values, but provider-specific filesystem and schema rules stay in adapters.
 
