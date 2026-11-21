@@ -52,7 +52,8 @@ source records. Local discovery, provider parsing, cumulative-counter
 reduction, and raw-record deduplication remain native-client responsibilities.
 
 The API requires `DATABASE_URL`, `GITHUB_CLIENT_ID`, and a dedicated 32-byte
-base64 `TOKENHOLIC_AUTH_STATE_KEY`. `TOKENHOLIC_LISTEN_ADDR` defaults to
+base64 `TOKENHOLIC_AUTH_STATE_KEY`. `TOKENHOLIC_TRUSTED_PROXY_HOPS` is optional
+and described under [Rate limits](#rate-limits). `TOKENHOLIC_LISTEN_ADDR` defaults to
 loopback. When that explicit override is absent, a hosting platform's numeric
 `PORT` binds on all container interfaces before the loopback default is used.
 Register the GitHub OAuth app with Device Flow enabled and no repository scopes.
@@ -83,6 +84,43 @@ server-derived columns, and is a no-op when nothing is stale. A failure rolls
 back and stops startup rather than serving a mix of revisions. Moving the
 price pin or editing an override therefore reprices history on the next
 deploy with no manual step.
+
+## Rate limits
+
+`ratelimit` is an in-memory token bucket and `httpapi.RateLimited` applies it
+before any route runs. A request over a limit gets `429 Too Many Requests`
+with a `Retry-After` header in whole seconds, rounded up, and the body
+`{"error":"rate_limited"}`. It reaches no route and costs no further
+allowance.
+
+| Limit | Key | Burst | Refill | Applies to |
+| --- | --- | --- | --- | --- |
+| Per address | Client address | 300 | 1 every 200 ms (300 per minute) | Every request |
+| Per credential | SHA-256 of the bearer credential | 300 | 1 every 200 ms (300 per minute) | Every request that presents a credential, valid or not |
+| Device login start | Client address | 10 | 1 every 6 s (10 per minute) | `POST /v1/auth/device/start`, which calls GitHub without a credential |
+
+`GET /healthz` is exempt, so a platform's probes cannot be throttled into
+reporting the service down. The values are constants in `cmd/api`. They are
+sized so a first sync of 30,000 buckets fits inside the burst; the sync client
+waits for `Retry-After` and retries once, and anything still pending uploads
+on the next sync.
+
+An IPv6 client is keyed by its /64. Limiter state never holds a credential,
+only its digest, and idle keys are dropped as their buckets refill. If more
+than 50,000 keys are active at once the rest share one overflow bucket, which
+bounds memory and still limits a flood of new keys.
+
+The client address is the connection's address unless
+`TOKENHOLIC_TRUSTED_PROXY_HOPS` says how many reverse proxies in front of the
+API append to `X-Forwarded-For`. With `n` trusted proxies the client is the
+`n`th entry from the right; entries further left came from the client and are
+never read. Set it too high and a client can choose its own address; leave it
+too low and every client shares the proxy's allowance. An invalid value stops
+startup.
+
+Limiter state is local to one process. That is correct for the single demo
+instance: several instances would each grant the full limit. Move the state to
+shared storage before running more than one, and not before a measured need.
 
 Run the disposable-schema integration suite with `make test-postgres` and an
 `TOKENHOLIC_TEST_DATABASE_URL`. Do not target production. Do not add distributed

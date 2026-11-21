@@ -670,9 +670,11 @@ Goal: reach social-product parity with honest ranking rules.
     and first-period entrants.
   - Depends on: TKH-074.
 
-- [ ] **TKH-071: Rate-limit the API** (`feat/api-rate-limits`)
+- [x] **TKH-071: Rate-limit the API** (`feat/api-rate-limits`)
   - In-memory token buckets per credential and per IP for the single instance.
   - Acceptance: handler tests return 429 with `Retry-After`; limits are documented.
+  - The number of trusted proxies in front of the hosted API is configuration
+    that TKH-102 must confirm against the live environment.
   - Depends on: TKH-070.
 
 - [ ] **TKH-072: Add the opt-in global board** (`feat/global-board`)
@@ -761,6 +763,9 @@ Goal: make tokenholic discoverable and shareable without a browser dashboard.
 
 - [ ] **TKH-102: Release and validate** (`chore/release-0.2`)
   - Deploy, run the two-account demo checklist, tag, and publish npm packages.
+  - Confirm how many proxies the host puts in front of the API and set
+    `TOKENHOLIC_TRUSTED_PROXY_HOPS` to match, so per-address rate limits key
+    on the real client.
   - Depends on: TKH-091, TKH-101.
 
 M6–M10 exit criteria:

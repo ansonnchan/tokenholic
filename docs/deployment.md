@@ -71,6 +71,17 @@ The container reads Render's `PORT` and binds to all container interfaces.
 `TOKENHOLIC_LISTEN_ADDR` remains available for an explicit override and takes
 precedence over `PORT`; do not set it on Render.
 
+The API rate-limits each client address and each credential; the
+[server guide](../server/README.md#rate-limits) lists the limits. Render
+terminates connections at its own proxies, so the API sees the proxy's address
+unless `TOKENHOLIC_TRUSTED_PROXY_HOPS` tells it how many proxies append to
+`X-Forwarded-For`. The Blueprint leaves it unset, which is safe but coarse:
+every client then shares one address allowance, and only the per-credential
+limit separates users. Set it only after confirming, from the platform's
+documentation or the headers a request actually arrives with, how many
+entries its proxies add. A value that is too high lets a client pick its own
+address. This has not been measured against a live Render service yet.
+
 After the first deployment completes, verify the generated HTTPS origin:
 
 ```sh
