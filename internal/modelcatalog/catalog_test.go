@@ -52,7 +52,7 @@ func TestResolverAliasRules(t *testing.T) {
 		Models: []Model{
 			{CanonicalID: "model-a", Provider: "provider", PricingKey: "provider/model-a", Aliases: []string{"model-a-latest"}},
 			{CanonicalID: "model-a-20260101", Provider: "provider", PricingKey: "provider/model-a-20260101"},
-			{CanonicalID: "model-tiered", Provider: "provider", UnpricedReason: ReasonContextTiered},
+			{CanonicalID: "model-tiered", Provider: "provider", UnpricedReason: ReasonNoPublishedPrice},
 			{CanonicalID: "model-unlisted", Provider: "provider"},
 		},
 	})
@@ -75,9 +75,9 @@ func TestResolverAliasRules(t *testing.T) {
 		// A dated ID the catalog lists exactly wins over the date rule.
 		{observed: "model-a-20260101", canonical: "model-a-20260101", match: MatchExact, quality: normalize.ModelReported, priced: true},
 		{observed: "model-a-20260101[1m]", canonical: "model-a-20260101", match: MatchReviewed, quality: normalize.ModelResolved, priced: true},
-		// A rule never strengthens an alias and never drops the tier reason.
+		// A rule never strengthens an alias and never drops an unpriced reason.
 		{observed: "model-a-latest[1m]", canonical: "model-a", match: MatchReviewed, quality: normalize.ModelResolved, priced: true},
-		{observed: "model-tiered[1m]", canonical: "model-tiered", match: MatchReviewed, quality: normalize.ModelResolved, reason: ReasonContextTiered},
+		{observed: "model-tiered[1m]", canonical: "model-tiered", match: MatchReviewed, quality: normalize.ModelResolved, reason: ReasonNoPublishedPrice},
 		{observed: "model-unlisted", canonical: "model-unlisted", match: MatchExact, quality: normalize.ModelReported, reason: ReasonNoPublishedPrice},
 		// Suffixes that are not a calendar date or a listed marker are not stripped.
 		{observed: "model-a-20261399", match: MatchUnknown, quality: normalize.ModelUnknown, reason: ReasonUnknownModel},

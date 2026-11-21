@@ -93,21 +93,27 @@ type TokenCounts struct {
 
 // Observation is one validated, source-neutral unit of local usage evidence.
 type Observation struct {
-	Source               Source          `json:"source"`
-	Surface              Surface         `json:"surface"`
-	SourceVersion        string          `json:"source_version"`
-	SourceRecordID       string          `json:"source_record_id"`
-	SessionIDLocal       *string         `json:"session_id_local"`
-	OccurredAt           time.Time       `json:"occurred_at"`
-	ObservedModelID      string          `json:"observed_model_id,omitempty"`
-	CanonicalModelID     *string         `json:"canonical_model_id"`
-	ModelProvider        *string         `json:"model_provider"`
-	PricingKey           *string         `json:"pricing_key"`
-	ModelResolution      ModelResolution `json:"model_resolution"`
-	Tokens               TokenCounts     `json:"tokens"`
-	CountSemantics       CountSemantics  `json:"count_semantics"`
-	Measurement          Measurement     `json:"measurement"`
-	AdapterVersion       string          `json:"adapter_version"`
-	NormalizationVersion string          `json:"normalization_version"`
-	Warnings             []Warning       `json:"warnings,omitempty"`
+	Source           Source          `json:"source"`
+	Surface          Surface         `json:"surface"`
+	SourceVersion    string          `json:"source_version"`
+	SourceRecordID   string          `json:"source_record_id"`
+	SessionIDLocal   *string         `json:"session_id_local"`
+	OccurredAt       time.Time       `json:"occurred_at"`
+	ObservedModelID  string          `json:"observed_model_id,omitempty"`
+	CanonicalModelID *string         `json:"canonical_model_id"`
+	ModelProvider    *string         `json:"model_provider"`
+	PricingKey       *string         `json:"pricing_key"`
+	ModelResolution  ModelResolution `json:"model_resolution"`
+	Tokens           TokenCounts     `json:"tokens"`
+	// ServiceTier and PromptTokens are pricing evidence: facts about one
+	// request that decide which of a model's prices applies. PromptTokens is
+	// the whole prompt, cached or not, and is set only when the record is
+	// exactly one request. Neither is ever guessed.
+	ServiceTier          ServiceTier    `json:"service_tier,omitempty"`
+	PromptTokens         *uint64        `json:"prompt_tokens,omitempty"`
+	CountSemantics       CountSemantics `json:"count_semantics"`
+	Measurement          Measurement    `json:"measurement"`
+	AdapterVersion       string         `json:"adapter_version"`
+	NormalizationVersion string         `json:"normalization_version"`
+	Warnings             []Warning      `json:"warnings,omitempty"`
 }

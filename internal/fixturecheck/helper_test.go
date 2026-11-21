@@ -32,6 +32,9 @@ var allowedKeys = normalizedSet(
 	"daily", "date", "inputTokens", "outputTokens", "cacheCreationTokens", "cacheReadTokens",
 	"reasoningOutputTokens", "totalTokens", "modelsUsed", "modelBreakdowns", "modelName",
 	"cacheCreation1hTokens", "missingPricing", "totals", "unpricedModels", "models", "isFallback",
+	// Pricing evidence. thread_settings is allowed only as a container: its
+	// other members name the workspace and stay off this list.
+	"service_tier", "speed", "thread_settings",
 )
 
 var rawKeyPattern = regexp.MustCompile(`"([A-Za-z][A-Za-z0-9_-]*)"[[:space:]]*:`)

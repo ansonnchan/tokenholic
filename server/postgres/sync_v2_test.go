@@ -71,10 +71,11 @@ func TestPostgresSyncV2DerivesOnTheServerAndRepeatsAsNoOp(t *testing.T) {
 		priced, unpriced, revision  string
 	}
 	want := map[string]row{
-		"claude-opus-5-5 split":            {canonical: text("claude-opus-5-5"), estimate: text("37200000"), resolution: "reported", match: "exact", state: "complete", priced: "5000000", unpriced: "0"},
-		"claude-opus-5-5[1m] split":        {canonical: text("claude-opus-5-5"), estimate: text("37200000"), resolution: "resolved", match: "reviewed", state: "complete", priced: "5000000", unpriced: "0"},
-		"claude-opus-5-5 combined":         {canonical: text("claude-opus-5-5"), estimate: text("34200000"), resolution: "reported", match: "exact", state: "partial", priced: "5000000", unpriced: "0"},
-		"gpt-5.6-sol split":                {canonical: text("gpt-5.6-sol"), reason: text(modelcatalog.ReasonContextTiered), resolution: "inferred", match: "exact", state: "unavailable", priced: "0", unpriced: "5000000"},
+		"claude-opus-5-5 split":     {canonical: text("claude-opus-5-5"), estimate: text("37200000"), resolution: "reported", match: "exact", state: "complete", priced: "5000000", unpriced: "0"},
+		"claude-opus-5-5[1m] split": {canonical: text("claude-opus-5-5"), estimate: text("37200000"), resolution: "resolved", match: "reviewed", state: "complete", priced: "5000000", unpriced: "0"},
+		"claude-opus-5-5 combined":  {canonical: text("claude-opus-5-5"), estimate: text("34200000"), resolution: "reported", match: "exact", state: "partial", priced: "5000000", unpriced: "0"},
+		// Its price depends on prompt length, and this bucket proves none.
+		"gpt-5.6-sol split":                {canonical: text("gpt-5.6-sol"), reason: text(modelcatalog.ReasonPromptLengthUnproven), resolution: "inferred", match: "exact", state: "unavailable", priced: "0", unpriced: "5000000"},
 		"model-released-after-this-server": {reason: text(modelcatalog.ReasonUnknownModel), resolution: "unknown", match: "unknown", state: "unavailable", priced: "0", unpriced: "5000000"},
 		"":                                 {reason: text(modelcatalog.ReasonModelUnavailable), resolution: "unknown", match: "unknown", state: "unavailable", priced: "0", unpriced: "5000000"},
 	}
@@ -257,6 +258,9 @@ type clientUsage struct {
 	evidence normalize.ModelResolution
 	each     uint64
 	split    bool
+	// tier and band are pricing evidence; empty means the source proved none.
+	tier normalize.ServiceTier
+	band normalize.PromptBand
 }
 
 // clientBatch serializes buckets through the local store and outbox, the only
@@ -281,6 +285,7 @@ func clientBatch(t *testing.T, usages []clientUsage) protocol.Batch {
 			Source: normalize.SourceClaude, Surface: normalize.SurfaceCLI,
 			ObservedModelID: usage.model, ModelEvidence: usage.evidence,
 			Measurement: normalize.MeasurementReported, NormalizationVersion: "1",
+			ServiceTier: usage.tier, PromptBand: usage.band,
 			Tokens: store.TokenBreakdown{
 				InputUncached: complete, InputCacheRead: complete,
 				InputCacheWrite:   store.AggregateValue{Value: &write, State: store.AvailabilityComplete},

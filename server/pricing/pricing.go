@@ -2,7 +2,7 @@
 // API-equivalent estimates.
 //
 // Clients upload what they observed: a model identifier, how the source
-// attributed it, and token counts. Everything concluded from that evidence is
+// attributed it, token counts, and any pricing evidence the source proved. Everything concluded from that evidence is
 // derived here from the bundled catalog and stored beside the raw counts, so
 // a catalog or price update can re-derive history without a client.
 package pricing
@@ -20,7 +20,11 @@ import (
 type Usage struct {
 	ObservedModelID string
 	ModelEvidence   string
-	Tokens          protocol.Tokens
+	// ServiceTier and PromptBand are the bucket's pricing evidence; empty
+	// means the client did not prove it.
+	ServiceTier string
+	PromptBand  string
+	Tokens      protocol.Tokens
 }
 
 // Derived holds every server-owned column of a usage bucket.
@@ -69,11 +73,16 @@ func (e *Engine) Derive(usage Usage) (Derived, error) {
 	for _, value := range []protocol.Value{tokens.InputUncached, tokens.InputCacheRead, tokens.InputCacheWrite, tokens.Output} {
 		partial = partial || value.State == "partial"
 	}
-	derivation, err := e.deriver.Derive(usage.ObservedModelID, normalize.ModelResolution(usage.ModelEvidence), normalize.TokenCounts{
-		InputUncached: tokens.InputUncached.Value, InputCacheRead: tokens.InputCacheRead.Value,
-		InputCacheWrite: tokens.InputCacheWrite.Value, InputCacheWrite5m: tokens.InputCacheWrite5m.Value,
-		InputCacheWrite1h: tokens.InputCacheWrite1h.Value, Output: tokens.Output.Value,
-	}, partial)
+	derivation, err := e.deriver.Derive(modelcatalog.Usage{
+		ObservedModelID: usage.ObservedModelID, ModelEvidence: normalize.ModelResolution(usage.ModelEvidence),
+		Tokens: normalize.TokenCounts{
+			InputUncached: tokens.InputUncached.Value, InputCacheRead: tokens.InputCacheRead.Value,
+			InputCacheWrite: tokens.InputCacheWrite.Value, InputCacheWrite5m: tokens.InputCacheWrite5m.Value,
+			InputCacheWrite1h: tokens.InputCacheWrite1h.Value, Output: tokens.Output.Value,
+		},
+		ServiceTier: normalize.ServiceTier(usage.ServiceTier), PromptBand: normalize.PromptBand(usage.PromptBand),
+		Partial: partial,
+	})
 	if err != nil {
 		return Derived{}, err
 	}

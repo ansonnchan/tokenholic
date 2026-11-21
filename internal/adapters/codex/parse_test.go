@@ -203,3 +203,63 @@ func parseCodexFixture(t *testing.T, name, logicalFileID string) Result {
 	}
 	return result
 }
+
+// The fixture walks one thread through every way Codex writes its service
+// tier. Prompt sizes are each request's whole input, cached part included.
+func TestParseFollowsServiceTierAndPromptSize(t *testing.T) {
+	t.Parallel()
+
+	result := parseCodexFixture(t, "codex-cli/service-tiers.jsonl", "logical-tiers")
+	want := []struct {
+		reason string
+		tier   normalize.ServiceTier
+		prompt uint64
+		band   normalize.PromptBand
+	}{
+		{"no settings event before the first turn", normalize.ServiceTierUnknown, 100, normalize.PromptBandUpTo100K},
+		{"priority", normalize.ServiceTierPriority, 200, normalize.PromptBandUpTo100K},
+		{"a settings event without a tier keeps the previous one", normalize.ServiceTierPriority, 300, normalize.PromptBandUpTo100K},
+		{"default is the standard tier", normalize.ServiceTierStandard, 280_000, normalize.PromptBandOver272K},
+		{"fast is the earlier spelling of priority", normalize.ServiceTierPriority, 100_001, normalize.PromptBandUpTo200K},
+		{"flex, exactly on the 272K limit", normalize.ServiceTierFlex, 272_000, normalize.PromptBandUpTo272K},
+		{"Codex Desktop writes standard", normalize.ServiceTierStandard, 500, normalize.PromptBandUpTo100K},
+		{"an unrecognized tier clears the previous one", normalize.ServiceTierUnknown, 600, normalize.PromptBandUpTo100K},
+		{"nothing to keep after a cleared tier", normalize.ServiceTierUnknown, 700, normalize.PromptBandUpTo100K},
+		{"an explicit null is not an omitted tier", normalize.ServiceTierUnknown, 800, normalize.PromptBandUpTo100K},
+	}
+	if len(result.Observations) != len(want) {
+		t.Fatalf("observations = %d, want %d", len(result.Observations), len(want))
+	}
+	for index, observation := range result.Observations {
+		if observation.ServiceTier != want[index].tier {
+			t.Errorf("request %d (%s): tier = %q, want %q", index, want[index].reason, observation.ServiceTier, want[index].tier)
+		}
+		if observation.PromptTokens == nil || *observation.PromptTokens != want[index].prompt {
+			t.Errorf("request %d (%s): prompt = %v, want %d", index, want[index].reason, observation.PromptTokens, want[index].prompt)
+			continue
+		}
+		if band := normalize.PromptBandFor(*observation.PromptTokens); band != want[index].band {
+			t.Errorf("request %d (%s): band = %q, want %q", index, want[index].reason, band, want[index].band)
+		}
+	}
+}
+
+// A running total spans many requests, so a legacy rollout proves neither a
+// tier nor a prompt size even when a settings event precedes it.
+func TestParseLeavesLegacySnapshotsWithoutPricingEvidence(t *testing.T) {
+	t.Parallel()
+
+	data := `{"timestamp":"2026-01-08T09:00:00Z","type":"turn_context","payload":{"model":"gpt-synthetic","turn_id":"synthetic-turn"}}` + "\n" +
+		`{"timestamp":"2026-01-08T09:00:01Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"priority"}}}` + "\n" +
+		`{"timestamp":"2026-01-08T09:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"output_tokens":1}}}}` + "\n"
+	result, err := Parse(strings.NewReader(data), normalize.SurfaceCLI, "synthetic-v1", "logical-file")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Observations) != 1 || len(result.Warnings) != 0 {
+		t.Fatalf("Parse() = %#v", result)
+	}
+	if got := result.Observations[0]; got.ServiceTier != normalize.ServiceTierUnknown || got.PromptTokens != nil {
+		t.Fatalf("legacy snapshot evidence = %q/%v, want none", got.ServiceTier, got.PromptTokens)
+	}
+}

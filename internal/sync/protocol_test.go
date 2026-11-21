@@ -1,11 +1,15 @@
 package sync
 
 import (
+	"context"
+	"encoding/hex"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ansonnchan/tokenholic/internal/normalize"
 	"github.com/ansonnchan/tokenholic/internal/store"
 )
 
@@ -181,4 +185,113 @@ func sampleEnvelope(minute int, revision uint64) Envelope {
 		Revision: revision,
 	}
 	return Envelope{BucketKey: bucketKey(bucket), Bucket: bucket}
+}
+
+// A bucket without pricing evidence must keep the identity and bytes it had
+// before the evidence fields existed, or the server would see every stored
+// bucket as changed. The expected values were computed by the previous
+// release of this package.
+func TestBucketWithoutPricingEvidenceKeepsItsIdentity(t *testing.T) {
+	envelope := sampleEnvelope(1, 7)
+	encoded, hash, err := CanonicalEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		wantKey  = "c2759133b96430065ed666ad7f77531790deb3464a38d8f472ecb7ba63878ab7"
+		wantHash = "2468ab3c993dd71b3316a2feedb61315dc435f7d00651fb8e5f016a2b615ba4b"
+	)
+	if envelope.BucketKey != wantKey || hex.EncodeToString(hash[:]) != wantHash {
+		t.Fatalf("key/payload hash = %s/%x, want %s/%s", envelope.BucketKey, hash, wantKey, wantHash)
+	}
+	if strings.Contains(string(encoded), "service_tier") || strings.Contains(string(encoded), "prompt_band") {
+		t.Fatalf("absent evidence was serialized: %s", encoded)
+	}
+}
+
+func TestPricingEvidenceIsValidatedIdentityAndWireContent(t *testing.T) {
+	rekey := func(value *Envelope) { value.BucketKey = bucketKey(value.Bucket) }
+	plain := sampleEnvelope(1, 7)
+	tests := []struct {
+		name    string
+		mutate  func(*Envelope)
+		wantErr bool
+		// wantJSON must appear in the encoded bucket when the envelope is valid.
+		wantJSON string
+	}{
+		{name: "service tier", mutate: func(v *Envelope) { v.Bucket.ServiceTier = "priority"; rekey(v) }, wantJSON: `"normalization_version":"1","service_tier":"priority","tokens":`},
+		{name: "prompt band", mutate: func(v *Envelope) { v.Bucket.PromptBand = "gt_272k"; rekey(v) }, wantJSON: `"normalization_version":"1","prompt_band":"gt_272k","tokens":`},
+		{name: "both", mutate: func(v *Envelope) { v.Bucket.ServiceTier, v.Bucket.PromptBand = "flex", "le_100k"; rekey(v) }, wantJSON: `"service_tier":"flex","prompt_band":"le_100k","tokens":`},
+		{name: "evidence added without rekeying", mutate: func(v *Envelope) { v.Bucket.ServiceTier = "priority" }, wantErr: true},
+		{name: "tier this protocol does not name", mutate: func(v *Envelope) { v.Bucket.ServiceTier = "turbo"; rekey(v) }, wantErr: true},
+		{name: "band off the ladder", mutate: func(v *Envelope) { v.Bucket.PromptBand = "le_1m"; rekey(v) }, wantErr: true},
+		{name: "a prompt size instead of a band", mutate: func(v *Envelope) { v.Bucket.PromptBand = "280000"; rekey(v) }, wantErr: true},
+	}
+	seen := map[string]string{plain.BucketKey: "no evidence"}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			envelope := sampleEnvelope(1, 7)
+			test.mutate(&envelope)
+			encoded, _, err := CanonicalEnvelope(envelope)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("CanonicalEnvelope() error = %v, wantErr %t", err, test.wantErr)
+			}
+			if test.wantErr {
+				return
+			}
+			if !strings.Contains(string(encoded), test.wantJSON) {
+				t.Fatalf("encoded bucket = %s, want it to contain %s", encoded, test.wantJSON)
+			}
+			if other, taken := seen[envelope.BucketKey]; taken {
+				t.Fatalf("evidence %q shares a bucket key with %q", test.name, other)
+			}
+			seen[envelope.BucketKey] = test.name
+		})
+	}
+}
+
+// The local store computes bucket keys on its own. BuildBatch recomputes each
+// key from the payload, so buckets written by the store prove both agree for
+// every combination of pricing evidence.
+func TestStoreAndProtocolAgreeOnBucketKeys(t *testing.T) {
+	database, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "tokenholic.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close(context.Background()) })
+	output := uint64(7)
+	zero := store.AggregateValue{Value: new(uint64), State: store.AvailabilityComplete}
+	var buckets []store.UsageBucket
+	for _, tier := range []normalize.ServiceTier{"", normalize.ServiceTierStandard, normalize.ServiceTierPriority, normalize.ServiceTierFlex, normalize.ServiceTierBatch, normalize.ServiceTierFast} {
+		for _, band := range []normalize.PromptBand{"", normalize.PromptBandUpTo100K, normalize.PromptBandUpTo200K, normalize.PromptBandUpTo272K, normalize.PromptBandOver272K} {
+			buckets = append(buckets, store.UsageBucket{
+				Start: time.Date(2026, 11, 18, 12, 1, 0, 0, time.UTC), Source: normalize.SourceCodex, Surface: normalize.SurfaceCLI,
+				ObservedModelID: "synthetic-model", ModelEvidence: normalize.ModelInferred, Measurement: normalize.MeasurementReported,
+				NormalizationVersion: "1", ServiceTier: tier, PromptBand: band,
+				Tokens: store.TokenBreakdown{
+					InputUncached: zero, InputCacheRead: zero, InputCacheWrite: store.AggregateValue{State: store.AvailabilityUnavailable},
+					InputCacheWrite5m: store.AggregateValue{State: store.AvailabilityUnavailable},
+					InputCacheWrite1h: store.AggregateValue{State: store.AvailabilityUnavailable},
+					Output:            store.AggregateValue{Value: &output, State: store.AvailabilityComplete},
+					ReasoningOutput:   store.AggregateValue{State: store.AvailabilityUnavailable},
+				},
+				Preview:  store.Preview{Resolution: normalize.ModelUnknown, APIEstimate: store.AggregateValue{State: store.AvailabilityUnavailable}},
+				Revision: 1,
+			})
+		}
+	}
+	if result, err := database.ApplyBucketRevisions(t.Context(), buckets); err != nil || result.Applied != len(buckets) {
+		t.Fatalf("ApplyBucketRevisions() = %#v, %v; want %d distinct buckets", result, err, len(buckets))
+	}
+	pending, err := database.PendingOutbox(t.Context())
+	if err != nil || len(pending) != len(buckets) {
+		t.Fatalf("PendingOutbox() = %d, %v; want %d", len(pending), err, len(buckets))
+	}
+	batch, _, err := BuildBatch(pending)
+	if err != nil {
+		t.Fatalf("BuildBatch() rejected store buckets: %v", err)
+	}
+	if err := batch.Validate(); err != nil {
+		t.Fatal(err)
+	}
 }

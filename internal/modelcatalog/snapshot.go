@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
-)
 
-// ReasonContextTiered marks a model whose price depends on prompt length.
-// Usage buckets cannot prove which tier a request fell in, so it stays unpriced.
-const ReasonContextTiered = "context_tiered"
+	"github.com/ansonnchan/tokenholic/internal/normalize"
+)
 
 // SnapshotPin identifies the exact upstream price file that is vendored and
 // the subset of it tokenholic keeps.
@@ -32,18 +31,43 @@ type Snapshot struct {
 	Models []SnapshotModel `json:"models"`
 }
 
-// SnapshotModel is one first-party model. Rates are micro-US-dollars per
-// million tokens; an absent rate means the provider publishes none. A model
-// with UnpricedReason resolves canonically but carries no rates.
+// SnapshotRates is one rate card. Rates are micro-US-dollars per million
+// tokens; an absent rate means the provider publishes none for that category.
+type SnapshotRates struct {
+	Input        *uint64 `json:"input,omitempty"`
+	CacheRead    *uint64 `json:"cache_read,omitempty"`
+	CacheWrite   *uint64 `json:"cache_write,omitempty"`
+	CacheWrite1h *uint64 `json:"cache_write_1h,omitempty"`
+	Output       *uint64 `json:"output,omitempty"`
+}
+
+// SnapshotTier is a non-standard service tier's rate card, with the card
+// charged above the model's prompt threshold when the provider publishes one.
+type SnapshotTier struct {
+	SnapshotRates
+	LongPrompt *SnapshotRates `json:"long_prompt,omitempty"`
+}
+
+// SnapshotModel is one first-party model. Its own rates are the standard
+// service tier at or below PromptThreshold. LongPrompt is the standard tier
+// above that threshold, and Tiers holds every other service tier keyed by its
+// normalize.ServiceTier name. A model with UnpricedReason resolves
+// canonically but carries no rates.
 type SnapshotModel struct {
-	ID             string  `json:"id"`
-	Provider       string  `json:"provider"`
-	UnpricedReason string  `json:"unpriced_reason,omitempty"`
-	Input          *uint64 `json:"input,omitempty"`
-	CacheRead      *uint64 `json:"cache_read,omitempty"`
-	CacheWrite     *uint64 `json:"cache_write,omitempty"`
-	CacheWrite1h   *uint64 `json:"cache_write_1h,omitempty"`
-	Output         *uint64 `json:"output,omitempty"`
+	ID             string `json:"id"`
+	Provider       string `json:"provider"`
+	UnpricedReason string `json:"unpriced_reason,omitempty"`
+	SnapshotRates
+	// PromptThreshold is the prompt size in tokens above which the provider
+	// charges the LongPrompt cards. Absent when price ignores prompt length.
+	PromptThreshold *uint64                 `json:"prompt_threshold,omitempty"`
+	LongPrompt      *SnapshotRates          `json:"long_prompt,omitempty"`
+	Tiers           map[string]SnapshotTier `json:"tiers,omitempty"`
+}
+
+// priced reports whether the card carries any rate.
+func (r SnapshotRates) priced() bool {
+	return r.Input != nil || r.CacheRead != nil || r.CacheWrite != nil || r.CacheWrite1h != nil || r.Output != nil
 }
 
 // URL returns the immutable location of the pinned upstream file.
@@ -87,12 +111,44 @@ func DecodeSnapshot(data []byte) (Snapshot, error) {
 		if index > 0 && snapshot.Models[index-1].ID == model.ID {
 			return Snapshot{}, fmt.Errorf("price snapshot model %q is duplicated", model.ID)
 		}
-		priced := model.Input != nil || model.CacheRead != nil || model.CacheWrite != nil || model.CacheWrite1h != nil || model.Output != nil
-		if priced == (model.UnpricedReason != "") {
+		if model.priced() == (model.UnpricedReason != "") {
 			return Snapshot{}, fmt.Errorf("price snapshot model %q must have either rates or an unpriced reason", model.ID)
+		}
+		if err := model.validateCards(); err != nil {
+			return Snapshot{}, fmt.Errorf("price snapshot model %q: %w", model.ID, err)
 		}
 	}
 	return snapshot, nil
+}
+
+// validateCards checks that every extra rate card is priced, names a known
+// service tier, and that long-prompt cards exist only beside a threshold the
+// upload ladder can prove.
+func (m SnapshotModel) validateCards() error {
+	long := m.LongPrompt != nil
+	for name, tier := range m.Tiers {
+		if name == string(normalize.ServiceTierStandard) || name == "" || !normalize.ServiceTier(name).Valid() {
+			return fmt.Errorf("service tier %q cannot have its own rate card", name)
+		}
+		if !tier.priced() || tier.LongPrompt != nil && !tier.LongPrompt.priced() {
+			return fmt.Errorf("service tier %q has a rate card without rates", name)
+		}
+		long = long || tier.LongPrompt != nil
+	}
+	if m.LongPrompt != nil && !m.LongPrompt.priced() {
+		return errors.New("long-prompt rate card has no rates")
+	}
+	if m.UnpricedReason != "" && (len(m.Tiers) > 0 || long || m.PromptThreshold != nil) {
+		return errors.New("an unpriced model cannot carry rate cards")
+	}
+	if long != (m.PromptThreshold != nil) {
+		return errors.New("long-prompt rate cards and a prompt threshold must appear together")
+	}
+	if m.PromptThreshold != nil && !slices.Contains(normalize.PromptLadderLimits(), *m.PromptThreshold) {
+		// No prompt band could prove either side of this threshold.
+		return fmt.Errorf("prompt threshold %d is not on the upload ladder", *m.PromptThreshold)
+	}
+	return nil
 }
 
 func decodeStrict(data []byte, target any) error {

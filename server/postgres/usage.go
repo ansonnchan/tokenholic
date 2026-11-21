@@ -127,11 +127,13 @@ func upsertUsageBucket(ctx context.Context, tx pgx.Tx, deviceID string, bucket s
 			revision, payload_hash,
 			canonical_model_id, model_provider, pricing_key, model_resolution, model_match,
 			unpriced_reason, priced_tokens, unpriced_tokens,
-			api_estimate_microusd, api_estimate_state, pricing_revision
+			api_estimate_microusd, api_estimate_state, pricing_revision,
+			service_tier, prompt_band
 		) VALUES (
 			$1::uuid,$2,$3,60,$4,$5,$6,$7,$8,$9,
 			$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
-			$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36
+			$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,
+			$37,$38
 		)
 		ON CONFLICT (device_id, bucket_key) DO UPDATE SET
 			bucket_start=excluded.bucket_start, source=excluded.source, surface=excluded.surface,
@@ -150,7 +152,8 @@ func upsertUsageBucket(ctx context.Context, tx pgx.Tx, deviceID string, bucket s
 			model_match=excluded.model_match, unpriced_reason=excluded.unpriced_reason,
 			priced_tokens=excluded.priced_tokens, unpriced_tokens=excluded.unpriced_tokens,
 			api_estimate_microusd=excluded.api_estimate_microusd, api_estimate_state=excluded.api_estimate_state,
-			pricing_revision=excluded.pricing_revision
+			pricing_revision=excluded.pricing_revision,
+			service_tier=excluded.service_tier, prompt_band=excluded.prompt_band
 	`,
 		deviceID, envelope.BucketKey, envelope.Bucket.Start, envelope.Bucket.Source, envelope.Bucket.Surface,
 		envelope.Bucket.ObservedModelID, envelope.Bucket.ModelEvidence, envelope.Bucket.Measurement, envelope.Bucket.NormalizationVersion,
@@ -165,11 +168,20 @@ func upsertUsageBucket(ctx context.Context, tx pgx.Tx, deviceID string, bucket s
 		derived.CanonicalModelID, derived.ModelProvider, derived.PricingKey, derived.ModelResolution, derived.ModelMatch,
 		derived.UnpricedReason, strconv.FormatUint(derived.PricedTokens, 10), strconv.FormatUint(derived.UnpricedTokens, 10),
 		numericPointer(derived.EstimateMicroUSD), derived.EstimateState, derived.PricingRevision,
+		evidenceValue(envelope.Bucket.ServiceTier), evidenceValue(envelope.Bucket.PromptBand),
 	)
 	if err != nil {
 		return fmt.Errorf("write server usage bucket: %w", err)
 	}
 	return nil
+}
+
+// evidenceValue stores unproven pricing evidence as NULL, never as a name.
+func evidenceValue(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func numericValue(value protocol.Value) any {

@@ -39,6 +39,13 @@ func (o Observation) Validate() error {
 	if err := o.Tokens.validateCacheWrite(); err != nil {
 		return err
 	}
+	if !o.ServiceTier.Valid() {
+		return fmt.Errorf("service tier %q is invalid", o.ServiceTier)
+	}
+	if o.PromptTokens != nil && o.CountSemantics != CountIncremental {
+		// A running total spans many requests, so it has no single prompt size.
+		return errors.New("prompt size requires a record of exactly one request")
+	}
 	for _, warning := range o.Warnings {
 		if warning.Code == "" {
 			return errors.New("warning code is required")

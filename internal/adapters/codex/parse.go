@@ -15,8 +15,9 @@ import (
 
 // AdapterVersion identifies the Codex-to-normalized mapping contract. Version
 // 2 reads per-request usage and identifies each request by its session, turn,
-// and running total, so a replayed history is recognized as a copy.
-const AdapterVersion = "2"
+// and running total, so a replayed history is recognized as a copy. Version 3
+// reads the service tier in effect and each request's prompt size.
+const AdapterVersion = "3"
 
 // Result contains valid observations and safe warning codes from one rollout.
 type Result struct {
@@ -33,7 +34,12 @@ type record struct {
 		ID        string `json:"id"`
 		SessionID string `json:"session_id"`
 		TurnID    string `json:"turn_id"`
-		Info      struct {
+		// ThreadSettings is read for its service tier alone. Its other
+		// members describe the user's workspace and are never decoded.
+		ThreadSettings *struct {
+			ServiceTier json.RawMessage `json:"service_tier"`
+		} `json:"thread_settings"`
+		Info struct {
 			Total tokenUsage  `json:"total_token_usage"`
 			Last  *tokenUsage `json:"last_token_usage"`
 		} `json:"info"`
@@ -49,6 +55,10 @@ type rollout struct {
 	thread string
 	model  string
 	turn   string
+	// tier is the service tier of the last settings event that named one. It
+	// stays unknown until then: Codex writes no settings event before a
+	// thread's first turn, and the configuration file is never consulted.
+	tier normalize.ServiceTier
 	// previousTotal detects an event that repeats the running total: it
 	// reports no new usage.
 	previousTotal string
@@ -115,6 +125,10 @@ func Parse(reader io.Reader, surface normalize.Surface, sourceVersion, logicalFi
 				state.session, state.thread = parsed.Payload.SessionID, parsed.Payload.SessionID
 			}
 		case "event_msg":
+			if parsed.Payload.Type == "thread_settings_applied" {
+				state.applySettings(parsed)
+				continue
+			}
 			if parsed.Payload.Type != "token_count" {
 				continue
 			}
@@ -130,6 +144,32 @@ func Parse(reader io.Reader, surface normalize.Surface, sourceVersion, logicalFi
 	return result, nil
 }
 
+// applySettings follows the service tier through settings events. An event
+// that omits the tier leaves the previous one in effect. An event that names a
+// tier this adapter does not know clears it: the earlier tier no longer
+// applies, and the new one cannot be priced as something else.
+func (state *rollout) applySettings(parsed record) {
+	settings := parsed.Payload.ThreadSettings
+	if settings == nil || len(settings.ServiceTier) == 0 {
+		return
+	}
+	var name string
+	if err := json.Unmarshal(settings.ServiceTier, &name); err != nil {
+		state.tier = normalize.ServiceTierUnknown
+		return
+	}
+	switch name {
+	case "priority", "fast": // "fast" is the earlier spelling of priority
+		state.tier = normalize.ServiceTierPriority
+	case "flex":
+		state.tier = normalize.ServiceTierFlex
+	case "default", "standard": // Codex Desktop writes "standard"
+		state.tier = normalize.ServiceTierStandard
+	default:
+		state.tier = normalize.ServiceTierUnknown
+	}
+}
+
 func (state *rollout) usageObservation(parsed record, surface normalize.Surface, sourceVersion string) (normalize.Observation, normalize.Warning, bool) {
 	total, last := parsed.Payload.Info.Total, parsed.Payload.Info.Last
 	if total.empty() && (last == nil || last.empty()) {
@@ -140,6 +180,9 @@ func (state *rollout) usageObservation(parsed record, surface normalize.Surface,
 	}
 	usage, session, semantics := total, state.thread, normalize.CountCumulative
 	identity := ""
+	// Pricing evidence belongs to one request, so only per-request usage
+	// carries it. A legacy running total spans many requests.
+	tier, prompt := normalize.ServiceTierUnknown, (*uint64)(nil)
 	if last != nil && !last.empty() {
 		if !total.empty() {
 			if state.previousTotal == total.key() {
@@ -151,6 +194,8 @@ func (state *rollout) usageObservation(parsed record, surface normalize.Surface,
 		}
 		usage, session, semantics = *last, state.session, normalize.CountIncremental
 		identity = requestID(state.session, state.turn, total, *last, parsed.Timestamp)
+		// Codex input counts the whole prompt, cached part included.
+		tier, prompt = state.tier, last.InputTokens
 	}
 	uncached, valid := uncachedInput(usage.InputTokens, usage.CachedInputTokens)
 	if !valid {
@@ -173,6 +218,7 @@ func (state *rollout) usageObservation(parsed record, surface normalize.Surface,
 		Source: normalize.SourceCodex, Surface: surface, SourceVersion: sourceVersion,
 		SourceRecordID: identity, SessionIDLocal: optionalString(session), OccurredAt: parsed.Timestamp,
 		ObservedModelID: state.model, ModelResolution: resolution, Tokens: tokens,
+		ServiceTier: tier, PromptTokens: prompt,
 		CountSemantics: semantics, Measurement: normalize.MeasurementReported,
 		AdapterVersion: AdapterVersion, NormalizationVersion: normalize.SchemaVersion, Warnings: warnings,
 	}

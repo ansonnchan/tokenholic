@@ -497,3 +497,206 @@ func setAggregate(value *AggregateValue, number uint64, state Availability) {
 	value.Value = &number
 	value.State = state
 }
+
+// A bucket without pricing evidence must be exactly what it was before the
+// evidence existed, or every stored bucket would be uploaded again. The
+// expected values were computed by the previous release of this package.
+func TestBucketWithoutPricingEvidenceKeepsItsKeyJSONAndContentHash(t *testing.T) {
+	t.Parallel()
+	bucket := completeBucket(time.Date(2026, 11, 18, 12, 1, 0, 0, time.UTC), normalize.SourceClaude, normalize.SurfaceCLI, "synthetic-model", 7, 7)
+	const (
+		wantKey     = "c2759133b96430065ed666ad7f77531790deb3464a38d8f472ecb7ba63878ab7"
+		wantContent = "a87bd859ce9861497baa256528481d99a6855f49b04a969d6b13b4b99b83f0f8"
+		wantJSON    = `{"bucket_key":"c2759133b96430065ed666ad7f77531790deb3464a38d8f472ecb7ba63878ab7","bucket":{"start":"2026-11-18T12:01:00Z","source":"claude","surface":"cli","observed_model_id":"synthetic-model","model_evidence":"reported","measurement":"reported","normalization_version":"1","tokens":{"input_uncached":{"value":0,"state":"complete"},"input_cache_read":{"value":0,"state":"complete"},"input_cache_write":{"value":0,"state":"complete"},"input_cache_write_5m":{"value":0,"state":"complete"},"input_cache_write_1h":{"value":0,"state":"complete"},"output":{"value":7,"state":"complete"},"reasoning_output":{"value":null,"state":"unavailable"}},"revision":7}}`
+	)
+	key := usageBucketKey(bucket)
+	content, err := bucketContentHash(bucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(bucketPayload{BucketKey: key, Bucket: bucket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != wantKey || content != wantContent || string(payload) != wantJSON {
+		t.Fatalf("bucket without evidence changed:\nkey     %s\ncontent %s\njson    %s", key, content, payload)
+	}
+
+	// Either kind of evidence gives the bucket its own identity and content.
+	for name, mutate := range map[string]func(*UsageBucket){
+		"service tier": func(b *UsageBucket) { b.ServiceTier = normalize.ServiceTierPriority },
+		"prompt band":  func(b *UsageBucket) { b.PromptBand = normalize.PromptBandUpTo100K },
+	} {
+		changed := bucket
+		mutate(&changed)
+		changedContent, err := bucketContentHash(changed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if usageBucketKey(changed) == wantKey || changedContent == wantContent {
+			t.Fatalf("%s did not change the bucket's key and content hash", name)
+		}
+	}
+}
+
+// Requests that differ only in pricing evidence must not share a bucket: the
+// server prices a bucket as a whole, from one rate card.
+func TestBuildUsageBucketsSeparatesPricingEvidence(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 11, 18, 12, 1, 0, 0, time.UTC)
+	size := func(v uint64) *uint64 { return &v }
+	request := func(second int, tier normalize.ServiceTier, prompt *uint64) StoredObservation {
+		observation := storedObservation(at.Add(time.Duration(second)*time.Second), normalize.SourceCodex, normalize.SurfaceCLI, "model-a", 10, 5)
+		observation.ServiceTier, observation.PromptTokens = tier, prompt
+		return observation
+	}
+	buckets, err := BuildUsageBuckets([]StoredObservation{
+		request(1, normalize.ServiceTierPriority, size(50_000)),
+		request(2, normalize.ServiceTierPriority, size(90_000)), // same tier and band as the first
+		request(3, normalize.ServiceTierPriority, size(280_000)),
+		request(4, normalize.ServiceTierStandard, size(50_000)),
+		request(5, normalize.ServiceTierUnknown, size(50_000)),
+		request(6, normalize.ServiceTierUnknown, nil),
+	}, 1, syntheticPreviewer(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type evidence struct {
+		tier normalize.ServiceTier
+		band normalize.PromptBand
+	}
+	got := map[evidence]uint64{}
+	keys := map[string]bool{}
+	for _, bucket := range buckets {
+		got[evidence{bucket.ServiceTier, bucket.PromptBand}] += *bucket.Tokens.InputUncached.Value
+		keys[usageBucketKey(bucket)] = true
+		payload, err := json.Marshal(bucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Absent evidence is omitted, never written as an empty or default value.
+		if hasTier := strings.Contains(string(payload), `"service_tier"`); hasTier != (bucket.ServiceTier != "") {
+			t.Fatalf("bucket JSON service_tier presence = %t for tier %q: %s", hasTier, bucket.ServiceTier, payload)
+		}
+		if hasBand := strings.Contains(string(payload), `"prompt_band"`); hasBand != (bucket.PromptBand != "") {
+			t.Fatalf("bucket JSON prompt_band presence = %t for band %q: %s", hasBand, bucket.PromptBand, payload)
+		}
+	}
+	want := map[evidence]uint64{
+		{normalize.ServiceTierPriority, normalize.PromptBandUpTo100K}: 20,
+		{normalize.ServiceTierPriority, normalize.PromptBandOver272K}: 10,
+		{normalize.ServiceTierStandard, normalize.PromptBandUpTo100K}: 10,
+		{normalize.ServiceTierUnknown, normalize.PromptBandUpTo100K}:  10,
+		{normalize.ServiceTierUnknown, normalize.PromptBandUnknown}:   10,
+	}
+	if len(buckets) != len(want) || len(keys) != len(want) {
+		t.Fatalf("buckets = %d with %d keys, want %d distinct", len(buckets), len(keys), len(want))
+	}
+	for key, tokens := range want {
+		if got[key] != tokens {
+			t.Fatalf("bucket %q/%q input = %d, want %d", key.tier, key.band, got[key], tokens)
+		}
+	}
+}
+
+// When a newer adapter adds evidence to a stored record, the record moves to
+// a bucket with that evidence and the bucket it left is retracted to zero.
+func TestRebuildMovesUsageThatGainsPricingEvidence(t *testing.T) {
+	t.Parallel()
+	db := openStoreForTest(t)
+	previewer := syntheticPreviewer(t)
+	batch := sampleBatch()
+	input, output := uint64(10), uint64(5)
+	batch.Observations[0].Tokens = normalize.TokenCounts{InputUncached: &input, Output: &output}
+	if _, err := db.CommitObservations(t.Context(), batch); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := db.RebuildUsageBuckets(t.Context(), 1, previewer); err != nil || result.Applied != 1 {
+		t.Fatalf("first rebuild = %#v, %v", result, err)
+	}
+	before, err := db.PendingOutbox(t.Context())
+	if err != nil || len(before) != 1 {
+		t.Fatalf("outbox = %d, %v", len(before), err)
+	}
+
+	size := uint64(15)
+	batch.Observations[0].AdapterVersion = "adapter-v2"
+	batch.Observations[0].ServiceTier, batch.Observations[0].PromptTokens = normalize.ServiceTierPriority, &size
+	if _, err := db.CommitObservations(t.Context(), batch); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := db.RebuildUsageBuckets(t.Context(), 2, previewer); err != nil || result.Applied != 2 {
+		t.Fatalf("rebuild after the upgrade = %#v, %v; want the new bucket and one retraction", result, err)
+	}
+	after, err := db.PendingOutbox(t.Context())
+	if err != nil || len(after) != 2 {
+		t.Fatalf("outbox = %d, %v; want 2", len(after), err)
+	}
+	var moved, retracted int
+	for _, record := range after {
+		var stored bucketPayload
+		if err := json.Unmarshal(record.Payload, &stored); err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case record.BucketKey == before[0].BucketKey:
+			retracted++
+			if stored.Bucket.ServiceTier != "" || *stored.Bucket.Tokens.InputUncached.Value != 0 || *stored.Bucket.Tokens.Output.Value != 0 {
+				t.Fatalf("bucket the record left = %s, want a known zero without evidence", record.Payload)
+			}
+		case stored.Bucket.ServiceTier == normalize.ServiceTierPriority && stored.Bucket.PromptBand == normalize.PromptBandUpTo100K:
+			moved++
+			if *stored.Bucket.Tokens.InputUncached.Value != 10 || *stored.Bucket.Tokens.Output.Value != 5 {
+				t.Fatalf("bucket the record moved to = %s", record.Payload)
+			}
+		}
+	}
+	if moved != 1 || retracted != 1 {
+		t.Fatalf("moved/retracted = %d/%d, want 1/1", moved, retracted)
+	}
+	summary, err := db.QueryUsage(t.Context(), PeriodAllTime, time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC), time.UTC)
+	if err != nil || summary.Tokens.InputUncached.Value == nil || *summary.Tokens.InputUncached.Value != 10 {
+		t.Fatalf("local total after the move = %#v, %v; want the usage counted once", summary.Tokens.InputUncached, err)
+	}
+}
+
+// One model can be priced in some buckets and not in others once pricing
+// evidence decides the rate card, so the summary names the reason behind the
+// most unpriced tokens rather than whichever bucket came first.
+func TestModelSummaryNamesTheLargestUnpricedReason(t *testing.T) {
+	t.Parallel()
+	db := openStoreForTest(t)
+	start := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	estimate := uint64(100)
+	bucket := func(minute int, band normalize.PromptBand, reason string, priced, unpriced uint64) UsageBucket {
+		value := completeBucket(start.Add(time.Duration(minute)*time.Minute), normalize.SourceCodex, normalize.SurfaceCLI, "model-a", priced+unpriced, 1)
+		value.PromptBand = band
+		canonical := "model-a"
+		value.Preview = Preview{
+			CanonicalModelID: &canonical, Resolution: normalize.ModelInferred, UnpricedReason: reason,
+			APIEstimate: AggregateValue{State: AvailabilityUnavailable}, PricedTokens: priced, UnpricedTokens: unpriced,
+		}
+		if priced > 0 {
+			value.Preview.APIEstimate = AggregateValue{Value: &estimate, State: AvailabilityComplete}
+		}
+		return value
+	}
+	if _, err := db.ApplyBucketRevisions(t.Context(), []UsageBucket{
+		bucket(0, normalize.PromptBandUpTo100K, "", 500, 0),
+		bucket(1, normalize.PromptBandUnknown, modelcatalog.ReasonPromptLengthUnproven, 0, 40),
+		bucket(2, normalize.PromptBandOver272K, modelcatalog.ReasonTierRateUnavailable, 0, 70),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := db.QueryUsage(t.Context(), PeriodAllTime, start.Add(time.Hour), time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summary.Models) != 1 {
+		t.Fatalf("models = %d, want one row for one model", len(summary.Models))
+	}
+	model := summary.Models[0]
+	if model.UnpricedReason != modelcatalog.ReasonTierRateUnavailable || model.APIEstimate.Value == nil || *model.APIEstimate.Value != 100 || model.APIEstimate.State != AvailabilityPartial {
+		t.Fatalf("model summary = reason %q estimate %#v; want the 70-token reason beside a partial estimate", model.UnpricedReason, model.APIEstimate)
+	}
+}

@@ -291,6 +291,7 @@ func safeSignature(observation normalize.Observation) string {
 		tokenValue(observation.Tokens.InputCacheRead), tokenValue(observation.Tokens.InputCacheWrite),
 		tokenValue(observation.Tokens.InputCacheWrite5m), tokenValue(observation.Tokens.InputCacheWrite1h),
 		tokenValue(observation.Tokens.Output), tokenValue(observation.Tokens.ReasoningOutput),
+		string(observation.ServiceTier), tokenValue(observation.PromptTokens),
 	}, "\x00")
 }
 

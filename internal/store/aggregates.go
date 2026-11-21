@@ -67,8 +67,14 @@ type UsageBucket struct {
 	ModelEvidence        normalize.ModelResolution `json:"model_evidence"`
 	Measurement          normalize.Measurement     `json:"measurement"`
 	NormalizationVersion string                    `json:"normalization_version"`
-	Tokens               TokenBreakdown            `json:"tokens"`
-	Revision             uint64                    `json:"revision"`
+	// ServiceTier and PromptBand are pricing evidence shared by every request
+	// in the bucket. Both are omitted when the source proved neither, so such
+	// a bucket keeps the key, JSON, and content hash it had before this
+	// evidence existed and is never uploaded again.
+	ServiceTier normalize.ServiceTier `json:"service_tier,omitempty"`
+	PromptBand  normalize.PromptBand  `json:"prompt_band,omitempty"`
+	Tokens      TokenBreakdown        `json:"tokens"`
+	Revision    uint64                `json:"revision"`
 	// Preview never leaves the machine; the server derives its own values.
 	Preview Preview `json:"-"`
 }
@@ -89,7 +95,7 @@ type Preview struct {
 
 // Previewer derives the local preview with the bundled catalog.
 type Previewer interface {
-	Derive(string, normalize.ModelResolution, normalize.TokenCounts, bool) (modelcatalog.Derivation, error)
+	Derive(modelcatalog.Usage) (modelcatalog.Derivation, error)
 }
 
 // BucketApplyResult reports replaced buckets and ignored ones. A bucket whose
@@ -128,7 +134,8 @@ const (
 )
 
 // ModelBreakdown preserves observed and previewed canonical attribution.
-// UnpricedReason explains a missing estimate.
+// UnpricedReason explains the largest unpriced share of the model's tokens;
+// the estimate may still cover the rest.
 type ModelBreakdown struct {
 	ObservedModelID  string
 	CanonicalModelID *string
@@ -558,7 +565,8 @@ func newBucketAccumulator(start time.Time, observation StoredObservation, revisi
 	return &bucketAccumulator{template: UsageBucket{
 		Start: start, Source: observation.Source, Surface: observation.Surface,
 		ObservedModelID: observation.ObservedModelID, ModelEvidence: modelEvidence(observation),
-		Measurement: observation.Measurement, NormalizationVersion: observation.NormalizationVersion, Revision: revision,
+		Measurement: observation.Measurement, NormalizationVersion: observation.NormalizationVersion,
+		ServiceTier: observation.ServiceTier, PromptBand: promptBand(observation), Revision: revision,
 	}}
 }
 
@@ -586,6 +594,15 @@ func modelEvidence(observation StoredObservation) normalize.ModelResolution {
 	}
 }
 
+// promptBand places a single request's prompt size on the upload ladder. A
+// record that does not prove its size has no band.
+func promptBand(observation StoredObservation) normalize.PromptBand {
+	if observation.PromptTokens == nil {
+		return normalize.PromptBandUnknown
+	}
+	return normalize.PromptBandFor(*observation.PromptTokens)
+}
+
 // previewBucket prices the bucket totals exactly as the server will, so the
 // preview matches the server whenever both bundle the same catalog revision.
 func previewBucket(bucket UsageBucket, previewer Previewer) (Preview, error) {
@@ -598,11 +615,15 @@ func previewBucket(bucket UsageBucket, previewer Previewer) (Preview, error) {
 	for _, value := range []AggregateValue{tokens.InputUncached, tokens.InputCacheRead, tokens.InputCacheWrite, tokens.Output} {
 		partial = partial || value.State == AvailabilityPartial
 	}
-	derivation, err := previewer.Derive(bucket.ObservedModelID, bucket.ModelEvidence, normalize.TokenCounts{
-		InputUncached: tokens.InputUncached.Value, InputCacheRead: tokens.InputCacheRead.Value,
-		InputCacheWrite: tokens.InputCacheWrite.Value, InputCacheWrite5m: tokens.InputCacheWrite5m.Value,
-		InputCacheWrite1h: tokens.InputCacheWrite1h.Value, Output: tokens.Output.Value,
-	}, partial)
+	derivation, err := previewer.Derive(modelcatalog.Usage{
+		ObservedModelID: bucket.ObservedModelID, ModelEvidence: bucket.ModelEvidence,
+		Tokens: normalize.TokenCounts{
+			InputUncached: tokens.InputUncached.Value, InputCacheRead: tokens.InputCacheRead.Value,
+			InputCacheWrite: tokens.InputCacheWrite.Value, InputCacheWrite5m: tokens.InputCacheWrite5m.Value,
+			InputCacheWrite1h: tokens.InputCacheWrite1h.Value, Output: tokens.Output.Value,
+		},
+		ServiceTier: bucket.ServiceTier, PromptBand: bucket.PromptBand, Partial: partial,
+	})
 	if err != nil {
 		return Preview{}, fmt.Errorf("preview usage bucket: %w", err)
 	}
@@ -701,6 +722,9 @@ func validateBucket(bucket UsageBucket) error {
 	if bucket.Revision == 0 || bucket.Start.Location() != time.UTC || !bucket.Start.Equal(bucket.Start.Truncate(bucketInterval)) {
 		return errors.New("usage bucket requires a positive revision and aligned UTC start")
 	}
+	if !bucket.ServiceTier.Valid() || !bucket.PromptBand.Valid() {
+		return errors.New("usage bucket has invalid pricing evidence")
+	}
 	tokens := bucket.Tokens
 	for _, value := range []AggregateValue{
 		tokens.InputUncached, tokens.InputCacheRead, tokens.InputCacheWrite, tokens.InputCacheWrite5m,
@@ -730,15 +754,29 @@ func usageBucketKey(bucket UsageBucket) string {
 		formatTime(bucket.Start), string(bucket.Source), string(bucket.Surface), bucket.ObservedModelID,
 		string(bucket.ModelEvidence), string(bucket.Measurement), bucket.NormalizationVersion,
 	}
+	parts = append(parts, pricingEvidenceKey(bucket.ServiceTier, bucket.PromptBand)...)
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(sum[:])
 }
 
 func bucketGroupKey(start time.Time, observation StoredObservation) string {
-	return strings.Join([]string{
+	parts := []string{
 		formatTime(start), string(observation.Source), string(observation.Surface), observation.ObservedModelID,
 		string(modelEvidence(observation)), string(observation.Measurement), observation.NormalizationVersion,
-	}, "\x00")
+	}
+	parts = append(parts, pricingEvidenceKey(observation.ServiceTier, promptBand(observation))...)
+	return strings.Join(parts, "\x00")
+}
+
+// pricingEvidenceKey returns the identity parts for pricing evidence. It adds
+// nothing when there is none, which keeps every key computed before the
+// evidence existed. The marker keeps a tier from ever reading as another
+// dimension. internal/sync derives the same key and must stay in step.
+func pricingEvidenceKey(tier normalize.ServiceTier, band normalize.PromptBand) []string {
+	if tier == normalize.ServiceTierUnknown && band == normalize.PromptBandUnknown {
+		return nil
+	}
+	return []string{"pricing-evidence", string(tier), string(band)}
 }
 func pointerText(value *string) string {
 	if value == nil {
@@ -794,6 +832,9 @@ type summaryValues struct {
 type modelSummaryAccumulator struct {
 	key    ModelBreakdown
 	values summaryValues
+	// unpriced sums unpriced tokens per reason. Pricing evidence can leave
+	// part of one model's usage unpriced, so the reason is not a model fact.
+	unpriced map[string]uint64
 }
 
 func newSummaryAccumulator(period Period, start *time.Time, end time.Time) *summaryAccumulator {
@@ -809,9 +850,17 @@ func (a *summaryAccumulator) add(bucket UsageBucket) error {
 	if model == nil {
 		model = &modelSummaryAccumulator{key: ModelBreakdown{
 			ObservedModelID: bucket.ObservedModelID, CanonicalModelID: cloneString(preview.CanonicalModelID),
-			Resolution: preview.Resolution, UnpricedReason: preview.UnpricedReason,
-		}}
+			Resolution: preview.Resolution,
+		}, unpriced: map[string]uint64{}}
 		a.models[mkey] = model
+	}
+	if preview.UnpricedReason != "" {
+		// Saturating: the sums only rank reasons against each other.
+		sum := model.unpriced[preview.UnpricedReason] + preview.UnpricedTokens
+		if sum < preview.UnpricedTokens {
+			sum = math.MaxUint64
+		}
+		model.unpriced[preview.UnpricedReason] = sum
 	}
 	if err := addSummaryValues(&model.values, bucket); err != nil {
 		return err
@@ -841,6 +890,12 @@ func (a *summaryAccumulator) summary() UsageSummary {
 		entry := a.models[key]
 		entry.key.Tokens = entry.values.tokens.value()
 		entry.key.APIEstimate = entry.values.estimate.value()
+		// Show the reason behind the most unpriced tokens; names break ties.
+		for _, reason := range sortedMapKeys(entry.unpriced) {
+			if entry.key.UnpricedReason == "" || entry.unpriced[reason] > entry.unpriced[entry.key.UnpricedReason] {
+				entry.key.UnpricedReason = reason
+			}
+		}
 		result.Models = append(result.Models, entry.key)
 	}
 	for _, pair := range []struct {

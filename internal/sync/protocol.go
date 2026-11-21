@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ansonnchan/tokenholic/internal/normalize"
 	"github.com/ansonnchan/tokenholic/internal/store"
 )
 
@@ -59,8 +60,15 @@ type Bucket struct {
 	ModelEvidence        string `json:"model_evidence"`
 	Measurement          string `json:"measurement"`
 	NormalizationVersion string `json:"normalization_version"`
-	Tokens               Tokens `json:"tokens"`
-	Revision             uint64 `json:"revision"`
+	// ServiceTier and PromptBand are pricing evidence: the provider tier the
+	// bucket's requests ran at and where their prompt sizes fall on the fixed
+	// ladder in internal/normalize. Each is omitted when the source did not
+	// prove it, and absence means unknown, never standard or short. A bucket
+	// with neither is byte-identical to one sent before the fields existed.
+	ServiceTier string `json:"service_tier,omitempty"`
+	PromptBand  string `json:"prompt_band,omitempty"`
+	Tokens      Tokens `json:"tokens"`
+	Revision    uint64 `json:"revision"`
 }
 
 // Envelope gives a deterministic identity to one bucket.
@@ -180,6 +188,9 @@ func (e Envelope) Validate() error {
 	default:
 		return errors.New("bucket model evidence is invalid")
 	}
+	if !normalize.ServiceTier(bucket.ServiceTier).Valid() || !normalize.PromptBand(bucket.PromptBand).Valid() {
+		return errors.New("bucket pricing evidence is invalid")
+	}
 	tokens := bucket.Tokens
 	for _, value := range []Value{
 		tokens.InputUncached, tokens.InputCacheRead, tokens.InputCacheWrite, tokens.InputCacheWrite5m,
@@ -266,6 +277,12 @@ func bucketKey(bucket Bucket) string {
 	parts := []string{
 		bucket.Start.UTC().Format(time.RFC3339Nano), bucket.Source, bucket.Surface, bucket.ObservedModelID,
 		bucket.ModelEvidence, bucket.Measurement, bucket.NormalizationVersion,
+	}
+	// Pricing evidence joins the identity only when present, so a bucket
+	// without it keeps the key it always had. internal/store derives the same
+	// key and must stay in step.
+	if bucket.ServiceTier != "" || bucket.PromptBand != "" {
+		parts = append(parts, "pricing-evidence", bucket.ServiceTier, bucket.PromptBand)
 	}
 	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(digest[:])
