@@ -101,6 +101,13 @@ manual refresh runs discovery, parsing, normalization, and the atomic
 observation commit before rebuilding absolute usage buckets from committed
 observations. Presentation retains its last stable page while that work runs.
 
+The board area reaches the server only through `internal/multiplayer`, which
+reads a group's board or the global one and returns it as the server sent
+it. The TUI holds no HTTP client and no credential, and it renders rank,
+unranked reason, priced share, hidden ranks, and the named comparison
+without recomputing any of them. Text from the server is stripped of control
+characters before it is drawn.
+
 Dashboard loads query Today, This week, 30 days, and All time using the local
 timezone, add total tokens for each of the last 30 local dates, and attach the
 privacy-safe database diagnostic snapshot. Storage, not presentation, defines
