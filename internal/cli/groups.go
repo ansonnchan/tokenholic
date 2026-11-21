@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/ansonnchan/tokenholic/internal/multiplayer"
 )
 
 func runGroupCommand(args []string, stdout, stderr io.Writer, deps dependencies) int {
@@ -73,8 +75,8 @@ func runGroupCommand(args []string, stdout, stderr io.Writer, deps dependencies)
 	case "invite":
 		flags := flag.NewFlagSet("tokenholic group invite", flag.ContinueOnError)
 		flags.SetOutput(stderr)
-		lifetime := flags.Duration("expires", 24*time.Hour, "invite lifetime")
-		uses := flags.Int("uses", 10, "maximum invite uses")
+		lifetime := flags.Duration("expires", multiplayer.DefaultInviteLifetime, "invite lifetime")
+		uses := flags.Int("uses", multiplayer.DefaultInviteUses, "maximum invite uses")
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
 		}

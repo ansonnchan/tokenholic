@@ -99,6 +99,98 @@ func TestClientGroupAndLeaderboardProtocol(t *testing.T) {
 	}
 }
 
+func TestClientReadsTheGlobalBoard(t *testing.T) {
+	t.Parallel()
+	const head = `"timezone":"UTC","period":"all_time","metric":"total_tokens","window":{"start":null,"end":"2026-11-21T00:00:00Z"},"generated_at":"2026-11-21T00:00:00Z",` +
+		`"comparison":{"kind":"24h_earlier","window":{"start":null,"end":"2026-11-20T00:00:00Z"}},"cost_rank_min_priced_basis_points":9500,`
+	responses := map[string]string{
+		// Two members cannot be ranked against each other in public: the
+		// server hides every rank and says so on the board and on each row.
+		"hidden": `{"scope":"global",` + head + `"min_ranked_members":3,"ranks_hidden":true,"total_members":2,"rows":[` +
+			`{"rank":null,"unranked_reason":"scope_too_small","user_id":"viewer","display_name":"viewer","current_user":true,"value":{"value":"900","state":"complete"},` +
+			`"cost_coverage":{"priced_tokens":"900","unpriced_tokens":"0","priced_basis_points":10000},"trend":{"previous_value":{"value":"700","state":"complete"},"previous_rank":null,"rank_change":null,"new":false},"last_synced_at":null},` +
+			`{"rank":null,"unranked_reason":"scope_too_small","user_id":"","display_name":"other","value":{"value":"400","state":"partial"},` +
+			`"cost_coverage":{"priced_tokens":"0","unpriced_tokens":"400","priced_basis_points":0},"trend":{"previous_value":{"value":null,"state":"empty"},"new":true}}]}`,
+		// A long board leaves rows out and still reports everyone it counted.
+		"long":         `{"scope":"global",` + head + `"min_ranked_members":3,"ranks_hidden":false,"total_members":250,"rows":null}`,
+		"group reply":  `{"scope":"group","group_id":"70000000-0000-4000-8000-000000000001","group_name":"Quiet group",` + head + `"rows":[]}`,
+		"names group":  `{"scope":"global","group_id":"70000000-0000-4000-8000-000000000001",` + head + `"rows":[]}`,
+		"other period": `{"scope":"global",` + strings.Replace(head, `"all_time"`, `"week"`, 1) + `"rows":[]}`,
+		"no scope":     `{` + head + `"rows":[]}`,
+	}
+	served := "hidden"
+	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/global/leaderboard" || request.Header.Get("Authorization") != "Bearer device-credential" {
+			t.Fatalf("request = %s %s with %q", request.Method, request.URL.Path, request.Header.Get("Authorization"))
+		}
+		if query := request.URL.Query(); query.Get("period") != "all_time" || query.Get("metric") != "total_tokens" || len(query) != 2 {
+			t.Fatalf("query = %v", query)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(responses[served])), Request: request}, nil
+	})}
+	client, err := NewClient("https://api.example.test", httpClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board, err := client.GlobalLeaderboard(t.Context(), "device-credential", PeriodAllTime, MetricTotalTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if board.Scope != ScopeGlobal || !board.RanksHidden || board.MinRankedMembers != 3 || board.TotalMembers != 2 || board.Comparison.Kind != ComparisonDayEarlier || len(board.Rows) != 2 {
+		t.Fatalf("board = %#v", board)
+	}
+	viewer, other := board.Rows[0], board.Rows[1]
+	if viewer.Rank != nil || viewer.UnrankedReason != UnrankedScopeTooSmall || !viewer.CurrentUser || viewer.UserID != "viewer" || viewer.LastSyncedAt != nil {
+		t.Fatalf("viewer row = %#v", viewer)
+	}
+	// Another member's row carries no account ID, and a missing value stays
+	// missing instead of becoming zero.
+	if other.UserID != "" || other.CurrentUser || !other.Trend.New || other.Trend.PreviousValue.Value != nil || other.Value.State != AvailabilityPartial {
+		t.Fatalf("other row = %#v", other)
+	}
+	served = "long"
+	board, err = client.GlobalLeaderboard(t.Context(), "device-credential", PeriodAllTime, MetricTotalTokens)
+	if err != nil || board.Rows == nil || len(board.Rows) != 0 || board.TotalMembers != 250 || board.RanksHidden {
+		t.Fatalf("long board = %#v, %v", board, err)
+	}
+	for _, name := range []string{"group reply", "names group", "other period", "no scope"} {
+		served = name
+		if board, err := client.GlobalLeaderboard(t.Context(), "device-credential", PeriodAllTime, MetricTotalTokens); err == nil || len(board.Rows) != 0 || board.Scope != "" {
+			t.Errorf("%s: GlobalLeaderboard() = %#v, %v; want a rejected response", name, board, err)
+		}
+	}
+}
+
+func TestServiceLoadsTheGlobalBoardOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
+	client := &fakeClient{groups: []Group{{ID: "group-one", Name: "One", Timezone: "UTC", Role: "owner"}}}
+	service, err := NewService(client, fakeStore{session: account.Session{Credential: "device"}}, "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := service.Load(t.Context(), "", PeriodWeek, MetricAPIEstimate)
+	if err != nil || snapshot.Global || snapshot.Selected.ID != "group-one" || client.globalReads != 0 {
+		t.Fatalf("default Load() = %#v, %v after %d global reads", snapshot, err, client.globalReads)
+	}
+	snapshot, err = service.Load(t.Context(), GlobalScope, PeriodWeek, MetricAPIEstimate)
+	if err != nil || !snapshot.Global || snapshot.Selected.ID != "" || snapshot.Board == nil || snapshot.Board.Scope != ScopeGlobal || !snapshot.Board.RanksHidden || len(snapshot.Groups) != 1 {
+		t.Fatalf("global Load() = %#v, %v", snapshot, err)
+	}
+	// An account with no groups can still read the global board.
+	client.groups = nil
+	if snapshot, err = service.Load(t.Context(), GlobalScope, PeriodWeek, MetricAPIEstimate); err != nil || snapshot.Board == nil {
+		t.Fatalf("global Load() without groups = %#v, %v", snapshot, err)
+	}
+	if snapshot, err = service.Load(t.Context(), "", PeriodWeek, MetricAPIEstimate); err != nil || snapshot.Board != nil || snapshot.Global {
+		t.Fatalf("Load() without groups = %#v, %v", snapshot, err)
+	}
+	// An expired session reads as signed out, as it does for a group.
+	client.globalErr = ErrUnauthorized
+	if _, err = service.Load(t.Context(), GlobalScope, PeriodWeek, MetricAPIEstimate); !errors.Is(err, ErrSignedOut) {
+		t.Fatalf("global Load() with an expired session = %v", err)
+	}
+}
+
 func TestClientRejectsInsecureRemoteOriginAndMapsAuthorization(t *testing.T) {
 	t.Parallel()
 	if _, err := NewClient("http://example.test", nil); err == nil {
@@ -286,6 +378,8 @@ func (f fakeStore) Load() (account.Session, error) { return f.session, f.err }
 type fakeClient struct {
 	groups          []Group
 	boardGroup      string
+	globalReads     int
+	globalErr       error
 	createdTimezone string
 	inviteGroup     string
 	leftGroup       string
@@ -342,7 +436,15 @@ func (f *fakeClient) Leave(_ context.Context, _, groupID string) error {
 }
 func (f *fakeClient) Leaderboard(_ context.Context, _, groupID string, period Period, metric Metric) (Board, error) {
 	f.boardGroup = groupID
-	return Board{GroupID: groupID, Period: period, Metric: metric}, nil
+	return Board{Scope: ScopeGroup, GroupID: groupID, Period: period, Metric: metric}, nil
+}
+
+func (f *fakeClient) GlobalLeaderboard(_ context.Context, _ string, period Period, metric Metric) (Board, error) {
+	f.globalReads++
+	if f.globalErr != nil {
+		return Board{}, f.globalErr
+	}
+	return Board{Scope: ScopeGlobal, Period: period, Metric: metric, RanksHidden: true}, nil
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

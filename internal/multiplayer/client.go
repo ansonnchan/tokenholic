@@ -124,6 +124,9 @@ const (
 	UnrankedNoUsage          UnrankedReason = "no_usage"
 	UnrankedValueUnavailable UnrankedReason = "value_unavailable"
 	UnrankedCostCoverage     UnrankedReason = "cost_coverage_below_threshold"
+	// UnrankedScopeTooSmall means the board hides every rank because too few
+	// members can be ranked. Values and order are still shown.
+	UnrankedScopeTooSmall UnrankedReason = "scope_too_small"
 )
 
 // Trend compares a row with the board's comparison window. RankChange is
@@ -180,8 +183,20 @@ type Window struct {
 	End   time.Time  `json:"end"`
 }
 
-// Board is one group leaderboard response.
+// BoardScope says whose usage a board ranks.
+type BoardScope string
+
+const (
+	// ScopeGroup is the active members of one group.
+	ScopeGroup BoardScope = "group"
+	// ScopeGlobal is every account that opted in to the global board.
+	ScopeGlobal BoardScope = "global"
+)
+
+// Board is one leaderboard response. GroupID and GroupName are set only for
+// a group board.
 type Board struct {
+	Scope       BoardScope `json:"scope"`
 	GroupID     string     `json:"group_id"`
 	GroupName   string     `json:"group_name"`
 	Timezone    string     `json:"timezone"`
@@ -192,8 +207,16 @@ type Board struct {
 	GeneratedAt time.Time  `json:"generated_at"`
 	// CostRankMinPricedBasisPoints is the priced share an estimate needs to
 	// be ranked, as the server applied it.
-	CostRankMinPricedBasisPoints int   `json:"cost_rank_min_priced_basis_points"`
-	Rows                         []Row `json:"rows"`
+	CostRankMinPricedBasisPoints int `json:"cost_rank_min_priced_basis_points"`
+	// MinRankedMembers is how many members must be rankable before the board
+	// shows ranks; zero means no floor. RanksHidden reports that the board
+	// is below it, as the server decided.
+	MinRankedMembers int  `json:"min_ranked_members"`
+	RanksHidden      bool `json:"ranks_hidden"`
+	// TotalMembers counts every member of the scope, including rows a long
+	// board leaves out.
+	TotalMembers int   `json:"total_members"`
+	Rows         []Row `json:"rows"`
 }
 
 // Client calls the hosted private-group API.
@@ -284,15 +307,51 @@ func (c *Client) Leaderboard(ctx context.Context, credential, groupID string, pe
 	query := url.Values{"period": []string{string(period)}, "metric": []string{string(metric)}}
 	var board Board
 	err := c.request(ctx, http.MethodGet, "/v1/groups/"+url.PathEscape(groupID)+"/leaderboard?"+query.Encode(), credential, nil, &board)
-	if err == nil {
-		windowInvalid := board.Window.End.IsZero() || (period == PeriodAllTime && board.Window.Start != nil) || (period != PeriodAllTime && board.Window.Start == nil)
-		if board.GroupID != groupID || board.GroupName == "" || board.Timezone == "" || board.Period != period || board.Metric != metric || board.GeneratedAt.IsZero() || windowInvalid {
-			err = errors.New("multiplayer server returned an invalid leaderboard")
-		} else if board.Rows == nil {
-			board.Rows = make([]Row, 0)
-		}
+	if err == nil && (board.GroupID != groupID || board.GroupName == "" || !board.valid(period, metric)) {
+		err = errors.New("multiplayer server returned an invalid leaderboard")
 	}
-	return board, err
+	if err != nil {
+		return Board{}, err
+	}
+	board.normalize(ScopeGroup)
+	return board, nil
+}
+
+// GlobalLeaderboard returns one period and metric of the opt-in global
+// board. Any signed-in account may read it; only accounts that opted in
+// appear on it.
+func (c *Client) GlobalLeaderboard(ctx context.Context, credential string, period Period, metric Metric) (Board, error) {
+	query := url.Values{"period": []string{string(period)}, "metric": []string{string(metric)}}
+	var board Board
+	err := c.request(ctx, http.MethodGet, "/v1/global/leaderboard?"+query.Encode(), credential, nil, &board)
+	// A global board that names a group is some other response.
+	if err == nil && (board.Scope != ScopeGlobal || board.GroupID != "" || !board.valid(period, metric)) {
+		err = errors.New("multiplayer server returned an invalid global leaderboard")
+	}
+	if err != nil {
+		return Board{}, err
+	}
+	board.normalize(ScopeGlobal)
+	return board, nil
+}
+
+// valid checks the parts every board shares against what was asked for.
+func (b Board) valid(period Period, metric Metric) bool {
+	windowValid := !b.Window.End.IsZero() && (period == PeriodAllTime) == (b.Window.Start == nil)
+	return b.Timezone != "" && b.Period == period && b.Metric == metric && !b.GeneratedAt.IsZero() && windowValid &&
+		b.MinRankedMembers >= 0 && b.TotalMembers >= 0
+}
+
+// normalize fills what a response may leave out, so callers never branch on
+// a missing field.
+func (b *Board) normalize(scope BoardScope) {
+	b.Scope = scope
+	if b.Rows == nil {
+		b.Rows = make([]Row, 0)
+	}
+	if b.TotalMembers < len(b.Rows) {
+		b.TotalMembers = len(b.Rows)
+	}
 }
 
 // Profile returns the caller's own profile and visibility choices.
