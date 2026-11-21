@@ -65,7 +65,7 @@ func (m Model) modelsView(width, height int) []string {
 			cell := widget.Cell{Text: attributionText(model.Resolution), Style: attributionStyle(t, model.Resolution)}
 			row.Cells = append(row.Cells[:1], append([]widget.Cell{cell}, row.Cells[1:]...)...)
 		}
-		row.Current = index == cursor
+		row.Cursor = index == cursor
 		table.Rows = append(table.Rows, row)
 	}
 	lines = append(lines, table.Render(t, inner)...)

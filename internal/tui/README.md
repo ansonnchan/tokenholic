@@ -37,7 +37,7 @@ without, plus a light background and ASCII:
   keys a user would press.
 
 ```bash
-go test ./internal/tui/... -update
+go test ./internal/tui ./internal/tui/widget -update
 ```
 
 rewrites them after an intended change; review the diff before committing.

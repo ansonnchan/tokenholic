@@ -161,8 +161,30 @@ func TestTableAlignsTruncatesAndMarksTheCurrentRow(t *testing.T) {
 	if got := table.Render(plain, 27); !reflect.DeepEqual(got, want) {
 		t.Errorf("table =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if got := table.Render(ascii, 27)[2]; got != "> 12  @a-long-d~    $640.00" {
+	if got := table.Render(ascii, 27)[2]; got != "| 12  @a-long-d~    $640.00" {
 		t.Errorf("ASCII current row = %q", got)
+	}
+	// The cursor is a pointer in the edge cells: on its own it does not tint
+	// the row, and on the viewer's row it replaces the edge.
+	table.Rows[0].Cursor = true
+	if got := table.Render(plain, 27)[1]; got != "▸  1  @dana       $1,180.00" {
+		t.Errorf("cursor row = %q", got)
+	}
+	if got := table.Render(ascii, 27)[1]; got != ">  1  @dana       $1,180.00" {
+		t.Errorf("ASCII cursor row = %q", got)
+	}
+	if cursor := table.Render(color, 27)[1]; strings.Contains(cursor, "48;2;") || !strings.Contains(cursor, "\x1b[1m") {
+		t.Errorf("cursor row should be bold and untinted: %q", cursor)
+	}
+	table.Rows[0].Cursor, table.Rows[1].Cursor = false, true
+	if got := table.Render(plain, 27)[2]; got != "▸ 12  @a-long-d…    $640.00" {
+		t.Errorf("cursor on the current row = %q", got)
+	}
+	table.Rows[1].Cursor = false
+	// A tag in Keep outlives the name it follows.
+	table.Rows[1].Cells[1] = Cell{Text: "@a-long-display-name", Keep: " ★ YOU"}
+	if got := table.Render(plain, 27)[2]; got != "▌ 12  @a-… ★ YOU    $640.00" {
+		t.Errorf("row with a kept tag = %q", got)
 	}
 	for _, line := range table.Render(color, 27) {
 		if Width(line) != 27 {

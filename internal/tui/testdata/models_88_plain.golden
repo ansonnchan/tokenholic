@@ -5,7 +5,7 @@
 │                                                                                      │
 │   MODEL                                     ATTRIBUTION   TOKENS        $ EST  SHARE │
 │   claude-opus-5-5                           resolved       2.12B      $688.30  49.6% │
-│ ▌ gpt-5.2-codex                             inferred      ≥1.02B     ≥$318.90  23.9% │
+│ ▸ gpt-5.2-codex                             inferred      ≥1.02B     ≥$318.90  23.9% │
 │   claude-sonnet-5-5                         reported        707M      $121.75  16.5% │
 │   codex-auto-review                         unknown        ≥242M            —   5.6% │
 │   claude-haiku-5-5                          reported         92M       $10.35   2.1% │

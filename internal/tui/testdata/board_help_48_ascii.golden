@@ -1,0 +1,33 @@
+>_ TOKENHOLIC                     scanned 4m ago
+ HOME [BOARDS] MODELS  SOURCES  SETTINGS
+
++- KEYS ---------------------------------------+
+| g       next board: each of your groups,     |
+|         then GLOBAL                          |
+| p       change period                        |
+| m       rank by estimate or by tokens        |
+| j / k   move through the standings           |
+| y       copy an invite to this group; the    |
+|         owner creates it                     |
+| c / i   create a group / join with an invite |
+|         code                                 |
+| o       join or leave the global board       |
+| r       reload                               |
+| ?       close help                           |
+| q       quit                                 |
++----------------------------------------------+
++- READING THE NUMBERS ------------------------+
+| $ EST   what the tokens would cost at API    |
+|         list prices. It is an estimate, not  |
+|         what you paid.                       |
+| >=1.2M  a lower bound: part of the usage was |
+|         not reported or has no price.        |
+| -       not available. It never means zero.  |
+| PRICED  the share of tokens the estimate     |
+|         covers.                              |
+| + 2     rank moved, against the same point   |
+|         of the previous period.              |
+| !       a daily total above the plausibility |
+|         limit. Usage is self-reported.       |
++----------------------------------------------+
+1-5 views | g scope | p period | ? help | q quit

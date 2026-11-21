@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/ansonnchan/tokenholic/internal/application"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
@@ -52,11 +50,16 @@ type Application interface {
 	Refresh(context.Context) error
 }
 
-// Multiplayer supplies authenticated group snapshots and inline mutations.
+// Multiplayer supplies authenticated board snapshots and the few changes the
+// board area makes. HTTP, credentials, and ranking stay behind it.
 type Multiplayer interface {
+	// Load returns the scope list and one board: a group by ID, the global
+	// board for multiplayer.GlobalScope, or the first group for "".
 	Load(context.Context, string, multiplayer.Period, multiplayer.Metric) (multiplayer.Snapshot, error)
 	Create(context.Context, string) (multiplayer.Group, error)
 	Join(context.Context, string) (multiplayer.Group, error)
+	Invite(context.Context, string, time.Duration, int) (multiplayer.Invite, error)
+	SetGlobalParticipation(context.Context, bool) error
 }
 
 // Config controls environment-sensitive shell behavior.
@@ -70,6 +73,9 @@ type Config struct {
 	// Theme replaces the detected theme. Run sets it from the output; tests
 	// and previews set it to a fixed one.
 	Theme *theme.Theme
+	// Clipboard copies text for the user. Run sets it to an OSC 52 write to
+	// the output; nil means copying is unavailable.
+	Clipboard func(string)
 }
 
 // Model is the Bubble Tea model for the application shell. It holds the last
@@ -79,6 +85,7 @@ type Model struct {
 	app         Application
 	multiplayer Multiplayer
 	theme       theme.Theme
+	clipboard   func(string)
 	section     Section
 	width       int
 	height      int
@@ -87,6 +94,7 @@ type Model struct {
 	spinner     int
 	ticking     bool
 	tickEvery   time.Duration
+	flashFor    time.Duration
 
 	// Local areas share one dashboard and one period.
 	dashboard    application.Dashboard
@@ -102,11 +110,6 @@ type Model struct {
 	board boardState
 }
 
-type groupInput struct {
-	action string
-	value  string
-}
-
 type loadResult struct {
 	requestID uint64
 	dashboard application.Dashboard
@@ -117,17 +120,26 @@ type refreshResult struct {
 	err error
 }
 
-type groupLoadResult struct {
+type boardLoadResult struct {
 	requestID uint64
 	snapshot  multiplayer.Snapshot
 	err       error
 }
 
-type groupMutationResult struct {
+// boardActionResult is the outcome of a change made from the board area.
+// scope, when set, is the scope to show next.
+type boardActionResult struct {
 	requestID uint64
-	action    string
+	failure   string
+	scope     string
+	invite    *multiplayer.Invite
 	groupID   string
+	flash     string
 	err       error
+}
+
+type flashExpired struct {
+	id uint64
 }
 
 type spinnerTick struct{}
@@ -149,14 +161,17 @@ func NewModel(ctx context.Context, app Application, config Config) Model {
 		app:          app,
 		multiplayer:  config.Multiplayer,
 		theme:        tokens,
+		clipboard:    config.Clipboard,
 		section:      HomeSection,
 		tickEvery:    spinnerInterval,
+		flashFor:     flashDuration,
 		loading:      app != nil,
 		localRequest: 1,
 		period:       store.PeriodLast30Days,
 		board: boardState{
-			period: multiplayer.PeriodToday,
-			metric: multiplayer.MetricTotalTokens,
+			period:  multiplayer.PeriodWeek,
+			metric:  multiplayer.MetricAPIEstimate,
+			invites: map[string]multiplayer.Invite{},
 		},
 	}
 }
@@ -210,60 +225,33 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.localRequest++
 		return m, m.loadLocal(m.localRequest)
-	case groupLoadResult:
-		return m.applyGroupLoad(message), nil
-	case groupMutationResult:
-		if message.requestID != m.board.request {
-			return m, nil
+	case boardLoadResult:
+		return m.applyBoardLoad(message), nil
+	case boardActionResult:
+		return m.applyBoardAction(message)
+	case flashExpired:
+		if message.id == m.board.flashID {
+			m.board.flash = ""
 		}
-		if message.err != nil {
-			m.board.loading = false
-			m.board.failure = "Could not " + message.action + " private group"
-			return m, nil
-		}
-		m.board.groupID = message.groupID
-		m.board.request++
-		return m, m.loadGroups(m.board.request)
+		return m, nil
 	default:
 		return m, nil
 	}
-}
-
-func (m Model) applyGroupLoad(message groupLoadResult) Model {
-	if message.requestID != m.board.request {
-		return m
-	}
-	m.board.loading, m.board.loaded, m.board.failure = false, true, ""
-	switch {
-	case errors.Is(message.err, errMultiplayerNotConfigured):
-		m.board.page = boardPage{warning: "Multiplayer needs an API configuration", lines: []string{
-			"Multiplayer is not configured.",
-			"Set TOKENHOLIC_API_URL and run `tokenholic claim`, then reopen tokenholic.",
-		}}
-	case errors.Is(message.err, multiplayer.ErrSignedOut):
-		m.board.page = boardPage{warning: "Sign in is required for private groups", lines: []string{
-			"No signed-in multiplayer account.",
-			"Run `tokenholic claim`, then press r to retry.",
-		}}
-	case message.err != nil:
-		// Keep the last stable board under the failure.
-		m.board.failure = "Could not load private groups"
-	default:
-		m.board.snapshot = message.snapshot
-		m.board.groupID = message.snapshot.Selected.ID
-		m.board.page = groupPage(message.snapshot)
-	}
-	return m
 }
 
 func (m Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	if m.board.input.action != "" {
-		return m.updateGroupInput(key)
+	if m.board.prompt.action != "" {
+		return m.updateBoardPrompt(key)
 	}
 	boards := m.section == BoardsSection
+	if boards && !m.help {
+		if handled, model, command := m.boardKey(key.String()); handled {
+			return model, command
+		}
+	}
 	switch key.String() {
 	case "q":
 		return m, tea.Quit
@@ -279,7 +267,7 @@ func (m Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.activate((m.section + sectionCount - 1) % sectionCount)
 	case "r":
 		if boards {
-			return m.reloadGroups()
+			return m.reloadBoard()
 		}
 		if m.app == nil || m.loading {
 			return m, nil
@@ -287,22 +275,12 @@ func (m Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.loading, m.refreshing = true, true
 		return m, m.withTick(m.refresh())
 	case "p":
-		if boards {
-			m.board.period = nextPeriod(m.board.period)
-			return m.reloadGroups()
-		}
-		if m.section == SettingsSection {
+		if boards || m.section == SettingsSection {
 			return m, nil
 		}
 		m.period = periods[(indexOf(periods, m.period)+1)%len(periods)]
 		m.modelCursor = 0
 		m.scroll = min(m.scroll, m.maxScroll())
-		return m, nil
-	case "m":
-		if boards {
-			m.board.metric = nextMetric(m.board.metric)
-			return m.reloadGroups()
-		}
 		return m, nil
 	case "d":
 		if m.section == HomeSection {
@@ -314,16 +292,6 @@ func (m Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.move(1)
 	case "k", "up":
 		return m.move(-1)
-	case "c":
-		if boards && m.multiplayer != nil {
-			m.board.input = groupInput{action: "create"}
-		}
-		return m, nil
-	case "i":
-		if boards && m.multiplayer != nil {
-			m.board.input = groupInput{action: "join"}
-		}
-		return m, nil
 	default:
 		return m, nil
 	}
@@ -335,7 +303,10 @@ func (m Model) move(delta int) (tea.Model, tea.Cmd) {
 	case m.help:
 		m.scroll = max(0, min(m.scroll+delta, m.maxScroll()))
 	case m.section == BoardsSection:
-		return m.selectGroup(delta)
+		if board := m.board.snapshot.Board; board != nil && len(board.Rows) > 0 {
+			m.board.cursor = max(0, min(m.board.cursor+delta, len(board.Rows)-1))
+			m.board.moved = true
+		}
 	case m.section == ModelsSection:
 		count := len(summaryFor(m.dashboard, m.period).Models)
 		m.modelCursor = max(0, min(m.modelCursor+delta, count-1))
@@ -353,9 +324,7 @@ func (m Model) activate(section Section) (tea.Model, tea.Cmd) {
 	m.help = false
 	m.scroll = 0
 	if section == BoardsSection {
-		m.board.loading = true
-		m.board.request++
-		return m, m.withTick(m.loadGroups(m.board.request))
+		return m.reloadBoard()
 	}
 	if m.app == nil || m.loading {
 		return m, nil
@@ -398,103 +367,6 @@ func (m Model) refresh() tea.Cmd {
 	}
 }
 
-func (m Model) loadGroups(requestID uint64) tea.Cmd {
-	if m.multiplayer == nil {
-		return func() tea.Msg { return groupLoadResult{requestID: requestID, err: errMultiplayerNotConfigured} }
-	}
-	groupID, period, metric := m.board.groupID, m.board.period, m.board.metric
-	return func() tea.Msg {
-		snapshot, err := m.multiplayer.Load(m.ctx, groupID, period, metric)
-		return groupLoadResult{requestID: requestID, snapshot: snapshot, err: err}
-	}
-}
-
-func (m Model) reloadGroups() (tea.Model, tea.Cmd) {
-	m.help = false
-	m.board.loading = true
-	m.board.request++
-	return m, m.withTick(m.loadGroups(m.board.request))
-}
-
-func (m Model) selectGroup(delta int) (tea.Model, tea.Cmd) {
-	groups := m.board.snapshot.Groups
-	if len(groups) < 2 {
-		return m, nil
-	}
-	index := 0
-	for candidate := range groups {
-		if groups[candidate].ID == m.board.groupID {
-			index = candidate
-			break
-		}
-	}
-	m.board.groupID = groups[(index+delta+len(groups))%len(groups)].ID
-	return m.reloadGroups()
-}
-
-func (m Model) updateGroupInput(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch key.Type {
-	case tea.KeyEsc:
-		m.board.input = groupInput{}
-		return m, nil
-	case tea.KeyEnter:
-		value := strings.TrimSpace(m.board.input.value)
-		if value == "" {
-			return m, nil
-		}
-		action := m.board.input.action
-		m.board.input = groupInput{}
-		m.board.loading = true
-		m.board.request++
-		requestID := m.board.request
-		return m, m.withTick(func() tea.Msg {
-			var group multiplayer.Group
-			var err error
-			if action == "create" {
-				group, err = m.multiplayer.Create(m.ctx, value)
-			} else {
-				group, err = m.multiplayer.Join(m.ctx, value)
-			}
-			return groupMutationResult{requestID: requestID, action: action, groupID: group.ID, err: err}
-		})
-	case tea.KeyBackspace, tea.KeyDelete:
-		runes := []rune(m.board.input.value)
-		if len(runes) > 0 {
-			m.board.input.value = string(runes[:len(runes)-1])
-		}
-		return m, nil
-	case tea.KeyRunes:
-		limit := 80
-		if m.board.input.action == "join" {
-			limit = 128
-		}
-		runes := []rune(m.board.input.value)
-		for _, character := range key.Runes {
-			if len(runes) >= limit || unicode.IsControl(character) {
-				continue
-			}
-			runes = append(runes, character)
-		}
-		m.board.input.value = string(runes)
-		return m, nil
-	default:
-		return m, nil
-	}
-}
-
-func nextPeriod(period multiplayer.Period) multiplayer.Period {
-	order := []multiplayer.Period{
-		multiplayer.PeriodToday, multiplayer.PeriodWeek,
-		multiplayer.PeriodLast30Days, multiplayer.PeriodAllTime,
-	}
-	return order[(indexOf(order, period)+1)%len(order)]
-}
-
-func nextMetric(metric multiplayer.Metric) multiplayer.Metric {
-	order := []multiplayer.Metric{multiplayer.MetricTotalTokens, multiplayer.MetricAPIEstimate}
-	return order[(indexOf(order, metric)+1)%len(order)]
-}
-
 // indexOf is the position of value in values, or -1 so that the next one
 // after an unknown value is the first.
 func indexOf[T comparable](values []T, value T) int {
@@ -514,6 +386,11 @@ func Run(ctx context.Context, app Application, input io.Reader, output io.Writer
 	if config.Theme == nil {
 		tokens := theme.New(output, theme.Options{NoColor: config.NoColor, ASCII: config.ASCII, Background: config.Background})
 		config.Theme = &tokens
+	}
+	if config.Clipboard == nil && !config.NoColor {
+		// NO_COLOR asks for no escape sequences at all, so it also turns
+		// this one off; the code stays on screen to copy by hand.
+		config.Clipboard = terminalClipboard(output)
 	}
 	program := tea.NewProgram(
 		NewModel(ctx, app, config),

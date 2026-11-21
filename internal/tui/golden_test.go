@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ansonnchan/tokenholic/internal/application"
+	"github.com/ansonnchan/tokenholic/internal/multiplayer"
 	"github.com/ansonnchan/tokenholic/internal/store"
 	"github.com/ansonnchan/tokenholic/internal/tui/goldentest"
 	"github.com/ansonnchan/tokenholic/internal/tui/theme"
@@ -19,6 +20,8 @@ type screen struct {
 	loadError error
 	keys      []string
 	height    int
+	// remote is the signed-in account behind the board area, when any.
+	remote func() *fakeMultiplayer
 }
 
 var screens = []screen{
@@ -33,6 +36,25 @@ var screens = []screen{
 	{name: "sources", dashboard: needsAttentionDashboard, keys: []string{"4"}},
 	{name: "settings", dashboard: sampleDashboard, keys: []string{"5"}},
 	{name: "help", dashboard: sampleDashboard, keys: []string{"?"}},
+	{name: "board", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2"}},
+	{name: "board_tokens", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2", "m"}},
+	{name: "board_unranked", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2", "j", "j"}},
+	{name: "board_invite", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2", "y"}},
+	{name: "board_long", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2", "g", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k"}, height: 26},
+	{name: "board_global_hidden", dashboard: sampleDashboard, remote: listedRemote, keys: []string{"2", "g", "g"}},
+	{name: "board_global_join", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2", "g", "g", "o"}},
+	{name: "board_no_groups", dashboard: sampleDashboard, remote: func() *fakeMultiplayer { return &fakeMultiplayer{} }, keys: []string{"2"}},
+	{name: "board_signed_out", dashboard: sampleDashboard, remote: func() *fakeMultiplayer {
+		return &fakeMultiplayer{loadError: multiplayer.ErrSignedOut}
+	}, keys: []string{"2"}},
+	{name: "board_help", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2", "?"}},
+}
+
+// listedRemote is sampleRemote already on the small global board.
+func listedRemote() *fakeMultiplayer {
+	remote := sampleRemote()
+	remote.boards[multiplayer.GlobalScope] = smallGlobal(true)
+	return remote
 }
 
 // quietToday is the sample machine before any usage today.
@@ -53,7 +75,11 @@ func needsAttentionDashboard() application.Dashboard {
 func renderScreen(t *testing.T, screen screen, tokens theme.Theme, width int) []string {
 	t.Helper()
 	app := &fakeApplication{dashboard: screen.dashboard(), loadError: screen.loadError}
-	model := start(t, app, Config{Theme: &tokens}, width, screen.height)
+	config := Config{Theme: &tokens, Clipboard: func(string) {}}
+	if screen.remote != nil {
+		config.Multiplayer = screen.remote()
+	}
+	model := start(t, app, config, width, screen.height)
 	return press(model, screen.keys...).frame()
 }
 

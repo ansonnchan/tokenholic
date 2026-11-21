@@ -27,18 +27,23 @@ type Column struct {
 }
 
 // Cell is plain text with an optional style. A nil style is ordinary text.
+// Keep is appended to Text and survives truncation, for a tag that must not
+// be cut off with the end of a long name.
 type Cell struct {
 	Text  string
+	Keep  string
 	Style *lipgloss.Style
 }
 
-// Row is one table line. Current marks the highlighted row, which is the
-// viewer's own row on a board and the cursor in a list: it gets the accent
-// edge, accent text, and a tinted background, and keeps the edge glyph when
-// there is no color.
+// Row is one table line. Current marks the viewer's own row: it gets the
+// accent edge, accent text, and a tinted background, and keeps the edge
+// glyph when there is no color. Cursor marks the row a list's selection is
+// on with a pointer in the same cells and bold text. A row can be both; the
+// pointer then replaces the edge and the tint stays.
 type Row struct {
 	Cells   []Cell
 	Current bool
+	Cursor  bool
 }
 
 // Table is a set of aligned rows under optional uppercase headers.
@@ -52,8 +57,8 @@ type Table struct {
 	Flush bool
 }
 
-// edgeWidth is the cells reserved before the first column for the current
-// row's edge marker.
+// edgeWidth is the cells reserved before the first column for the edge
+// marker and the cursor.
 const edgeWidth = 2
 
 // Render lays the table out in width cells and returns its lines. Text that
@@ -81,11 +86,18 @@ func (table Table) Render(t theme.Theme, width int) []string {
 	for _, row := range table.Rows {
 		edge := strings.Repeat(" ", edgeWidth)
 		gapText := separator
-		if row.Current {
+		mark := t.Glyphs.Edge
+		if row.Cursor {
+			mark = t.Glyphs.Pointer
+		}
+		switch {
+		case row.Current:
 			gapText = t.CurrentRow.Render(separator)
 			if !table.Flush {
-				edge = t.CurrentRow.Render(t.Glyphs.Edge + " ")
+				edge = t.CurrentRow.Render(mark + " ")
 			}
+		case row.Cursor && !table.Flush:
+			edge = t.Accent.Render(mark) + " "
 		}
 		cells := make([]string, len(table.Columns))
 		for index, column := range table.Columns {
@@ -93,13 +105,17 @@ func (table Table) Render(t theme.Theme, width int) []string {
 			if index < len(row.Cells) {
 				cell = row.Cells[index]
 			}
-			text := place(Truncate(t, cell.Text, widths[index]), widths[index], column.Align)
+			text := place(Truncate(t, cell.Text, widths[index]-Width(cell.Keep))+cell.Keep, widths[index], column.Align)
 			switch {
 			case row.Current && cell.Style != nil:
 				// Keep the cell's own color but sit on the row's tint.
 				text = cell.Style.Background(t.CurrentRow.GetBackground()).Render(text)
 			case row.Current:
 				text = t.CurrentRow.Render(text)
+			case row.Cursor && cell.Style != nil:
+				text = cell.Style.Bold(true).Render(text)
+			case row.Cursor:
+				text = t.Strong.Render(text)
 			case cell.Style != nil:
 				text = cell.Style.Render(text)
 			}
