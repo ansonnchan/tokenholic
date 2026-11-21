@@ -6,7 +6,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/ansonnchan/tokenholic/internal/account"
 	"github.com/ansonnchan/tokenholic/internal/autosync"
 	usageSync "github.com/ansonnchan/tokenholic/internal/sync"
 )
@@ -41,33 +40,7 @@ func synchronizeLocal(ctx context.Context, home, codexHome, apiURL string, dryRu
 		_, err := usageSync.DryRun(ctx, database, output)
 		return err
 	}
-	credentialStore := account.NewKeyringStore(apiURL)
-	session, err := credentialStore.Load()
-	if err != nil {
-		return err
-	}
-	if session.ExpiresAt.Before(time.Now().UTC().Add(credentialRefreshWindow)) {
-		authClient, err := account.NewClient(apiURL, nil)
-		if err != nil {
-			return err
-		}
-		manager, err := account.NewManager(authClient, credentialStore)
-		if err != nil {
-			return err
-		}
-		if err := manager.Refresh(ctx); err != nil {
-			return err
-		}
-		session, err = credentialStore.Load()
-		if err != nil {
-			return err
-		}
-	}
-	client, err := usageSync.NewClient(apiURL, nil)
-	if err != nil {
-		return err
-	}
-	summary, err := client.Run(ctx, database, session.Credential)
+	summary, err := uploadPending(ctx, database, apiURL)
 	if err != nil {
 		return err
 	}

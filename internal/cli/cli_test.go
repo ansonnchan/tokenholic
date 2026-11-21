@@ -86,6 +86,19 @@ func TestRootCommandLaunchesLocalTUIWithEnvironment(t *testing.T) {
 	}
 }
 
+func TestOpenBrowserRefusesAnythingButHTTPS(t *testing.T) {
+	t.Parallel()
+	// Only refusals are tested: an accepted link would start a real browser.
+	for _, link := range []string{
+		"", "http://github.com/login/device", "file:///synthetic/private", "javascript:alert(1)",
+		"https://", "github.com/login/device", "x-apple-reminderkit://", " https://github.com/login/device\nmalicious",
+	} {
+		if err := openBrowser(link); err == nil {
+			t.Errorf("openBrowser(%q) accepted the link", link)
+		}
+	}
+}
+
 func TestRootCommandRedactsStartupFailure(t *testing.T) {
 	t.Parallel()
 	deps := dependencies{
