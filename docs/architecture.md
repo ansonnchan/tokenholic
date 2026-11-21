@@ -45,10 +45,13 @@ server/
   account/                 Authorized multi-device account aggregation
   auth/                    GitHub device flow and tokenholic device credentials
   cmd/api/                 Hosted HTTP API entry point
-  httpapi/                 Bounded JSON routing and protocol errors
+  group/                   Private groups, memberships, and invitations
+  httpapi/                 Bounded JSON routing, rate limiting, and protocol errors
+  leaderboard/             Ranking periods, metrics, coverage, and trends
   postgres/                Hosted connection and migration boundary
   sync/                    Authenticated absolute-revision application
   pricing/                 Server-owned model resolution and estimates
+  ratelimit/               In-memory token buckets for the single instance
   web/                     Public JSON, share pages, and PNG cards (planned)
 migrations/                Embedded hosted PostgreSQL schema history
 fixtures/                  Sanitized compatibility fixtures
@@ -223,7 +226,8 @@ The hosted persistence, device authentication, and synchronization foundations a
 GitHub identities, independently revocable devices and credential hashes,
 pricing revisions, and privacy-limited absolute usage buckets. The HTTP API
 implements GitHub device login, credential rotation, device revocation, and
-bounded authenticated bucket upload.
+bounded authenticated bucket upload, behind per-address and per-credential
+rate limits.
 
 Server migrations are embedded in the Go binary, contiguous, checksummed, and
 applied once inside an advisory-locked transaction. Applied migration history
@@ -527,8 +531,12 @@ public-group and global scopes follow.
   `users.global_opt_in` defaults to false. Public endpoints must return the
   same not-found result for private and nonexistent users or groups.
 - Group lifecycle adds invite links, owner deletion, and ownership transfer.
-- An in-memory token-bucket limiter protects every route per credential and per
-  IP. It is correct for the single demo instance and documented as such.
+- Implemented: an in-memory token-bucket limiter runs before every route
+  except the health check, per client address and per presented credential,
+  with a stricter limit on starting a device login. A refused request gets
+  `429` with `Retry-After`. State is local to one process, which is correct
+  for the single demo instance only; the server guide lists the limits and
+  how the client address is determined behind a proxy.
 - Implausible daily totals are flagged, not capped or silently dropped.
 
 ### Public web surface

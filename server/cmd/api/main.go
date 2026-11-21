@@ -22,6 +22,7 @@ import (
 	serverleaderboard "github.com/ansonnchan/tokenholic/server/leaderboard"
 	"github.com/ansonnchan/tokenholic/server/postgres"
 	serverpricing "github.com/ansonnchan/tokenholic/server/pricing"
+	"github.com/ansonnchan/tokenholic/server/ratelimit"
 	serversync "github.com/ansonnchan/tokenholic/server/sync"
 )
 
@@ -124,12 +125,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	limited, err := rateLimited(handler, os.Getenv)
+	if err != nil {
+		return err
+	}
 	address, err := listenAddress(os.Getenv)
 	if err != nil {
 		return err
 	}
 	server := &http.Server{
-		Addr: address, Handler: handler,
+		Addr: address, Handler: limited,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
 		WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 	}
@@ -151,6 +156,59 @@ func run() error {
 		}
 		return nil
 	}
+}
+
+// The limits below are sized for the single demo instance. A first sync of a
+// long history is the heaviest legitimate client: it uploads 100 buckets per
+// request, so the burst covers 30,000 buckets before the client has to slow
+// to the refill rate. The server's documentation lists these values.
+var (
+	// perAddressLimit covers every request from one client address.
+	perAddressLimit = ratelimit.Limit{Burst: 300, Every: 200 * time.Millisecond}
+	// perCredentialLimit covers every request presenting one credential.
+	perCredentialLimit = ratelimit.Limit{Burst: 300, Every: 200 * time.Millisecond}
+	// deviceStartLimit covers starting a device login, which calls GitHub
+	// without any credential. A login needs one start.
+	deviceStartLimit = ratelimit.Limit{Burst: 10, Every: 6 * time.Second}
+)
+
+// rateLimited wraps the API in the in-memory limiter. Its state is local to
+// this process, which is correct only while one instance serves the API.
+func rateLimited(handler http.Handler, getenv func(string) string) (http.Handler, error) {
+	hops, err := trustedProxyHops(getenv)
+	if err != nil {
+		return nil, err
+	}
+	limits := httpapi.RateLimits{TrustedProxyHops: hops}
+	for _, limiter := range []struct {
+		target *httpapi.Allower
+		limit  ratelimit.Limit
+	}{
+		{&limits.PerAddress, perAddressLimit}, {&limits.PerCredential, perCredentialLimit}, {&limits.DeviceStart, deviceStartLimit},
+	} {
+		created, err := ratelimit.New(limiter.limit, 0, nil)
+		if err != nil {
+			return nil, err
+		}
+		*limiter.target = created
+	}
+	return httpapi.RateLimited(handler, limits)
+}
+
+// trustedProxyHops reads how many reverse proxies in front of the API append
+// to X-Forwarded-For. Unset means none: the connection's address is the
+// client. It must match the deployment, so an invalid value stops startup
+// instead of silently trusting or ignoring the header.
+func trustedProxyHops(getenv func(string) string) (int, error) {
+	value := strings.TrimSpace(getenv("TOKENHOLIC_TRUSTED_PROXY_HOPS"))
+	if value == "" {
+		return 0, nil
+	}
+	hops, err := strconv.Atoi(value)
+	if err != nil || hops < 0 || hops > httpapi.MaxTrustedProxyHops {
+		return 0, fmt.Errorf("TOKENHOLIC_TRUSTED_PROXY_HOPS must be an integer between 0 and %d", httpapi.MaxTrustedProxyHops)
+	}
+	return hops, nil
 }
 
 func listenAddress(getenv func(string) string) (string, error) {

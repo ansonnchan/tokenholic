@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -51,5 +53,58 @@ func TestDecodeStateKey(t *testing.T) {
 	}
 	if _, err := decodeStateKey("short"); err == nil {
 		t.Fatal("decodeStateKey() accepted an invalid key")
+	}
+}
+
+func TestTrustedProxyHops(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    int
+		wantErr bool
+	}{
+		{value: "", want: 0},
+		{value: " 2 ", want: 2},
+		{value: "0", want: 0},
+		{value: "8", want: 8},
+		{value: "9", wantErr: true},
+		{value: "-1", wantErr: true},
+		{value: "one", wantErr: true},
+	}
+	for _, test := range tests {
+		got, err := trustedProxyHops(func(string) string { return test.value })
+		if (err != nil) != test.wantErr || got != test.want {
+			t.Errorf("trustedProxyHops(%q) = %d, %v; want %d, error %t", test.value, got, err, test.want, test.wantErr)
+		}
+	}
+}
+
+// The configured limits must refuse a client that keeps starting device
+// logins, and must leave the health check alone.
+func TestRateLimitedAppliesTheConfiguredLimits(t *testing.T) {
+	reached := 0
+	handler, err := rateLimited(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		reached++
+		response.WriteHeader(http.StatusNoContent)
+	}), func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last *httptest.ResponseRecorder
+	for attempt := 0; attempt <= deviceStartLimit.Burst; attempt++ {
+		last = httptest.NewRecorder()
+		handler.ServeHTTP(last, httptest.NewRequest(http.MethodPost, "/v1/auth/device/start", nil))
+	}
+	if last.Code != http.StatusTooManyRequests || last.Header().Get("Retry-After") == "" || reached != deviceStartLimit.Burst {
+		t.Fatalf("login start %d = %d with Retry-After %q after %d reached the route", deviceStartLimit.Burst+1, last.Code, last.Header().Get("Retry-After"), reached)
+	}
+	for attempt := 0; attempt < perAddressLimit.Burst+10; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("health check %d = %d, want it never limited", attempt+1, response.Code)
+		}
+	}
+	if _, err := rateLimited(http.NotFoundHandler(), func(string) string { return "many" }); err == nil {
+		t.Fatal("rateLimited() accepted an invalid proxy setting")
 	}
 }
