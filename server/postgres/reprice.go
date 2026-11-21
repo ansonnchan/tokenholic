@@ -117,7 +117,8 @@ func readStaleBuckets(ctx context.Context, tx pgx.Tx, revision string, limit int
 		       input_cache_write_5m_tokens::text, input_cache_write_5m_state,
 		       input_cache_write_1h_tokens::text, input_cache_write_1h_state,
 		       output_tokens::text, output_state,
-		       reasoning_output_tokens::text, reasoning_output_state
+		       reasoning_output_tokens::text, reasoning_output_state,
+		       COALESCE(service_tier, ''), COALESCE(prompt_band, '')
 		FROM usage_buckets
 		WHERE pricing_revision <> $1
 		ORDER BY device_id, bucket_key
@@ -137,6 +138,7 @@ func readStaleBuckets(ctx context.Context, tx pgx.Tx, revision string, limit int
 			&stale.deviceID, &stale.bucketKey, &stale.usage.ObservedModelID, &stale.usage.ModelEvidence,
 			&counts[0], &states[0], &counts[1], &states[1], &counts[2], &states[2], &counts[3], &states[3],
 			&counts[4], &states[4], &counts[5], &states[5], &counts[6], &states[6],
+			&stale.usage.ServiceTier, &stale.usage.PromptBand,
 		); err != nil {
 			return nil, fmt.Errorf("decode usage bucket to reprice: %w", err)
 		}

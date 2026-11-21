@@ -47,7 +47,16 @@
       "cache_read": 200000,
       "cache_write": 10000000,
       "cache_write_1h": 16000000,
-      "output": 40000000
+      "output": 40000000,
+      "tiers": {
+        "fast": {
+          "input": 16000000,
+          "cache_read": 400000,
+          "cache_write": 20000000,
+          "cache_write_1h": 32000000,
+          "output": 80000000
+        }
+      }
     },
     {
       "id": "claude-haiku-4-5",
@@ -70,7 +79,19 @@
     {
       "id": "claude-haiku-5-5",
       "provider": "anthropic",
-      "unpriced_reason": "context_tiered"
+      "input": 100000,
+      "cache_read": 10000,
+      "cache_write": 125000,
+      "cache_write_1h": 200000,
+      "output": 500000,
+      "prompt_threshold": 100000,
+      "long_prompt": {
+        "input": 500000,
+        "cache_read": 50000,
+        "cache_write": 625000,
+        "cache_write_1h": 1000000,
+        "output": 2500000
+      }
     },
     {
       "id": "claude-mythos-5",
@@ -97,7 +118,16 @@
       "cache_read": 200000,
       "cache_write": 10000000,
       "cache_write_1h": 16000000,
-      "output": 40000000
+      "output": 40000000,
+      "tiers": {
+        "fast": {
+          "input": 16000000,
+          "cache_read": 400000,
+          "cache_write": 20000000,
+          "cache_write_1h": 32000000,
+          "output": 80000000
+        }
+      }
     },
     {
       "id": "claude-mythos-preview",
@@ -169,7 +199,16 @@
       "cache_read": 500000,
       "cache_write": 6250000,
       "cache_write_1h": 10000000,
-      "output": 25000000
+      "output": 25000000,
+      "tiers": {
+        "fast": {
+          "input": 10000000,
+          "cache_read": 1000000,
+          "cache_write": 12500000,
+          "cache_write_1h": 20000000,
+          "output": 50000000
+        }
+      }
     },
     {
       "id": "claude-opus-5",
@@ -178,7 +217,16 @@
       "cache_read": 500000,
       "cache_write": 6250000,
       "cache_write_1h": 10000000,
-      "output": 25000000
+      "output": 25000000,
+      "tiers": {
+        "fast": {
+          "input": 10000000,
+          "cache_read": 1000000,
+          "cache_write": 12500000,
+          "cache_write_1h": 20000000,
+          "output": 50000000
+        }
+      }
     },
     {
       "id": "claude-opus-5-5",
@@ -187,7 +235,16 @@
       "cache_read": 200000,
       "cache_write": 5000000,
       "cache_write_1h": 8000000,
-      "output": 20000000
+      "output": 20000000,
+      "tiers": {
+        "fast": {
+          "input": 8000000,
+          "cache_read": 400000,
+          "cache_write": 10000000,
+          "cache_write_1h": 16000000,
+          "output": 40000000
+        }
+      }
     },
     {
       "id": "claude-sonnet-4-5",
@@ -249,12 +306,32 @@
     {
       "id": "daybreak-blue-latest",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 4000000,
+      "cache_read": 400000,
+      "cache_write": 5000000,
+      "output": 20000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 8000000,
+        "cache_read": 800000,
+        "cache_write": 10000000,
+        "output": 30000000
+      }
     },
     {
       "id": "daybreak-red-latest",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 12500000,
+      "cache_read": 1250000,
+      "cache_write": 15625000,
+      "output": 75000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 25000000,
+        "cache_read": 2500000,
+        "cache_write": 31250000,
+        "output": 112500000
+      }
     },
     {
       "id": "ft:gpt-3.5-turbo",
@@ -394,69 +471,138 @@
       "provider": "openai",
       "input": 2000000,
       "cache_read": 500000,
-      "output": 8000000
+      "output": 8000000,
+      "tiers": {
+        "priority": {
+          "input": 3500000,
+          "cache_read": 875000,
+          "output": 14000000
+        }
+      }
     },
     {
       "id": "gpt-4.1-2025-04-14",
       "provider": "openai",
       "input": 2000000,
       "cache_read": 500000,
-      "output": 8000000
+      "output": 8000000,
+      "tiers": {
+        "priority": {
+          "input": 3500000,
+          "cache_read": 875000,
+          "output": 14000000
+        }
+      }
     },
     {
       "id": "gpt-4.1-mini",
       "provider": "openai",
       "input": 400000,
       "cache_read": 100000,
-      "output": 1600000
+      "output": 1600000,
+      "tiers": {
+        "priority": {
+          "input": 700000,
+          "cache_read": 175000,
+          "output": 2800000
+        }
+      }
     },
     {
       "id": "gpt-4.1-mini-2025-04-14",
       "provider": "openai",
       "input": 400000,
       "cache_read": 100000,
-      "output": 1600000
+      "output": 1600000,
+      "tiers": {
+        "priority": {
+          "input": 700000,
+          "cache_read": 175000,
+          "output": 2800000
+        }
+      }
     },
     {
       "id": "gpt-4.1-nano",
       "provider": "openai",
       "input": 100000,
       "cache_read": 25000,
-      "output": 400000
+      "output": 400000,
+      "tiers": {
+        "priority": {
+          "input": 200000,
+          "cache_read": 50000,
+          "output": 800000
+        }
+      }
     },
     {
       "id": "gpt-4.1-nano-2025-04-14",
       "provider": "openai",
       "input": 100000,
       "cache_read": 25000,
-      "output": 400000
+      "output": 400000,
+      "tiers": {
+        "priority": {
+          "input": 200000,
+          "cache_read": 50000,
+          "output": 800000
+        }
+      }
     },
     {
       "id": "gpt-4o",
       "provider": "openai",
       "input": 2500000,
       "cache_read": 1250000,
-      "output": 10000000
+      "output": 10000000,
+      "tiers": {
+        "priority": {
+          "input": 4250000,
+          "cache_read": 2125000,
+          "output": 17000000
+        }
+      }
     },
     {
       "id": "gpt-4o-2024-05-13",
       "provider": "openai",
       "input": 5000000,
-      "output": 15000000
+      "output": 15000000,
+      "tiers": {
+        "priority": {
+          "input": 8750000,
+          "output": 26250000
+        }
+      }
     },
     {
       "id": "gpt-4o-2024-08-06",
       "provider": "openai",
       "input": 2500000,
       "cache_read": 1250000,
-      "output": 10000000
+      "output": 10000000,
+      "tiers": {
+        "priority": {
+          "input": 4250000,
+          "cache_read": 2125000,
+          "output": 17000000
+        }
+      }
     },
     {
       "id": "gpt-4o-2024-11-20",
       "provider": "openai",
       "input": 2500000,
       "cache_read": 1250000,
-      "output": 10000000
+      "output": 10000000,
+      "tiers": {
+        "priority": {
+          "input": 4250000,
+          "cache_read": 2125000,
+          "output": 17000000
+        }
+      }
     },
     {
       "id": "gpt-4o-audio-preview-2024-12-17",
@@ -475,14 +621,28 @@
       "provider": "openai",
       "input": 150000,
       "cache_read": 75000,
-      "output": 600000
+      "output": 600000,
+      "tiers": {
+        "priority": {
+          "input": 250000,
+          "cache_read": 125000,
+          "output": 1000000
+        }
+      }
     },
     {
       "id": "gpt-4o-mini-2024-07-18",
       "provider": "openai",
       "input": 150000,
       "cache_read": 75000,
-      "output": 600000
+      "output": 600000,
+      "tiers": {
+        "priority": {
+          "input": 250000,
+          "cache_read": 125000,
+          "output": 1000000
+        }
+      }
     },
     {
       "id": "gpt-4o-mini-audio-preview-2024-12-17",
@@ -523,14 +683,38 @@
       "provider": "openai",
       "input": 1250000,
       "cache_read": 125000,
-      "output": 10000000
+      "output": 10000000,
+      "tiers": {
+        "flex": {
+          "input": 625000,
+          "cache_read": 62500,
+          "output": 5000000
+        },
+        "priority": {
+          "input": 2500000,
+          "cache_read": 250000,
+          "output": 20000000
+        }
+      }
     },
     {
       "id": "gpt-5-2025-08-07",
       "provider": "openai",
       "input": 1250000,
       "cache_read": 125000,
-      "output": 10000000
+      "output": 10000000,
+      "tiers": {
+        "flex": {
+          "input": 625000,
+          "cache_read": 62500,
+          "output": 5000000
+        },
+        "priority": {
+          "input": 2500000,
+          "cache_read": 250000,
+          "output": 20000000
+        }
+      }
     },
     {
       "id": "gpt-5-chat",
@@ -558,28 +742,66 @@
       "provider": "openai",
       "input": 250000,
       "cache_read": 25000,
-      "output": 2000000
+      "output": 2000000,
+      "tiers": {
+        "flex": {
+          "input": 125000,
+          "cache_read": 12500,
+          "output": 1000000
+        },
+        "priority": {
+          "input": 450000,
+          "cache_read": 45000,
+          "output": 3600000
+        }
+      }
     },
     {
       "id": "gpt-5-mini-2025-08-07",
       "provider": "openai",
       "input": 250000,
       "cache_read": 25000,
-      "output": 2000000
+      "output": 2000000,
+      "tiers": {
+        "flex": {
+          "input": 125000,
+          "cache_read": 12500,
+          "output": 1000000
+        },
+        "priority": {
+          "input": 450000,
+          "cache_read": 45000,
+          "output": 3600000
+        }
+      }
     },
     {
       "id": "gpt-5-nano",
       "provider": "openai",
       "input": 50000,
       "cache_read": 5000,
-      "output": 400000
+      "output": 400000,
+      "tiers": {
+        "flex": {
+          "input": 25000,
+          "cache_read": 2500,
+          "output": 200000
+        }
+      }
     },
     {
       "id": "gpt-5-nano-2025-08-07",
       "provider": "openai",
       "input": 50000,
       "cache_read": 5000,
-      "output": 400000
+      "output": 400000,
+      "tiers": {
+        "flex": {
+          "input": 25000,
+          "cache_read": 2500,
+          "output": 200000
+        }
+      }
     },
     {
       "id": "gpt-5-pro",
@@ -612,14 +834,38 @@
       "provider": "openai",
       "input": 1250000,
       "cache_read": 125000,
-      "output": 10000000
+      "output": 10000000,
+      "tiers": {
+        "flex": {
+          "input": 625000,
+          "cache_read": 62500,
+          "output": 5000000
+        },
+        "priority": {
+          "input": 2500000,
+          "cache_read": 250000,
+          "output": 20000000
+        }
+      }
     },
     {
       "id": "gpt-5.1-2025-11-13",
       "provider": "openai",
       "input": 1250000,
       "cache_read": 125000,
-      "output": 10000000
+      "output": 10000000,
+      "tiers": {
+        "flex": {
+          "input": 625000,
+          "cache_read": 62500,
+          "output": 5000000
+        },
+        "priority": {
+          "input": 2500000,
+          "cache_read": 250000,
+          "output": 20000000
+        }
+      }
     },
     {
       "id": "gpt-5.1-chat-latest",
@@ -654,14 +900,38 @@
       "provider": "openai",
       "input": 1750000,
       "cache_read": 175000,
-      "output": 14000000
+      "output": 14000000,
+      "tiers": {
+        "flex": {
+          "input": 875000,
+          "cache_read": 87500,
+          "output": 7000000
+        },
+        "priority": {
+          "input": 3500000,
+          "cache_read": 350000,
+          "output": 28000000
+        }
+      }
     },
     {
       "id": "gpt-5.2-2025-12-11",
       "provider": "openai",
       "input": 1750000,
       "cache_read": 175000,
-      "output": 14000000
+      "output": 14000000,
+      "tiers": {
+        "flex": {
+          "input": 875000,
+          "cache_read": 87500,
+          "output": 7000000
+        },
+        "priority": {
+          "input": 3500000,
+          "cache_read": 350000,
+          "output": 28000000
+        }
+      }
     },
     {
       "id": "gpt-5.2-chat-latest",
@@ -701,65 +971,242 @@
       "provider": "openai",
       "input": 1750000,
       "cache_read": 175000,
-      "output": 14000000
+      "output": 14000000,
+      "tiers": {
+        "priority": {
+          "input": 3500000,
+          "cache_read": 350000,
+          "output": 28000000
+        }
+      }
     },
     {
       "id": "gpt-5.4",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 2500000,
+      "cache_read": 250000,
+      "output": 15000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 5000000,
+        "cache_read": 500000,
+        "output": 22500000
+      },
+      "tiers": {
+        "flex": {
+          "input": 1250000,
+          "cache_read": 130000,
+          "output": 7500000,
+          "long_prompt": {
+            "input": 2500000,
+            "cache_read": 250000,
+            "output": 11250000
+          }
+        },
+        "priority": {
+          "input": 5000000,
+          "cache_read": 500000,
+          "output": 30000000
+        }
+      }
     },
     {
       "id": "gpt-5.4-2026-03-05",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 2500000,
+      "cache_read": 250000,
+      "output": 15000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 5000000,
+        "cache_read": 500000,
+        "output": 22500000
+      },
+      "tiers": {
+        "flex": {
+          "input": 1250000,
+          "cache_read": 130000,
+          "output": 7500000,
+          "long_prompt": {
+            "input": 2500000,
+            "cache_read": 250000,
+            "output": 11250000
+          }
+        },
+        "priority": {
+          "input": 5000000,
+          "cache_read": 500000,
+          "output": 30000000
+        }
+      }
     },
     {
       "id": "gpt-5.4-mini",
       "provider": "openai",
       "input": 750000,
       "cache_read": 75000,
-      "output": 4500000
+      "output": 4500000,
+      "tiers": {
+        "flex": {
+          "input": 375000,
+          "cache_read": 37500,
+          "output": 2250000
+        },
+        "priority": {
+          "input": 1500000,
+          "cache_read": 150000,
+          "output": 9000000
+        }
+      }
     },
     {
       "id": "gpt-5.4-mini-2026-03-17",
       "provider": "openai",
       "input": 750000,
       "cache_read": 75000,
-      "output": 4500000
+      "output": 4500000,
+      "tiers": {
+        "flex": {
+          "input": 375000,
+          "cache_read": 37500,
+          "output": 2250000
+        },
+        "priority": {
+          "input": 1500000,
+          "cache_read": 150000,
+          "output": 9000000
+        }
+      }
     },
     {
       "id": "gpt-5.4-nano",
       "provider": "openai",
       "input": 200000,
       "cache_read": 20000,
-      "output": 1250000
+      "output": 1250000,
+      "tiers": {
+        "flex": {
+          "input": 100000,
+          "cache_read": 10000,
+          "output": 625000
+        }
+      }
     },
     {
       "id": "gpt-5.4-nano-2026-03-17",
       "provider": "openai",
       "input": 200000,
       "cache_read": 20000,
-      "output": 1250000
+      "output": 1250000,
+      "tiers": {
+        "flex": {
+          "input": 100000,
+          "cache_read": 10000,
+          "output": 625000
+        }
+      }
     },
     {
       "id": "gpt-5.4-pro",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 30000000,
+      "output": 180000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 60000000,
+        "output": 270000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 15000000,
+          "output": 90000000,
+          "long_prompt": {
+            "input": 30000000,
+            "output": 135000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-5.4-pro-2026-03-05",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 30000000,
+      "output": 180000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 60000000,
+        "output": 270000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 15000000,
+          "output": 90000000,
+          "long_prompt": {
+            "input": 30000000,
+            "output": 135000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-5.5",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 5000000,
+      "cache_read": 500000,
+      "output": 30000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 10000000,
+        "cache_read": 1000000,
+        "output": 45000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 2500000,
+          "cache_read": 250000,
+          "output": 15000000,
+          "long_prompt": {
+            "input": 5000000,
+            "cache_read": 500000,
+            "output": 22500000
+          }
+        },
+        "priority": {
+          "input": 12500000,
+          "cache_read": 1250000,
+          "output": 75000000
+        }
+      }
     },
     {
       "id": "gpt-5.5-2026-04-23",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 5000000,
+      "cache_read": 500000,
+      "output": 30000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 10000000,
+        "cache_read": 1000000,
+        "output": 45000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 2500000,
+          "cache_read": 250000,
+          "output": 15000000,
+          "long_prompt": {
+            "input": 5000000,
+            "cache_read": 500000,
+            "output": 22500000
+          }
+        },
+        "priority": {
+          "input": 12500000,
+          "cache_read": 1250000,
+          "output": 75000000
+        }
+      }
     },
     {
       "id": "gpt-5.5-cyber",
@@ -778,92 +1225,535 @@
     {
       "id": "gpt-5.5-pro",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 30000000,
+      "output": 180000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 60000000,
+        "output": 270000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 15000000,
+          "output": 90000000
+        }
+      }
     },
     {
       "id": "gpt-5.5-pro-2026-04-23",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 30000000,
+      "output": 180000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 60000000,
+        "output": 270000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 15000000,
+          "output": 90000000
+        }
+      }
     },
     {
       "id": "gpt-5.6",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 4000000,
+      "cache_read": 400000,
+      "cache_write": 5000000,
+      "output": 20000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 8000000,
+        "cache_read": 800000,
+        "cache_write": 10000000,
+        "output": 30000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 2000000,
+          "cache_read": 200000,
+          "cache_write": 2500000,
+          "output": 10000000,
+          "long_prompt": {
+            "input": 4000000,
+            "cache_read": 400000,
+            "cache_write": 5000000,
+            "output": 15000000
+          }
+        },
+        "priority": {
+          "input": 8000000,
+          "cache_read": 800000,
+          "cache_write": 10000000,
+          "output": 40000000,
+          "long_prompt": {
+            "input": 16000000,
+            "cache_read": 1600000,
+            "cache_write": 20000000,
+            "output": 60000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-5.6-cyber",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 12500000,
+      "cache_read": 1250000,
+      "cache_write": 15625000,
+      "output": 75000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 25000000,
+        "cache_read": 2500000,
+        "cache_write": 31250000,
+        "output": 112500000
+      }
     },
     {
       "id": "gpt-5.6-luna",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 200000,
+      "cache_read": 20000,
+      "cache_write": 250000,
+      "output": 1200000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 400000,
+        "cache_read": 40000,
+        "cache_write": 500000,
+        "output": 1800000
+      },
+      "tiers": {
+        "flex": {
+          "input": 100000,
+          "cache_read": 10000,
+          "cache_write": 125000,
+          "output": 600000,
+          "long_prompt": {
+            "input": 200000,
+            "cache_read": 20000,
+            "cache_write": 250000,
+            "output": 900000
+          }
+        },
+        "priority": {
+          "input": 400000,
+          "cache_read": 40000,
+          "cache_write": 500000,
+          "output": 2400000,
+          "long_prompt": {
+            "input": 800000,
+            "cache_read": 80000,
+            "cache_write": 1000000,
+            "output": 3600000
+          }
+        }
+      }
     },
     {
       "id": "gpt-5.6-sol",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 4000000,
+      "cache_read": 400000,
+      "cache_write": 5000000,
+      "output": 20000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 8000000,
+        "cache_read": 800000,
+        "cache_write": 10000000,
+        "output": 30000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 2000000,
+          "cache_read": 200000,
+          "cache_write": 2500000,
+          "output": 10000000,
+          "long_prompt": {
+            "input": 4000000,
+            "cache_read": 400000,
+            "cache_write": 5000000,
+            "output": 15000000
+          }
+        },
+        "priority": {
+          "input": 8000000,
+          "cache_read": 800000,
+          "cache_write": 10000000,
+          "output": 40000000,
+          "long_prompt": {
+            "input": 16000000,
+            "cache_read": 1600000,
+            "cache_write": 20000000,
+            "output": 60000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-5.6-terra",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 2000000,
+      "cache_read": 200000,
+      "cache_write": 2500000,
+      "output": 12000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 400000,
+        "cache_write": 5000000,
+        "output": 18000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 100000,
+          "cache_write": 1250000,
+          "output": 6000000,
+          "long_prompt": {
+            "input": 2000000,
+            "cache_read": 200000,
+            "cache_write": 2500000,
+            "output": 9000000
+          }
+        },
+        "priority": {
+          "input": 4000000,
+          "cache_read": 400000,
+          "cache_write": 5000000,
+          "output": 24000000,
+          "long_prompt": {
+            "input": 8000000,
+            "cache_read": 800000,
+            "cache_write": 10000000,
+            "output": 36000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-6-astra",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 10000000,
+      "cache_read": 1000000,
+      "cache_write": 12500000,
+      "output": 50000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 20000000,
+        "cache_read": 2000000,
+        "cache_write": 25000000,
+        "output": 75000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 5000000,
+          "cache_read": 500000,
+          "cache_write": 6250000,
+          "output": 25000000,
+          "long_prompt": {
+            "input": 10000000,
+            "cache_read": 1000000,
+            "cache_write": 12500000,
+            "output": 37500000
+          }
+        },
+        "priority": {
+          "input": 20000000,
+          "cache_read": 2000000,
+          "cache_write": 25000000,
+          "output": 100000000,
+          "long_prompt": {
+            "input": 40000000,
+            "cache_read": 4000000,
+            "cache_write": 50000000,
+            "output": 150000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-6-astra-law",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 10000000,
+      "cache_read": 1000000,
+      "output": 50000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 20000000,
+        "cache_read": 2000000,
+        "output": 75000000
+      }
     },
     {
       "id": "gpt-6-cyber",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 20000000,
+      "cache_read": 2000000,
+      "cache_write": 25000000,
+      "output": 100000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 40000000,
+        "cache_read": 4000000,
+        "output": 150000000
+      }
     },
     {
       "id": "gpt-6-luna",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 100000,
+      "cache_read": 10000,
+      "cache_write": 125000,
+      "output": 500000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 200000,
+        "cache_read": 20000,
+        "cache_write": 250000,
+        "output": 750000
+      },
+      "tiers": {
+        "flex": {
+          "input": 50000,
+          "cache_read": 5000,
+          "cache_write": 62500,
+          "output": 250000,
+          "long_prompt": {
+            "input": 100000,
+            "cache_read": 10000,
+            "cache_write": 125000,
+            "output": 375000
+          }
+        },
+        "priority": {
+          "input": 200000,
+          "cache_read": 20000,
+          "cache_write": 250000,
+          "output": 1000000,
+          "long_prompt": {
+            "input": 400000,
+            "cache_read": 40000,
+            "cache_write": 500000,
+            "output": 1500000
+          }
+        }
+      }
     },
     {
       "id": "gpt-6-rosalind",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 10000000,
+      "cache_read": 1000000,
+      "cache_write": 12500000,
+      "output": 50000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 20000000,
+        "cache_read": 2000000,
+        "cache_write": 25000000,
+        "output": 75000000
+      }
     },
     {
       "id": "gpt-6-sol",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 2000000,
+      "cache_read": 200000,
+      "cache_write": 2500000,
+      "output": 10000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 400000,
+        "cache_write": 5000000,
+        "output": 15000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 100000,
+          "cache_write": 1250000,
+          "output": 5000000,
+          "long_prompt": {
+            "input": 2000000,
+            "cache_read": 200000,
+            "cache_write": 2500000,
+            "output": 7500000
+          }
+        },
+        "priority": {
+          "input": 4000000,
+          "cache_read": 400000,
+          "cache_write": 5000000,
+          "output": 20000000,
+          "long_prompt": {
+            "input": 8000000,
+            "cache_read": 800000,
+            "cache_write": 10000000,
+            "output": 30000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-6.1-sol",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 2000000,
+      "cache_read": 100000,
+      "cache_write": 2500000,
+      "output": 10000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 200000,
+        "cache_write": 5000000,
+        "output": 15000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 50000,
+          "cache_write": 1250000,
+          "output": 5000000,
+          "long_prompt": {
+            "input": 2000000,
+            "cache_read": 100000,
+            "cache_write": 2500000,
+            "output": 7500000
+          }
+        },
+        "priority": {
+          "input": 4000000,
+          "cache_read": 200000,
+          "cache_write": 5000000,
+          "output": 20000000,
+          "long_prompt": {
+            "input": 8000000,
+            "cache_read": 400000,
+            "cache_write": 10000000,
+            "output": 30000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-6.1-terra",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 1000000,
+      "cache_read": 50000,
+      "cache_write": 1250000,
+      "output": 5000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 2000000,
+        "cache_read": 100000,
+        "cache_write": 2500000,
+        "output": 7500000
+      },
+      "tiers": {
+        "flex": {
+          "input": 500000,
+          "cache_read": 25000,
+          "cache_write": 625000,
+          "output": 2500000,
+          "long_prompt": {
+            "input": 1000000,
+            "cache_read": 50000,
+            "cache_write": 1250000,
+            "output": 3750000
+          }
+        },
+        "priority": {
+          "input": 2000000,
+          "cache_read": 100000,
+          "cache_write": 2500000,
+          "output": 10000000,
+          "long_prompt": {
+            "input": 4000000,
+            "cache_read": 200000,
+            "cache_write": 5000000,
+            "output": 15000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-6.2-astra",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 8000000,
+      "cache_read": 400000,
+      "cache_write": 10000000,
+      "output": 40000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 16000000,
+        "cache_read": 800000,
+        "cache_write": 20000000,
+        "output": 60000000
+      },
+      "tiers": {
+        "priority": {
+          "input": 16000000,
+          "cache_read": 800000,
+          "cache_write": 20000000,
+          "output": 80000000,
+          "long_prompt": {
+            "input": 32000000,
+            "cache_read": 1600000,
+            "cache_write": 40000000,
+            "output": 120000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-6.2-astra-law",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 8000000,
+      "cache_read": 400000,
+      "cache_write": 10000000,
+      "output": 40000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 16000000,
+        "cache_read": 800000,
+        "cache_write": 20000000,
+        "output": 60000000
+      }
     },
     {
       "id": "gpt-6.2-sol",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 2000000,
+      "cache_read": 100000,
+      "cache_write": 2500000,
+      "output": 10000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 200000,
+        "cache_write": 5000000,
+        "output": 15000000
+      },
+      "tiers": {
+        "priority": {
+          "input": 4000000,
+          "cache_read": 200000,
+          "cache_write": 5000000,
+          "output": 20000000,
+          "long_prompt": {
+            "input": 8000000,
+            "cache_read": 400000,
+            "cache_write": 10000000,
+            "output": 30000000
+          }
+        }
+      }
     },
     {
       "id": "gpt-audio",
@@ -904,12 +1794,32 @@
     {
       "id": "gpt-daybreak-blue-latest",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 4000000,
+      "cache_read": 400000,
+      "cache_write": 5000000,
+      "output": 20000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 8000000,
+        "cache_read": 800000,
+        "cache_write": 10000000,
+        "output": 30000000
+      }
     },
     {
       "id": "gpt-daybreak-red-latest",
       "provider": "openai",
-      "unpriced_reason": "context_tiered"
+      "input": 12500000,
+      "cache_read": 1250000,
+      "cache_write": 15625000,
+      "output": 75000000,
+      "prompt_threshold": 272000,
+      "long_prompt": {
+        "input": 25000000,
+        "cache_read": 2500000,
+        "cache_write": 31250000,
+        "output": 112500000
+      }
     },
     {
       "id": "gpt-rosalind-discovery",
@@ -956,14 +1866,38 @@
       "provider": "openai",
       "input": 2000000,
       "cache_read": 500000,
-      "output": 8000000
+      "output": 8000000,
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 250000,
+          "output": 4000000
+        },
+        "priority": {
+          "input": 3500000,
+          "cache_read": 875000,
+          "output": 14000000
+        }
+      }
     },
     {
       "id": "o3-2025-04-16",
       "provider": "openai",
       "input": 2000000,
       "cache_read": 500000,
-      "output": 8000000
+      "output": 8000000,
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 250000,
+          "output": 4000000
+        },
+        "priority": {
+          "input": 3500000,
+          "cache_read": 875000,
+          "output": 14000000
+        }
+      }
     },
     {
       "id": "o3-deep-research",
@@ -1010,14 +1944,38 @@
       "provider": "openai",
       "input": 1100000,
       "cache_read": 275000,
-      "output": 4400000
+      "output": 4400000,
+      "tiers": {
+        "flex": {
+          "input": 550000,
+          "cache_read": 138000,
+          "output": 2200000
+        },
+        "priority": {
+          "input": 2000000,
+          "cache_read": 500000,
+          "output": 8000000
+        }
+      }
     },
     {
       "id": "o4-mini-2025-04-16",
       "provider": "openai",
       "input": 1100000,
       "cache_read": 275000,
-      "output": 4400000
+      "output": 4400000,
+      "tiers": {
+        "flex": {
+          "input": 550000,
+          "cache_read": 138000,
+          "output": 2200000
+        },
+        "priority": {
+          "input": 2000000,
+          "cache_read": 500000,
+          "output": 8000000
+        }
+      }
     },
     {
       "id": "o4-mini-deep-research",

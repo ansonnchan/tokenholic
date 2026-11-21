@@ -70,6 +70,7 @@ func (s *Service) Apply(ctx context.Context, credential string, batch protocol.B
 	for index, envelope := range batch.Buckets {
 		derived, err := s.pricer.Derive(pricing.Usage{
 			ObservedModelID: envelope.Bucket.ObservedModelID, ModelEvidence: envelope.Bucket.ModelEvidence,
+			ServiceTier: envelope.Bucket.ServiceTier, PromptBand: envelope.Bucket.PromptBand,
 			Tokens: envelope.Bucket.Tokens,
 		})
 		if err != nil {

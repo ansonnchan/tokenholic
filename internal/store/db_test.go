@@ -18,8 +18,8 @@ func TestOpenCreatesConfiguredPrivateDatabase(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close(context.Background()) })
 
-	if version, err := db.SchemaVersion(t.Context()); err != nil || version != 6 {
-		t.Fatalf("SchemaVersion() = %d, %v; want 6, nil", version, err)
+	if version, err := db.SchemaVersion(t.Context()); err != nil || version != 7 {
+		t.Fatalf("SchemaVersion() = %d, %v; want 7, nil", version, err)
 	}
 	assertPragma(t, db, "journal_mode", "wal")
 	assertPragma(t, db, "foreign_keys", "1")

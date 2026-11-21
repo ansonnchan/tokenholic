@@ -1,6 +1,8 @@
 // Command pricegen vendors the pinned LiteLLM price file into the model
 // catalog. It downloads the exact commit named by the lock file, refuses any
-// content whose SHA-256 differs, and writes only first-party token prices.
+// content whose SHA-256 differs, and writes only first-party token prices:
+// the standard rates plus the rate cards the upstream file publishes for
+// other service tiers and for prompts above a length threshold.
 //
 // Run it through `make prices` after changing the lock file. The output is
 // deterministic, so an unchanged pin regenerates a byte-identical file.
@@ -22,10 +24,12 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ansonnchan/tokenholic/internal/modelcatalog"
+	"github.com/ansonnchan/tokenholic/internal/normalize"
 )
 
 const (
@@ -33,9 +37,41 @@ const (
 	downloadTimeout  = 2 * time.Minute
 )
 
-// contextTier matches upstream fields that reprice a request above a prompt
-// length, such as input_cost_per_token_above_272k_tokens.
-var contextTier = regexp.MustCompile(`_above_[0-9]+k_tokens`)
+// priceField matches an upstream per-token price field:
+//
+//	<category>[_above_1hr|_above_12hr][_above_<N>k_tokens][_<tier>]
+//
+// The optional parts are a cache-write lifetime, the prompt length above which
+// the price applies, and a service tier.
+var priceField = regexp.MustCompile(`^(` + strings.Join(priceCategories, "|") + `)(_above_1hr|_above_12hr)?(?:_above_([0-9]+)k_tokens)?(?:_([a-z]+))?$`)
+
+// priceCategories are the upstream names of the four per-token prices. Every
+// field that starts with one must match priceField, so a new upstream shape
+// stops generation instead of being dropped unseen.
+var priceCategories = []string{
+	"input_cost_per_token", "output_cost_per_token",
+	"cache_read_input_token_cost", "cache_creation_input_token_cost",
+}
+
+// vendoredTiers maps an upstream tier suffix to the service tier whose rate
+// card it fills. The empty suffix is the standard tier.
+var vendoredTiers = map[string]normalize.ServiceTier{
+	"":         normalize.ServiceTierStandard,
+	"priority": normalize.ServiceTierPriority,
+	"flex":     normalize.ServiceTierFlex,
+}
+
+// skippedTiers are upstream tiers deliberately not vendored: no supported
+// coding agent runs through them, so their cards could never be selected.
+// Usage that does prove one of them stays unpriced with a reason.
+var skippedTiers = map[string]bool{"batches": true, "ultrafast": true, "decisions": true}
+
+// fastModeProviders lists the providers whose provider_specific_entry.fast is
+// reviewed as a multiplier on every standard rate. For Anthropic that is the
+// published fast-mode price: a multiple of the standard rates, with the
+// prompt-caching multipliers applied on top, across the whole context window
+// (https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-21).
+var fastModeProviders = map[string]bool{"anthropic": true}
 
 // microUSDPerMillion converts USD per token to micro-USD per million tokens.
 var microUSDPerMillion = new(big.Rat).SetInt(big.NewInt(1_000_000_000_000))
@@ -167,34 +203,148 @@ func convert(pin modelcatalog.SnapshotPin, identifier string, raw json.RawMessag
 		return modelcatalog.SnapshotModel{}, false, nil
 	}
 	model := modelcatalog.SnapshotModel{ID: identifier, Provider: provider}
+	// Fields are visited in name order so an error names the same field on
+	// every run.
+	names := make([]string, 0, len(fields))
 	for field := range fields {
-		if contextTier.MatchString(field) {
-			model.UnpricedReason = modelcatalog.ReasonContextTiered
-			return model, true, nil
-		}
+		names = append(names, field)
 	}
-	targets := []struct {
-		field  string
-		target **uint64
-	}{
-		{"input_cost_per_token", &model.Input},
-		{"cache_read_input_token_cost", &model.CacheRead},
-		{"cache_creation_input_token_cost", &model.CacheWrite},
-		{"cache_creation_input_token_cost_above_1hr", &model.CacheWrite1h},
-		{"output_cost_per_token", &model.Output},
+	sort.Strings(names)
+	type cardKey struct {
+		tier normalize.ServiceTier
+		long bool
 	}
-	for _, pair := range targets {
-		value, found := fields[pair.field]
-		if !found {
+	cards := make(map[cardKey]*modelcatalog.SnapshotRates)
+	for _, field := range names {
+		if !slices.ContainsFunc(priceCategories, func(category string) bool { return strings.HasPrefix(field, category) }) {
 			continue
 		}
-		rate, err := rateFromCostPerToken(value)
-		if err != nil {
-			return modelcatalog.SnapshotModel{}, false, fmt.Errorf("%s: %w", pair.field, err)
+		parts := priceField.FindStringSubmatch(field)
+		if parts == nil {
+			return modelcatalog.SnapshotModel{}, false, fmt.Errorf("%s: unrecognized price field", field)
 		}
-		*pair.target = &rate
+		category, lifetime, thresholdText, suffix := parts[1], parts[2], parts[3], parts[4]
+		if skippedTiers[suffix] {
+			continue
+		}
+		tier, vendored := vendoredTiers[suffix]
+		if !vendored {
+			return modelcatalog.SnapshotModel{}, false, fmt.Errorf("%s: unreviewed service tier %q", field, suffix)
+		}
+		var target func(*modelcatalog.SnapshotRates) **uint64
+		switch {
+		case lifetime == "_above_12hr" && category == "cache_creation_input_token_cost":
+			// No token category carries a 12-hour cache lifetime, so this
+			// rate could never be applied.
+			continue
+		case lifetime == "_above_1hr" && category == "cache_creation_input_token_cost":
+			target = func(rates *modelcatalog.SnapshotRates) **uint64 { return &rates.CacheWrite1h }
+		case lifetime != "":
+			return modelcatalog.SnapshotModel{}, false, fmt.Errorf("%s: a cache lifetime on a price that is not a cache write", field)
+		case category == "input_cost_per_token":
+			target = func(rates *modelcatalog.SnapshotRates) **uint64 { return &rates.Input }
+		case category == "output_cost_per_token":
+			target = func(rates *modelcatalog.SnapshotRates) **uint64 { return &rates.Output }
+		case category == "cache_read_input_token_cost":
+			target = func(rates *modelcatalog.SnapshotRates) **uint64 { return &rates.CacheRead }
+		default:
+			target = func(rates *modelcatalog.SnapshotRates) **uint64 { return &rates.CacheWrite }
+		}
+		long := thresholdText != ""
+		if long {
+			thousands, err := strconv.ParseUint(thresholdText, 10, 32)
+			if err != nil || thousands == 0 {
+				return modelcatalog.SnapshotModel{}, false, fmt.Errorf("%s: invalid prompt threshold", field)
+			}
+			threshold := thousands * 1000
+			if model.PromptThreshold != nil && *model.PromptThreshold != threshold {
+				return modelcatalog.SnapshotModel{}, false, fmt.Errorf("%s: a second prompt threshold; one model, one threshold is supported", field)
+			}
+			model.PromptThreshold = &threshold
+		}
+		rate, err := rateFromCostPerToken(fields[field])
+		if err != nil {
+			return modelcatalog.SnapshotModel{}, false, fmt.Errorf("%s: %w", field, err)
+		}
+		key := cardKey{tier: tier, long: long}
+		if cards[key] == nil {
+			cards[key] = &modelcatalog.SnapshotRates{}
+		}
+		*target(cards[key]) = &rate
+	}
+	if standard := cards[cardKey{tier: normalize.ServiceTierStandard}]; standard != nil {
+		model.SnapshotRates = *standard
+	}
+	model.LongPrompt = cards[cardKey{tier: normalize.ServiceTierStandard, long: true}]
+	for key, rates := range cards {
+		if key.tier == normalize.ServiceTierStandard {
+			continue
+		}
+		if model.Tiers == nil {
+			model.Tiers = make(map[string]modelcatalog.SnapshotTier)
+		}
+		tier := model.Tiers[string(key.tier)]
+		if key.long {
+			tier.LongPrompt = rates
+		} else {
+			tier.SnapshotRates = *rates
+		}
+		model.Tiers[string(key.tier)] = tier
+	}
+	if fastModeProviders[provider] {
+		if err := addFastMode(&model, fields["provider_specific_entry"]); err != nil {
+			return modelcatalog.SnapshotModel{}, false, err
+		}
 	}
 	return model, true, nil
+}
+
+// addFastMode vendors the fast-mode card from the multiplier the upstream
+// entry publishes. Every standard rate is multiplied exactly; a product that
+// is not a whole rate fails generation. A model that also has a prompt
+// threshold is refused, because the multiplier does not say which side it
+// applies to.
+func addFastMode(model *modelcatalog.SnapshotModel, raw json.RawMessage) error {
+	var entry map[string]json.Number
+	if len(raw) == 0 {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&entry); err != nil {
+		return fmt.Errorf("provider_specific_entry: %w", err)
+	}
+	text, found := entry["fast"]
+	if !found {
+		return nil
+	}
+	multiplier, ok := new(big.Rat).SetString(text.String())
+	if !ok || multiplier.Sign() <= 0 {
+		return fmt.Errorf("provider_specific_entry.fast: %q is not a positive multiplier", text)
+	}
+	if model.PromptThreshold != nil {
+		return errors.New("provider_specific_entry.fast: a fast-mode multiplier beside a prompt threshold is not reviewed")
+	}
+	fast := modelcatalog.SnapshotTier{}
+	for _, pair := range []struct{ from, to **uint64 }{
+		{&model.Input, &fast.Input}, {&model.CacheRead, &fast.CacheRead}, {&model.CacheWrite, &fast.CacheWrite},
+		{&model.CacheWrite1h, &fast.CacheWrite1h}, {&model.Output, &fast.Output},
+	} {
+		if *pair.from == nil {
+			continue
+		}
+		product := new(big.Rat).Mul(new(big.Rat).SetUint64(**pair.from), multiplier)
+		if !product.IsInt() || !product.Num().IsUint64() {
+			return fmt.Errorf("provider_specific_entry.fast: %s times a standard rate is not a whole rate", text)
+		}
+		rate := product.Num().Uint64()
+		*pair.to = &rate
+	}
+	if model.Tiers == nil {
+		model.Tiers = make(map[string]modelcatalog.SnapshotTier)
+	}
+	model.Tiers[string(normalize.ServiceTierFast)] = fast
+	return nil
 }
 
 // rateFromCostPerToken converts the upstream decimal exactly. A price that is

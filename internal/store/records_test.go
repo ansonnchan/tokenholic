@@ -270,6 +270,44 @@ func TestCommitObservationsReplacesUsageOnlyForANewAdapterRevision(t *testing.T)
 	}
 }
 
+// Pricing evidence is stored as NULL until a source proves it, and a newer
+// adapter revision adds it to a record stored without it.
+func TestObservationPricingEvidenceRoundTripsAndFollowsTheAdapterRevision(t *testing.T) {
+	t.Parallel()
+	db := openStoreForTest(t)
+	if _, err := db.CommitObservations(t.Context(), sampleBatch()); err != nil {
+		t.Fatal(err)
+	}
+	if stored := onlyObservation(t, db); stored.ServiceTier != normalize.ServiceTierUnknown || stored.PromptTokens != nil {
+		t.Fatalf("evidence before any was reported = %q/%v, want none", stored.ServiceTier, stored.PromptTokens)
+	}
+	var tier, prompt *string
+	if err := db.sql.QueryRowContext(t.Context(), `SELECT service_tier, prompt_tokens FROM observations`).Scan(&tier, &prompt); err != nil || tier != nil || prompt != nil {
+		t.Fatalf("stored evidence = %v/%v, %v; want NULL, never a default tier", tier, prompt, err)
+	}
+
+	size := uint64(280_000)
+	sameRevision := sampleBatch()
+	sameRevision.Observations[0].ServiceTier, sameRevision.Observations[0].PromptTokens = normalize.ServiceTierPriority, &size
+	if result, err := db.CommitObservations(t.Context(), sameRevision); err != nil || result.InsertedObservations != 0 {
+		t.Fatalf("rescan by the same adapter revision = %#v, %v; want a no-op", result, err)
+	}
+	if stored := onlyObservation(t, db); stored.ServiceTier != normalize.ServiceTierUnknown || stored.PromptTokens != nil {
+		t.Fatalf("evidence after a same-revision rescan = %q/%v, want none", stored.ServiceTier, stored.PromptTokens)
+	}
+
+	upgraded := sampleBatch()
+	upgraded.Observations[0].AdapterVersion = "adapter-v2"
+	upgraded.Observations[0].ServiceTier, upgraded.Observations[0].PromptTokens = normalize.ServiceTierPriority, &size
+	if result, err := db.CommitObservations(t.Context(), upgraded); err != nil || result.InsertedObservations != 1 {
+		t.Fatalf("rescan by a newer adapter revision = %#v, %v; want one replacement", result, err)
+	}
+	stored := onlyObservation(t, db)
+	if stored.ServiceTier != normalize.ServiceTierPriority || stored.PromptTokens == nil || *stored.PromptTokens != size {
+		t.Fatalf("evidence after the upgrade = %q/%v, want priority/%d", stored.ServiceTier, stored.PromptTokens, size)
+	}
+}
+
 func onlyObservation(t *testing.T, db *DB) StoredObservation {
 	t.Helper()
 	observations, err := db.Observations(t.Context())

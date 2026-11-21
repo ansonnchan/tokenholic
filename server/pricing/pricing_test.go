@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ansonnchan/tokenholic/internal/modelcatalog"
+	"github.com/ansonnchan/tokenholic/internal/normalize"
 	protocol "github.com/ansonnchan/tokenholic/internal/sync"
 )
 
@@ -27,6 +28,10 @@ func TestDeriveOwnsModelAndEstimateColumns(t *testing.T) {
 			mutate(&tokens)
 		}
 		return Usage{ObservedModelID: model, ModelEvidence: evidence, Tokens: tokens}
+	}
+	evidence := func(usage Usage, tier, band string) Usage {
+		usage.ServiceTier, usage.PromptBand = tier, band
+		return usage
 	}
 	text := func(v string) *string { return &v }
 	value := func(v uint64) *uint64 { return &v }
@@ -81,10 +86,35 @@ func TestDeriveOwnsModelAndEstimateColumns(t *testing.T) {
 			},
 		},
 		{
-			name: "prompt-length tiers stay unpriced", usage: usage("model-tiered", "reported", nil),
+			// Twice model-a's rates: 2 * 32250.
+			name: "proven service tier selects its rate card", usage: evidence(usage("model-tiered", "reported", nil), "priority", "le_272k"),
+			want: Derived{
+				CanonicalModelID: text("model-tiered"), ModelProvider: text("provider"), PricingKey: text("provider/model-tiered:priority"),
+				ModelResolution: "reported", ModelMatch: "exact", EstimateMicroUSD: value(64_500), EstimateState: "complete",
+				PricedTokens: 24_500, PricingRevision: "synthetic-r1",
+			},
+		},
+		{
+			name: "unproven service tier is priced as standard", usage: evidence(usage("model-tiered", "reported", nil), "", "le_100k"),
+			want: Derived{
+				CanonicalModelID: text("model-tiered"), ModelProvider: text("provider"), PricingKey: text("provider/model-tiered"),
+				ModelResolution: "reported", ModelMatch: "exact", EstimateMicroUSD: value(32_250), EstimateState: "complete",
+				PricedTokens: 24_500, PricingRevision: "synthetic-r1",
+			},
+		},
+		{
+			name: "unproven prompt length stays unpriced", usage: evidence(usage("model-tiered", "reported", nil), "priority", ""),
 			want: Derived{
 				CanonicalModelID: text("model-tiered"), ModelProvider: text("provider"),
-				ModelResolution: "reported", ModelMatch: "exact", UnpricedReason: text(modelcatalog.ReasonContextTiered),
+				ModelResolution: "reported", ModelMatch: "exact", UnpricedReason: text(modelcatalog.ReasonPromptLengthUnproven),
+				EstimateState: "unavailable", UnpricedTokens: 24_500, PricingRevision: "synthetic-r1",
+			},
+		},
+		{
+			name: "proven tier without a vendored rate stays unpriced", usage: evidence(usage("model-tiered", "reported", nil), "flex", "le_100k"),
+			want: Derived{
+				CanonicalModelID: text("model-tiered"), ModelProvider: text("provider"),
+				ModelResolution: "reported", ModelMatch: "exact", UnpricedReason: text(modelcatalog.ReasonTierRateUnavailable),
 				EstimateState: "unavailable", UnpricedTokens: 24_500, PricingRevision: "synthetic-r1",
 			},
 		},
@@ -127,17 +157,29 @@ func TestDeriveReportsOverflowInsteadOfWrapping(t *testing.T) {
 	}
 }
 
+// syntheticEngine prices model-a on one card. model-tiered charges the same
+// rates up to 272K prompt tokens, twice as much on its priority tier, and has
+// a long-prompt standard card; it publishes no flex rate.
 func syntheticEngine(t *testing.T, revision string) *Engine {
 	t.Helper()
 	rate := func(v uint64) *uint64 { return &v }
-	registry, err := modelcatalog.NewPricingRegistry(revision, []modelcatalog.Price{{
-		Key: "provider/model-a", Provider: "provider",
-		Rate: modelcatalog.Rate{
-			InputUncached: rate(3_000_000), InputCacheRead: rate(300_000), InputCacheWrite: rate(3_750_000),
-			InputCacheWrite1h: rate(6_000_000), Output: rate(15_000_000),
-		},
-		SourceURL: "https://provider.invalid/pricing", SourceRevision: "synthetic", EffectiveDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-	}})
+	card := func(key, model string, tier normalize.ServiceTier, long bool, threshold, factor uint64) modelcatalog.Price {
+		return modelcatalog.Price{
+			Key: key, Provider: "provider", Model: model, ServiceTier: tier, LongPrompt: long, PromptThreshold: threshold,
+			Rate: modelcatalog.Rate{
+				InputUncached: rate(factor * 3_000_000), InputCacheRead: rate(factor * 300_000), InputCacheWrite: rate(factor * 3_750_000),
+				InputCacheWrite1h: rate(factor * 6_000_000), Output: rate(factor * 15_000_000),
+			},
+			SourceURL: "https://provider.invalid/pricing", SourceRevision: "synthetic", EffectiveDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		}
+	}
+	const tiered = "provider/model-tiered"
+	registry, err := modelcatalog.NewPricingRegistry(revision, []modelcatalog.Price{
+		card("provider/model-a", "", "", false, 0, 1),
+		card(tiered, tiered, normalize.ServiceTierStandard, false, 272_000, 1),
+		card(tiered+":above-272k", tiered, normalize.ServiceTierStandard, true, 272_000, 3),
+		card(tiered+":priority", tiered, normalize.ServiceTierPriority, false, 272_000, 2),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +188,7 @@ func syntheticEngine(t *testing.T, revision string) *Engine {
 		AliasRules: modelcatalog.AliasRules{ContextMarkers: []string{"[1m]"}},
 		Models: []modelcatalog.Model{
 			{CanonicalID: "model-a", Provider: "provider", PricingKey: "provider/model-a"},
-			{CanonicalID: "model-tiered", Provider: "provider", UnpricedReason: modelcatalog.ReasonContextTiered},
+			{CanonicalID: "model-tiered", Provider: "provider", PricingKey: tiered},
 		},
 	}, registry)
 	if err != nil {

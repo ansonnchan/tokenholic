@@ -209,3 +209,50 @@ func hasWarning(warnings []normalize.Warning, code string) bool {
 	}
 	return false
 }
+
+func TestParseReadsServiceTierAndPromptSize(t *testing.T) {
+	t.Parallel()
+
+	file, err := os.Open(filepath.Join("..", "..", "..", "fixtures", "claude-code", "service-tiers.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	result, err := Parse(file, normalize.SurfaceCLI, "synthetic-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := func(v uint64) *uint64 { return &v }
+	// Each prompt is input + cache read + cache write: 10 + 20 + 30.
+	want := []struct {
+		reason string
+		tier   normalize.ServiceTier
+		prompt *uint64
+	}{
+		{"standard tier at standard speed", normalize.ServiceTierStandard, prompt(60)},
+		{"a record without speed is taken at its tier", normalize.ServiceTierStandard, prompt(60)},
+		{"fast mode on the standard tier", normalize.ServiceTierFast, prompt(60)},
+		{"priority", normalize.ServiceTierPriority, prompt(60)},
+		{"batch", normalize.ServiceTierBatch, prompt(60)},
+		{"neither field", normalize.ServiceTierUnknown, prompt(60)},
+		{"an unrecognized speed proves nothing", normalize.ServiceTierUnknown, prompt(60)},
+		{"an unrecognized tier proves nothing", normalize.ServiceTierUnknown, prompt(60)},
+		{"cached input counts toward the prompt", normalize.ServiceTierStandard, prompt(100_001)},
+		{"a missing cache counter leaves the prompt size unknown", normalize.ServiceTierStandard, nil},
+	}
+	if len(result.Observations) != len(want) || len(result.Warnings) != 0 {
+		t.Fatalf("Parse() records/warnings = %d/%d, want %d/0", len(result.Observations), len(result.Warnings), len(want))
+	}
+	for index, observation := range result.Observations {
+		if observation.ServiceTier != want[index].tier {
+			t.Errorf("record %d (%s): tier = %q, want %q", index, want[index].reason, observation.ServiceTier, want[index].tier)
+		}
+		got, expected := observation.PromptTokens, want[index].prompt
+		if (got == nil) != (expected == nil) || got != nil && *got != *expected {
+			t.Errorf("record %d (%s): prompt = %v, want %v", index, want[index].reason, got, expected)
+		}
+	}
+	if band := normalize.PromptBandFor(*result.Observations[8].PromptTokens); band != normalize.PromptBandUpTo200K {
+		t.Fatalf("band = %q, want the band above 100K", band)
+	}
+}

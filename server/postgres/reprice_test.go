@@ -185,7 +185,8 @@ func evidenceSnapshot(t *testing.T, pool *pgxpool.Pool, deviceID string) string 
 		       COALESCE(input_cache_read_tokens::text, '-'), COALESCE(input_cache_write_tokens::text, '-'),
 		       COALESCE(input_cache_write_5m_tokens::text, '-'), input_cache_write_5m_state,
 		       COALESCE(input_cache_write_1h_tokens::text, '-'), COALESCE(output_tokens::text, '-'),
-		       revision::text, encode(payload_hash, 'hex'), received_at::text)
+		       revision::text, encode(payload_hash, 'hex'), received_at::text,
+		       COALESCE(service_tier, '-'), COALESCE(prompt_band, '-'))
 		FROM usage_buckets WHERE device_id = $1::uuid ORDER BY bucket_start`)
 }
 

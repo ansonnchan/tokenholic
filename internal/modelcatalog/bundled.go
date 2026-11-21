@@ -9,12 +9,15 @@ import (
 	"net/url"
 	"sort"
 	"time"
+
+	"github.com/ansonnchan/tokenholic/internal/normalize"
 )
 
-// aliasRulesVersion is part of the bundled revision. Increment it whenever
-// the alias rules in catalog.go change what an identifier resolves to, so the
-// server reprices stored usage under the new rules.
-const aliasRulesVersion = "1"
+// rulesVersion is part of the bundled revision. Increment it whenever code
+// changes what stored usage resolves or prices to with the same data: the
+// alias rules in catalog.go or the rate-card selection in pricing.go. The
+// server then reprices stored usage under the new rules.
+const rulesVersion = "2"
 
 const (
 	// ReasonUnknownModel marks an identifier absent from the catalog.
@@ -27,6 +30,12 @@ const (
 	ReasonRoutingLabel = "routing_label"
 	// ReasonNoPublishedPrice marks a known model with no reviewed price.
 	ReasonNoPublishedPrice = "no_published_price"
+	// ReasonPromptLengthUnproven marks usage of a model that charges more
+	// above a prompt length, without proof of which side the requests fell on.
+	ReasonPromptLengthUnproven = "prompt_length_unproven"
+	// ReasonTierRateUnavailable marks usage at a proven service tier or
+	// prompt length for which no rate is vendored.
+	ReasonTierRateUnavailable = "tier_rate_unavailable"
 )
 
 //go:embed data/litellm_prices.json
@@ -92,7 +101,7 @@ func Bundled() (Catalog, *PricingRegistry, error) {
 }
 
 // Build combines a vendored snapshot with reviewed overrides. The revision is
-// derived from both inputs and the alias-rule version, so any change to prices
+// derived from both inputs and the rules version, so any change to prices
 // or resolution produces a new revision without a manual bump.
 func Build(snapshotData, overridesData []byte) (Catalog, *PricingRegistry, error) {
 	snapshot, err := DecodeSnapshot(snapshotData)
@@ -114,13 +123,10 @@ func Build(snapshotData, overridesData []byte) (Catalog, *PricingRegistry, error
 		model := Model{CanonicalID: entry.ID, Provider: entry.Provider, UnpricedReason: entry.UnpricedReason}
 		if entry.UnpricedReason == "" {
 			model.PricingKey = entry.Provider + "/" + entry.ID
-			prices[model.PricingKey] = Price{
-				Key: model.PricingKey, Provider: entry.Provider,
-				Rate: Rate{
-					InputUncached: entry.Input, InputCacheRead: entry.CacheRead,
-					InputCacheWrite: entry.CacheWrite, InputCacheWrite1h: entry.CacheWrite1h, Output: entry.Output,
-				},
-				SourceURL: snapshotURL, SourceRevision: snapshot.Source.Commit, EffectiveDate: effective,
+			for _, card := range snapshotCards(entry) {
+				card.Model, card.Provider = model.PricingKey, entry.Provider
+				card.SourceURL, card.SourceRevision, card.EffectiveDate = snapshotURL, snapshot.Source.Commit, effective
+				prices[card.Key] = card
 			}
 		}
 		models[entry.ID] = model
@@ -179,7 +185,7 @@ func Build(snapshotData, overridesData []byte) (Catalog, *PricingRegistry, error
 	}
 
 	digest := sha256.New()
-	for _, part := range [][]byte{[]byte(aliasRulesVersion), snapshotData, overridesData} {
+	for _, part := range [][]byte{[]byte(rulesVersion), snapshotData, overridesData} {
 		// Length prefixes keep the three inputs from running into each other.
 		fmt.Fprintf(digest, "%d\x00", len(part))
 		digest.Write(part)
@@ -190,6 +196,44 @@ func Build(snapshotData, overridesData []byte) (Catalog, *PricingRegistry, error
 		return Catalog{}, nil, err
 	}
 	return catalog, registry, nil
+}
+
+// snapshotCards expands one snapshot model into its rate cards. The standard
+// card keeps the model's bare key, so usage priced before tiers existed keeps
+// its key; every other card appends what selects it.
+func snapshotCards(entry SnapshotModel) []Price {
+	var threshold uint64
+	if entry.PromptThreshold != nil {
+		threshold = *entry.PromptThreshold
+	}
+	base := entry.Provider + "/" + entry.ID
+	card := func(tier normalize.ServiceTier, long bool, rates SnapshotRates) Price {
+		key := base
+		if tier != normalize.ServiceTierStandard {
+			key += ":" + string(tier)
+		}
+		if long {
+			key += fmt.Sprintf(":above-%dk", threshold/1000)
+		}
+		return Price{
+			Key: key, ServiceTier: tier, LongPrompt: long, PromptThreshold: threshold,
+			Rate: Rate{
+				InputUncached: rates.Input, InputCacheRead: rates.CacheRead,
+				InputCacheWrite: rates.CacheWrite, InputCacheWrite1h: rates.CacheWrite1h, Output: rates.Output,
+			},
+		}
+	}
+	cards := []Price{card(normalize.ServiceTierStandard, false, entry.SnapshotRates)}
+	if entry.LongPrompt != nil {
+		cards = append(cards, card(normalize.ServiceTierStandard, true, *entry.LongPrompt))
+	}
+	for name, tier := range entry.Tiers {
+		cards = append(cards, card(normalize.ServiceTier(name), false, tier.SnapshotRates))
+		if tier.LongPrompt != nil {
+			cards = append(cards, card(normalize.ServiceTier(name), true, *tier.LongPrompt))
+		}
+	}
+	return cards
 }
 
 // validateCitation enforces that a manual price names its provider's own

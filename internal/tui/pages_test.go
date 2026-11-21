@@ -63,6 +63,22 @@ func TestModelsPagePreservesAttributionQuality(t *testing.T) {
 	}
 }
 
+func TestModelsPageLabelsAPartlyPricedModel(t *testing.T) {
+	t.Parallel()
+	value, estimate := uint64(10), uint64(1_000_000)
+	canonical := "model-tiered"
+	page := modelsPage(application.Dashboard{AllTime: store.UsageSummary{Models: []store.ModelBreakdown{{
+		ObservedModelID: "model-tiered", CanonicalModelID: &canonical, Resolution: normalize.ModelReported,
+		UnpricedReason: modelcatalog.ReasonPromptLengthUnproven,
+		Tokens:         store.TokenBreakdown{InputUncached: store.AggregateValue{Value: &value, State: store.AvailabilityComplete}},
+		APIEstimate:    store.AggregateValue{Value: &estimate, State: store.AvailabilityPartial},
+	}}}})
+	joined := strings.Join(page.Lines, "\n")
+	if !strings.Contains(joined, "partly unpriced: price depends on prompt length") || strings.Contains(joined, "no estimate") {
+		t.Fatalf("models page = %q, want the reason labelled as covering part of the usage", joined)
+	}
+}
+
 func TestModelsPageExplainsMissingEstimates(t *testing.T) {
 	t.Parallel()
 	value := uint64(10)
@@ -73,7 +89,8 @@ func TestModelsPageExplainsMissingEstimates(t *testing.T) {
 		reason string
 		want   string
 	}{
-		{reason: modelcatalog.ReasonContextTiered, want: "no estimate: price depends on prompt length"},
+		{reason: modelcatalog.ReasonPromptLengthUnproven, want: "no estimate: price depends on prompt length"},
+		{reason: modelcatalog.ReasonTierRateUnavailable, want: "no estimate: no reviewed price for this service tier"},
 		{reason: modelcatalog.ReasonUnknownModel, want: "no estimate: model is not in this version's price list"},
 		{reason: modelcatalog.ReasonRoutingLabel, want: "no estimate: a routing label"},
 		{reason: "reason_from_a_newer_catalog", want: "no estimate: reason_from_a_newer_catalog"},

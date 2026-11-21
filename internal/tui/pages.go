@@ -127,7 +127,12 @@ func modelsPage(dashboard application.Dashboard) Page {
 			fmt.Sprintf("  %s tokens · API-equivalent estimate %s", totalTokens(model.Tokens), formatEstimate(model.APIEstimate)),
 		)
 		if reason := unpricedReasonText(model.UnpricedReason); reason != "" {
-			page.Lines = append(page.Lines, "  no estimate: "+reason)
+			label := "  no estimate: "
+			if model.APIEstimate.Value != nil {
+				// Some of the model's usage priced; the reason covers the rest.
+				label = "  partly unpriced: "
+			}
+			page.Lines = append(page.Lines, label+reason)
 		}
 		if model.Resolution == normalize.ModelUnknown || model.Resolution == normalize.ModelInferred {
 			page.Warning = "Some model attribution is inferred or unavailable"
@@ -148,8 +153,10 @@ func unpricedReasonText(reason string) string {
 		return "the source did not record a model"
 	case modelcatalog.ReasonAmbiguousAlias, modelcatalog.ReasonRoutingLabel:
 		return "a routing label that names no single model"
-	case modelcatalog.ReasonContextTiered:
-		return "price depends on prompt length, which usage totals cannot prove"
+	case modelcatalog.ReasonPromptLengthUnproven:
+		return "price depends on prompt length, which the source did not record"
+	case modelcatalog.ReasonTierRateUnavailable:
+		return "no reviewed price for this service tier"
 	case modelcatalog.ReasonNoPublishedPrice:
 		return "no reviewed price for this model"
 	default:

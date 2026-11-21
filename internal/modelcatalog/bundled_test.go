@@ -10,9 +10,9 @@ import (
 )
 
 // bundledRevision pins the embedded data. It changes whenever the snapshot,
-// the overrides, or aliasRulesVersion change; update it deliberately in the
+// the overrides, or rulesVersion change; update it deliberately in the
 // same change so the reprice that follows is visible in review.
-const bundledRevision = "2026-11-21-cff9f68d6068"
+const bundledRevision = "2026-11-21-c56215b01d69"
 
 func TestBundledRevisionIsPinned(t *testing.T) {
 	t.Parallel()
@@ -87,6 +87,9 @@ func TestBundledCatalogAccountsForObservedModels(t *testing.T) {
 		// per million tokens, as published by the provider.
 		wantMicroUSD uint64
 		reason       string
+		// noCacheWrites prices a source that reports no cache writes, as
+		// Codex does: one million each of input, cache read, and output.
+		noCacheWrites bool
 	}{
 		{observed: "claude-opus-5-5", evidence: normalize.ModelReported, canonical: "claude-opus-5-5", match: MatchExact, wantMicroUSD: 37_200_000},
 		{observed: "claude-opus-5-5[1m]", evidence: normalize.ModelReported, canonical: "claude-opus-5-5", match: MatchReviewed, wantMicroUSD: 37_200_000},
@@ -95,8 +98,10 @@ func TestBundledCatalogAccountsForObservedModels(t *testing.T) {
 		{observed: "claude-opus-5", evidence: normalize.ModelReported, canonical: "claude-opus-5", match: MatchExact, wantMicroUSD: 46_750_000},
 		{observed: "claude-opus-4-8", evidence: normalize.ModelReported, canonical: "claude-opus-4-8", match: MatchExact, wantMicroUSD: 46_750_000},
 		{observed: "claude-sonnet-5-5", evidence: normalize.ModelReported, canonical: "claude-sonnet-5-5", match: MatchExact, wantMicroUSD: 18_600_000},
-		{observed: "claude-haiku-5-5", evidence: normalize.ModelReported, canonical: "claude-haiku-5-5", match: MatchExact, reason: ReasonContextTiered},
-		{observed: "gpt-5.6-sol", evidence: normalize.ModelInferred, canonical: "gpt-5.6-sol", match: MatchExact, reason: ReasonContextTiered},
+		// Both charge more above a prompt length. These are their standard
+		// cards; TestBundledTierGoldenCosts covers the others.
+		{observed: "claude-haiku-5-5", evidence: normalize.ModelReported, canonical: "claude-haiku-5-5", match: MatchExact, wantMicroUSD: 935_000},
+		{observed: "gpt-5.6-sol", evidence: normalize.ModelInferred, canonical: "gpt-5.6-sol", match: MatchExact, wantMicroUSD: 24_400_000, noCacheWrites: true},
 		{observed: "codex-auto-review", evidence: normalize.ModelInferred, match: MatchUnknown, reason: ReasonRoutingLabel},
 		{observed: "auto", evidence: normalize.ModelReported, match: MatchUnknown, reason: ReasonAmbiguousAlias},
 		{observed: "default", evidence: normalize.ModelReported, match: MatchUnknown, reason: ReasonAmbiguousAlias},
@@ -125,6 +130,10 @@ func TestBundledCatalogAccountsForObservedModels(t *testing.T) {
 			}
 			if resolution.PricingKey == nil {
 				t.Fatal("observed model has neither a price nor an unpriced reason")
+			}
+			tokens := tokens
+			if tt.noCacheWrites {
+				tokens.InputCacheWrite, tokens.InputCacheWrite5m, tokens.InputCacheWrite1h = new(uint64), new(uint64), new(uint64)
 			}
 			estimate, available, err := registry.EstimateTokens(*resolution.PricingKey, tokens)
 			if err != nil || !available || estimate.LowerBound || estimate.UnpricedTokens != 0 {
@@ -161,7 +170,7 @@ func TestBuildValidatesOverrides(t *testing.T) {
 	snapshot := []byte(`{"source":{"repository":"example/prices","path":"prices.json","commit":"` + strings.Repeat("a", 40) +
 		`","sha256":"` + strings.Repeat("b", 64) + `","retrieved":"2026-11-20","providers":["anthropic"],"modes":["chat"]},` +
 		`"models":[{"id":"model-old","provider":"anthropic","input":2000000,"output":10000000},` +
-		`{"id":"model-tiered","provider":"anthropic","unpriced_reason":"context_tiered"}]}`)
+		`{"id":"model-unpriced","provider":"anthropic","unpriced_reason":"no_published_price"}]}`)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			catalog, registry, err := Build(snapshot, []byte(tt.overrides))
@@ -202,14 +211,21 @@ func TestDecodeSnapshotRejectsMalformedData(t *testing.T) {
 	source := `"source":{"repository":"example/prices","path":"prices.json","commit":"` + strings.Repeat("a", 40) +
 		`","sha256":"` + strings.Repeat("b", 64) + `","retrieved":"2026-11-20","providers":["anthropic"],"modes":["chat"]}`
 	tests := map[string]string{
-		"branch instead of commit":  strings.Replace(`{`+source+`,"models":[]}`, strings.Repeat("a", 40), "main", 1),
-		"unsorted models":           `{` + source + `,"models":[{"id":"b","provider":"p","input":1},{"id":"a","provider":"p","input":1}]}`,
-		"duplicate model":           `{` + source + `,"models":[{"id":"a","provider":"p","input":1},{"id":"a","provider":"p","input":1}]}`,
-		"neither rates nor reason":  `{` + source + `,"models":[{"id":"a","provider":"p"}]}`,
-		"both rates and a reason":   `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"unpriced_reason":"context_tiered"}]}`,
-		"unknown field":             `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"guess":2}]}`,
-		"trailing value":            `{` + source + `,"models":[]} {}`,
-		"missing provider on model": `{` + source + `,"models":[{"id":"a","input":1}]}`,
+		"branch instead of commit":   strings.Replace(`{`+source+`,"models":[]}`, strings.Repeat("a", 40), "main", 1),
+		"unsorted models":            `{` + source + `,"models":[{"id":"b","provider":"p","input":1},{"id":"a","provider":"p","input":1}]}`,
+		"duplicate model":            `{` + source + `,"models":[{"id":"a","provider":"p","input":1},{"id":"a","provider":"p","input":1}]}`,
+		"neither rates nor reason":   `{` + source + `,"models":[{"id":"a","provider":"p"}]}`,
+		"both rates and a reason":    `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"unpriced_reason":"no_published_price"}]}`,
+		"tier card without rates":    `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"tiers":{"priority":{}}}]}`,
+		"standard as its own tier":   `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"tiers":{"standard":{"input":1}}}]}`,
+		"unnamed tier":               `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"tiers":{"turbo":{"input":1}}}]}`,
+		"long card, no threshold":    `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"long_prompt":{"input":2}}]}`,
+		"threshold, no long card":    `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"prompt_threshold":272000}]}`,
+		"threshold off the ladder":   `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"prompt_threshold":128000,"long_prompt":{"input":2}}]}`,
+		"cards on an unpriced model": `{` + source + `,"models":[{"id":"a","provider":"p","unpriced_reason":"no_published_price","tiers":{"flex":{"input":1}}}]}`,
+		"unknown field":              `{` + source + `,"models":[{"id":"a","provider":"p","input":1,"guess":2}]}`,
+		"trailing value":             `{` + source + `,"models":[]} {}`,
+		"missing provider on model":  `{` + source + `,"models":[{"id":"a","input":1}]}`,
 	}
 	for name, data := range tests {
 		t.Run(name, func(t *testing.T) {

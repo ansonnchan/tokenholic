@@ -68,18 +68,22 @@ type CommitResult struct {
 
 // StoredObservation is normalized usage with only privacy-safe local identity.
 type StoredObservation struct {
-	Identity             string
-	Source               normalize.Source
-	Surface              normalize.Surface
-	SourceVersion        string
-	SessionFingerprint   *string
-	OccurredAt           time.Time
-	ObservedModelID      string
-	CanonicalModelID     *string
-	ModelProvider        *string
-	PricingKey           *string
-	ModelResolution      normalize.ModelResolution
-	Tokens               normalize.TokenCounts
+	Identity           string
+	Source             normalize.Source
+	Surface            normalize.Surface
+	SourceVersion      string
+	SessionFingerprint *string
+	OccurredAt         time.Time
+	ObservedModelID    string
+	CanonicalModelID   *string
+	ModelProvider      *string
+	PricingKey         *string
+	ModelResolution    normalize.ModelResolution
+	Tokens             normalize.TokenCounts
+	// ServiceTier and PromptTokens are pricing evidence; empty and nil mean
+	// the source did not prove them.
+	ServiceTier          normalize.ServiceTier
+	PromptTokens         *uint64
 	CountSemantics       normalize.CountSemantics
 	Measurement          normalize.Measurement
 	AdapterVersion       string
@@ -164,7 +168,8 @@ func (db *DB) Observations(ctx context.Context) ([]StoredObservation, error) {
 		       input_cache_read_tokens, input_cache_write_tokens,
 		       input_cache_write_5m_tokens, input_cache_write_1h_tokens, output_tokens,
 		       reasoning_output_tokens, count_semantics, measurement,
-		       adapter_version, normalization_version, warnings_json
+		       adapter_version, normalization_version, warnings_json,
+		       service_tier, prompt_tokens
 		FROM observations ORDER BY occurred_at, identity
 	`)
 	if err != nil {
@@ -272,10 +277,12 @@ func validateBatch(batch ObservationBatch) error {
 }
 
 // insertObservation stores one observation. Rescanning the same evidence is a
-// no-op; only a different adapter revision replaces the usage values, so a
-// corrected parser repairs records whose source files still exist. Model
-// attribution, measurement, and normalization version stay as first stored
-// because they are part of the usage-bucket identity.
+// no-op; only a different adapter revision replaces the usage values and
+// pricing evidence, so a corrected parser repairs records whose source files
+// still exist. Model attribution, measurement, and normalization version stay
+// as first stored. Pricing evidence is part of the usage-bucket identity too,
+// so replacing it moves the record to another bucket; the rebuild that follows
+// retracts the bucket it left.
 func insertObservation(ctx context.Context, tx *sql.Tx, observation normalize.Observation) (int64, error) {
 	warnings, err := json.Marshal(observation.Warnings)
 	if err != nil {
@@ -289,8 +296,9 @@ func insertObservation(ctx context.Context, tx *sql.Tx, observation normalize.Ob
 			input_cache_read_tokens, input_cache_write_tokens,
 			input_cache_write_5m_tokens, input_cache_write_1h_tokens, output_tokens,
 			reasoning_output_tokens, count_semantics, measurement,
-			adapter_version, normalization_version, warnings_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			adapter_version, normalization_version, warnings_json,
+			service_tier, prompt_tokens
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(identity) DO UPDATE SET
 			input_uncached_tokens = excluded.input_uncached_tokens,
 			input_cache_read_tokens = excluded.input_cache_read_tokens,
@@ -300,7 +308,9 @@ func insertObservation(ctx context.Context, tx *sql.Tx, observation normalize.Ob
 			output_tokens = excluded.output_tokens,
 			reasoning_output_tokens = excluded.reasoning_output_tokens,
 			adapter_version = excluded.adapter_version,
-			warnings_json = excluded.warnings_json
+			warnings_json = excluded.warnings_json,
+			service_tier = excluded.service_tier,
+			prompt_tokens = excluded.prompt_tokens
 		WHERE excluded.adapter_version <> observations.adapter_version
 	`,
 		observationIdentity(observation), observation.Source, observation.Surface,
@@ -312,6 +322,7 @@ func insertObservation(ctx context.Context, tx *sql.Tx, observation normalize.Ob
 		tokenString(observation.Tokens.Output), tokenString(observation.Tokens.ReasoningOutput),
 		observation.CountSemantics, observation.Measurement, observation.AdapterVersion,
 		observation.NormalizationVersion, string(warnings),
+		serviceTierValue(observation.ServiceTier), tokenString(observation.PromptTokens),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert normalized observation: %w", err)
@@ -388,17 +399,25 @@ func scanObservation(row rowScanner) (StoredObservation, error) {
 	var session, canonical, provider, pricing sql.NullString
 	var occurred, warnings string
 	var tokens [7]sql.NullString
+	var tier, prompt sql.NullString
 	if err := row.Scan(
 		&observation.Identity, &observation.Source, &observation.Surface,
 		&observation.SourceVersion, &session, &occurred, &observation.ObservedModelID,
 		&canonical, &provider, &pricing, &observation.ModelResolution, &tokens[0],
 		&tokens[1], &tokens[2], &tokens[3], &tokens[4], &tokens[5], &tokens[6], &observation.CountSemantics,
 		&observation.Measurement, &observation.AdapterVersion,
-		&observation.NormalizationVersion, &warnings,
+		&observation.NormalizationVersion, &warnings, &tier, &prompt,
 	); err != nil {
 		return StoredObservation{}, fmt.Errorf("decode observation: %w", err)
 	}
 	var err error
+	observation.ServiceTier = normalize.ServiceTier(tier.String)
+	if !observation.ServiceTier.Valid() {
+		return StoredObservation{}, fmt.Errorf("decode observation: service tier %q is invalid", tier.String)
+	}
+	if observation.PromptTokens, err = parseToken(prompt); err != nil {
+		return StoredObservation{}, fmt.Errorf("decode observation prompt size: %w", err)
+	}
 	observation.OccurredAt, err = parseTime(occurred)
 	if err != nil {
 		return StoredObservation{}, fmt.Errorf("decode observation time: %w", err)
@@ -479,6 +498,14 @@ func sessionFingerprint(observation normalize.Observation) any {
 func fingerprint(parts ...string) string {
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(sum[:])
+}
+
+// serviceTierValue stores an unproven tier as NULL, never as a tier name.
+func serviceTierValue(tier normalize.ServiceTier) any {
+	if tier == normalize.ServiceTierUnknown {
+		return nil
+	}
+	return string(tier)
 }
 
 func tokenString(value *uint64) any {

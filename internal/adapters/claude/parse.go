@@ -15,8 +15,9 @@ import (
 )
 
 // AdapterVersion identifies the Claude-to-normalized mapping contract. Version
-// 2 excludes locally generated lines and reads cache-write lifetimes.
-const AdapterVersion = "2"
+// 2 excludes locally generated lines and reads cache-write lifetimes; version
+// 3 reads each request's service tier and prompt size.
+const AdapterVersion = "3"
 
 // syntheticModel marks assistant lines Claude Code writes itself, such as
 // interruption and API-failure notices. They never reached a model.
@@ -43,6 +44,8 @@ type record struct {
 			CacheCreationTokens *uint64        `json:"cache_creation_input_tokens"`
 			CacheCreation       *cacheCreation `json:"cache_creation"`
 			OutputTokens        *uint64        `json:"output_tokens"`
+			ServiceTier         string         `json:"service_tier"`
+			Speed               string         `json:"speed"`
 		} `json:"usage"`
 	} `json:"message"`
 }
@@ -105,6 +108,8 @@ func Parse(reader io.Reader, surface normalize.Surface, sourceVersion string) (R
 			Source: normalize.SourceClaude, Surface: surface, SourceVersion: sourceVersion,
 			SourceRecordID: recordID(parsed, line.Number), SessionIDLocal: session, OccurredAt: parsed.Timestamp,
 			ObservedModelID: parsed.Message.Model, ModelResolution: resolution, Tokens: tokens,
+			ServiceTier:    serviceTier(parsed.Message.Usage.ServiceTier, parsed.Message.Usage.Speed),
+			PromptTokens:   promptTokens(tokens),
 			CountSemantics: normalize.CountIncremental, Measurement: normalize.MeasurementReported,
 			AdapterVersion: AdapterVersion, NormalizationVersion: normalize.SchemaVersion, Warnings: warnings,
 		}
@@ -148,6 +153,44 @@ func cacheWrite(combined *uint64, split *cacheCreation) (total, fiveMinute, oneH
 		return combined, nil, nil, false
 	}
 	return combined, split.Ephemeral5m, split.Ephemeral1h, true
+}
+
+// serviceTier maps the two fields Claude records about how a request was
+// processed. service_tier names the tier; speed is a later addition that marks
+// fast mode on the standard tier. A record without speed predates fast mode
+// and is taken at its service_tier. Any other combination, and any value this
+// adapter does not know, proves nothing and stays unknown.
+func serviceTier(tier, speed string) normalize.ServiceTier {
+	fast := speed == "fast"
+	if !fast && speed != "" && speed != "standard" {
+		return normalize.ServiceTierUnknown
+	}
+	switch {
+	case tier == "standard" && fast:
+		return normalize.ServiceTierFast
+	case tier == "standard":
+		return normalize.ServiceTierStandard
+	case tier == "priority" && !fast:
+		return normalize.ServiceTierPriority
+	case tier == "batch" && !fast:
+		return normalize.ServiceTierBatch
+	default:
+		return normalize.ServiceTierUnknown
+	}
+}
+
+// promptTokens is the size of the request's whole prompt: uncached input plus
+// everything read from or written to the cache. It is unknown unless the
+// record reports all three, because a missing counter would understate it.
+func promptTokens(tokens normalize.TokenCounts) *uint64 {
+	var prompt uint64
+	for _, part := range []*uint64{tokens.InputUncached, tokens.InputCacheRead, tokens.InputCacheWrite} {
+		if part == nil || math.MaxUint64-prompt < *part {
+			return nil
+		}
+		prompt += *part
+	}
+	return &prompt
 }
 
 func recordID(parsed record, ordinal int) string {
