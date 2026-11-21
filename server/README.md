@@ -41,6 +41,15 @@ The board response states the coverage threshold and the plausibility limit,
 so a client explains them without copying server policy. Freshness and
 model/price limitations travel with every row.
 
+The global board is the same query over a different set of members: accounts
+whose `global_opt_in` is true. That column is false by default.
+`PUT /v1/account/global-board` changes it and requires an explicit
+`{"participating": true|false}`; anything else is rejected, so no malformed
+request can opt an account in. `GET /v1/global/leaderboard` needs a signed-in
+device but not participation. It uses UTC boundaries, omits account IDs (except
+the viewer's own row) and sync times, hides ranks while fewer than three
+members can be ranked, and returns at most 100 rows plus the viewer's own.
+
 The schema contains users, stable GitHub identities, independently revocable
 devices and hashed credentials, pricing revisions, privacy-limited absolute
 usage buckets, private groups, memberships, and hashed invites. Bucket identity

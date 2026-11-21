@@ -129,8 +129,8 @@ Wide layout (120 columns or more):
   adaptive background, and accent text. If it falls outside the visible page,
   it is pinned after the list.
 - Rows below the cost-coverage threshold show a lower bound and coverage
-  without a rank. Scopes with fewer than three ranked users show values
-  without ranks.
+  without a rank. The global board shows values without ranks until three
+  members can be ranked; a private group ranks any number of members.
 - The group panel shows members, the invite code (owners), the reset
   boundary, and copy via OSC 52 where supported, otherwise prints the code.
 

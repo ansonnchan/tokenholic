@@ -53,6 +53,8 @@ type Usage struct {
 	Tokens        Tokens     `json:"tokens"`
 	APIEstimate   Value      `json:"api_equivalent_estimate_microusd"`
 	Devices       []Device   `json:"devices"`
+	// GlobalOptIn reports whether the account is listed on the global board.
+	GlobalOptIn bool `json:"global_opt_in"`
 }
 
 // Authenticator resolves a tokenholic device credential.
@@ -60,10 +62,12 @@ type Authenticator interface {
 	Authenticate(context.Context, string) (serverauth.Principal, error)
 }
 
-// Repository aggregates the authenticated user's active devices.
+// Repository aggregates the authenticated user's active devices and stores
+// the account's own visibility choices.
 type Repository interface {
 	AccountUsage(context.Context, serverauth.Principal) (Usage, error)
 	DeleteAccount(context.Context, serverauth.Principal) error
+	SetGlobalOptIn(context.Context, serverauth.Principal, bool) error
 }
 
 // Service owns account usage authorization.
@@ -97,4 +101,15 @@ func (s *Service) Delete(ctx context.Context, credential string) error {
 		return err
 	}
 	return s.repository.DeleteAccount(ctx, principal)
+}
+
+// SetGlobalOptIn authenticates one device and joins or leaves the global
+// board for its account. The choice belongs to the account, not the device,
+// and takes effect on the next board read. Repeating it changes nothing.
+func (s *Service) SetGlobalOptIn(ctx context.Context, credential string, participating bool) error {
+	principal, err := s.auth.Authenticate(ctx, credential)
+	if err != nil {
+		return err
+	}
+	return s.repository.SetGlobalOptIn(ctx, principal, participating)
 }

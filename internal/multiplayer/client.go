@@ -282,6 +282,20 @@ func (c *Client) Leaderboard(ctx context.Context, credential, groupID string, pe
 	return board, err
 }
 
+// SetGlobalParticipation joins or leaves the opt-in global board for the
+// caller's account.
+func (c *Client) SetGlobalParticipation(ctx context.Context, credential string, participating bool) error {
+	var response struct {
+		Participating *bool `json:"participating"`
+	}
+	err := c.request(ctx, http.MethodPut, "/v1/account/global-board", credential, map[string]bool{"participating": participating}, &response)
+	if err == nil && (response.Participating == nil || *response.Participating != participating) {
+		// Never report a visibility change the server did not confirm.
+		err = errors.New("multiplayer server did not confirm the global board choice")
+	}
+	return err
+}
+
 func (g Group) valid() bool {
 	return g.ID != "" && g.Name != "" && g.Timezone != "" && (g.Role == "owner" || g.Role == "member")
 }

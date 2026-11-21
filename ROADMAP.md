@@ -69,11 +69,12 @@ tokenholic autosync status
 tokenholic doctor                  # Diagnose sources, auth, storage, and sync
 ```
 
+`tokenholic global join` and `tokenholic global leave` opt an account in to or
+out of the global board.
+
 ### Planned commands (M7–M9)
 
 ```text
-tokenholic global join             # Opt in to the global board
-tokenholic global leave
 tokenholic profile                 # Show profile visibility and links
 tokenholic profile public|private  # Set public profile visibility
 tokenholic group public|private <name>   # Owner sets public board visibility
@@ -105,7 +106,7 @@ tokenholic share                   # Print an x.com/intent/post share link
   write, 1-hour cache write, and output. Reasoning stays a subset of output.
 - Ranking by total tokens and API-equivalent estimate only.
 - Rank and value trends against the previous period at the same elapsed time.
-- Opt-in global board with a minimum population before ranks are shown.
+- Opt-in global board that shows ranks once three members can be ranked.
 - Opt-in public profiles and public groups, invite links, group deletion, and
   ownership transfer.
 - A static read-only website on GitHub Pages and share cards rendered by the
@@ -677,9 +678,14 @@ Goal: reach social-product parity with honest ranking rules.
     that TKH-102 must confirm against the live environment.
   - Depends on: TKH-070.
 
-- [ ] **TKH-072: Add the opt-in global board** (`feat/global-board`)
+- [x] **TKH-072: Add the opt-in global board** (`feat/global-board`)
   - `users.global_opt_in` defaults to false; `tokenholic global join|leave`.
-  - Hide ranks when a scope has fewer than three ranked users.
+  - Hide ranks while the global board has fewer than three ranked users. A
+    private group has no such floor: its members chose to compare, and two
+    friends are a board.
+  - Any signed-in account can read the board; the website's public read
+    arrives with TKH-090. Rows show a display name and aggregate totals, never
+    an account ID or sync time.
   - Acceptance: a user who has not opted in never appears in a global response.
   - Depends on: TKH-071.
 

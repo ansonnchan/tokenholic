@@ -37,6 +37,7 @@ type usageSyncService interface {
 type accountUsageService interface {
 	Usage(context.Context, string) (serveraccount.Usage, error)
 	Delete(context.Context, string) error
+	SetGlobalOptIn(context.Context, string, bool) error
 }
 
 type groupService interface {
@@ -51,6 +52,7 @@ type groupService interface {
 
 type leaderboardService interface {
 	Get(context.Context, string, string, serverleaderboard.Period, serverleaderboard.Metric) (serverleaderboard.Board, error)
+	Global(context.Context, string, serverleaderboard.Period, serverleaderboard.Metric) (serverleaderboard.Board, error)
 }
 
 // Handler is the hosted tokenholic HTTP API.
@@ -89,7 +91,62 @@ func New(authService authenticationService, syncService usageSyncService, accoun
 	handler.mux.HandleFunc("DELETE /v1/groups/{group_id}/membership", handler.leaveGroup)
 	handler.mux.HandleFunc("DELETE /v1/groups/{group_id}/members/{user_id}", handler.revokeGroupMember)
 	handler.mux.HandleFunc("GET /v1/groups/{group_id}/leaderboard", handler.groupLeaderboard)
+	handler.mux.HandleFunc("GET /v1/global/leaderboard", handler.globalLeaderboard)
+	handler.mux.HandleFunc("PUT /v1/account/global-board", handler.setGlobalBoard)
 	return handler, nil
+}
+
+// setGlobalBoard joins or leaves the global board. The body must state the
+// choice explicitly, so an empty or malformed request can never opt an
+// account in.
+func (h *Handler) setGlobalBoard(response http.ResponseWriter, request *http.Request) {
+	credential, ok := bearerCredential(request)
+	if !ok {
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var input struct {
+		Participating *bool `json:"participating"`
+	}
+	if err := decodeRequest(response, request, &input); err != nil || input.Participating == nil {
+		writeError(response, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if err := h.account.SetGlobalOptIn(request.Context(), credential, *input.Participating); errors.Is(err, serverauth.ErrUnauthorized) {
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+		return
+	} else if err != nil {
+		writeError(response, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]bool{"participating": *input.Participating})
+}
+
+func (h *Handler) globalLeaderboard(response http.ResponseWriter, request *http.Request) {
+	credential, ok := bearerCredential(request)
+	if !ok {
+		writeError(response, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	period, metric := boardQuery(request)
+	board, err := h.leaderboards.Global(request.Context(), credential, period, metric)
+	if writeGroupError(response, err) {
+		return
+	}
+	writeJSON(response, http.StatusOK, board)
+}
+
+// boardQuery reads a board's period and metric, defaulting to today's tokens.
+func boardQuery(request *http.Request) (serverleaderboard.Period, serverleaderboard.Metric) {
+	period := serverleaderboard.Period(request.URL.Query().Get("period"))
+	if period == "" {
+		period = serverleaderboard.PeriodToday
+	}
+	metric := serverleaderboard.Metric(request.URL.Query().Get("metric"))
+	if metric == "" {
+		metric = serverleaderboard.MetricTotalTokens
+	}
+	return period, metric
 }
 
 func (h *Handler) deleteAccount(response http.ResponseWriter, request *http.Request) {
@@ -121,14 +178,7 @@ func (h *Handler) groupLeaderboard(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	period := serverleaderboard.Period(request.URL.Query().Get("period"))
-	if period == "" {
-		period = serverleaderboard.PeriodToday
-	}
-	metric := serverleaderboard.Metric(request.URL.Query().Get("metric"))
-	if metric == "" {
-		metric = serverleaderboard.MetricTotalTokens
-	}
+	period, metric := boardQuery(request)
 	board, err := h.leaderboards.Get(request.Context(), credential, request.PathValue("group_id"), period, metric)
 	if writeGroupError(response, err) {
 		return

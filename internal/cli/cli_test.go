@@ -428,6 +428,51 @@ func TestGroupCommandsUseConfiguredMultiplayerBoundary(t *testing.T) {
 	}
 }
 
+func TestGlobalCommandJoinsAndLeavesOnlyWhenAsked(t *testing.T) {
+	manager := &fakeGroupManager{}
+	deps := dependencies{
+		getenv: func(string) string { return "https://api.example.test" },
+		groups: func(string) (groupManager, error) { return manager, nil },
+	}
+	tests := []struct {
+		args     []string
+		wantCode int
+		wantSent *bool
+		wantOut  string
+		wantErr  string
+	}{
+		{args: []string{"global", "join"}, wantSent: boolPointer(true), wantOut: "visible to every signed-in tokenholic user"},
+		{args: []string{"global", "leave"}, wantSent: boolPointer(false), wantOut: "no longer listed"},
+		{args: []string{"global"}, wantCode: 2, wantErr: "join or leave"},
+		{args: []string{"global", "status"}, wantCode: 2, wantErr: "join or leave"},
+		{args: []string{"global", "join", "now"}, wantCode: 2, wantErr: "join or leave"},
+	}
+	for _, test := range tests {
+		manager.participating = nil
+		var stdout, stderr bytes.Buffer
+		code := run(test.args, &stdout, &stderr, deps)
+		if code != test.wantCode || !strings.Contains(stdout.String(), test.wantOut) || !strings.Contains(stderr.String(), test.wantErr) {
+			t.Fatalf("run(%v) = %d/%q/%q", test.args, code, stdout.String(), stderr.String())
+		}
+		if (manager.participating == nil) != (test.wantSent == nil) || manager.participating != nil && *manager.participating != *test.wantSent {
+			t.Fatalf("run(%v) sent %v, want %v", test.args, manager.participating, test.wantSent)
+		}
+	}
+
+	// A failure reports nothing as changed and leaks no detail.
+	manager.err, manager.participating = errors.New("credential at /private/path"), nil
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"global", "join"}, &stdout, &stderr, deps); code != 1 || stdout.Len() != 0 || strings.Contains(stderr.String(), "/private/path") {
+		t.Fatalf("failed join = %d/%q/%q", code, stdout.String(), stderr.String())
+	}
+	stderr.Reset()
+	if code := run([]string{"global", "join"}, &stdout, &stderr, dependencies{getenv: func(string) string { return "" }}); code != 1 || !strings.Contains(stderr.String(), "TOKENHOLIC_API_URL") {
+		t.Fatalf("join without an API = %d/%q", code, stderr.String())
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }
+
 func TestGroupCommandRequiresAPIAndRedactsFailure(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -495,12 +540,20 @@ type fakeAccountManager struct {
 }
 
 type fakeGroupManager struct {
-	groups     []multiplayer.Group
-	created    string
-	joined     string
-	inviteUses int
-	left       string
-	err        error
+	groups        []multiplayer.Group
+	created       string
+	joined        string
+	inviteUses    int
+	left          string
+	participating *bool
+	err           error
+}
+
+func (f *fakeGroupManager) SetGlobalParticipation(_ context.Context, participating bool) error {
+	if f.err == nil {
+		f.participating = &participating
+	}
+	return f.err
 }
 
 type fakeAutosyncManager struct {
