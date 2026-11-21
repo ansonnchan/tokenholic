@@ -236,6 +236,7 @@ func groupPage(snapshot multiplayer.Snapshot) Page {
 	page.Lines = append(page.Lines,
 		fmt.Sprintf("Period: %s · Metric: %s", periodLabel(board.Period), metricLabel(board.Metric)),
 		fmt.Sprintf("Window: %s · generated %s", windowLabel(board.Window), board.GeneratedAt.UTC().Format(time.RFC3339)),
+		"Movement is "+comparisonLabel(board)+", at the same point in the period.",
 	)
 	for _, row := range board.Rows {
 		if !row.CurrentUser {
@@ -263,9 +264,18 @@ func groupPage(snapshot multiplayer.Snapshot) Page {
 			name += " (you)"
 		}
 		page.Lines = append(page.Lines, fmt.Sprintf(
-			"%s %s · %s · last synced %s",
-			rank, name, formatRemoteValue(row.Value, board.Metric), collectionFreshness(row.LastSyncedAt, board.GeneratedAt),
+			"%s %s · %s · %s · last synced %s",
+			rank, name, formatRemoteValue(row.Value, board.Metric), movementLabel(row), collectionFreshness(row.LastSyncedAt, board.GeneratedAt),
 		))
+		if row.UnrankedReason == multiplayer.UnrankedCostCoverage {
+			page.Lines = append(page.Lines, fmt.Sprintf(
+				"  %s of tokens priced; an estimate is ranked from %s",
+				basisPointsLabel(row.Coverage.PricedBasisPoints), basisPointsLabel(&board.CostRankMinPricedBasisPoints),
+			))
+		}
+		if row.Plausibility.DailyTokensAboveLimit {
+			page.Lines = append(page.Lines, "  note: a daily total is above the plausibility limit; usage is self-reported")
+		}
 		context := make([]string, 0, 2)
 		if row.MostUsedModel != nil {
 			context = append(context, fmt.Sprintf("model %s (%s)", row.MostUsedModel.ModelID, row.MostUsedModel.Resolution))
@@ -289,7 +299,7 @@ func groupPage(snapshot multiplayer.Snapshot) Page {
 			page.Warning = "Some leaderboard rows have model or API-estimate limitations"
 		}
 		if row.Value.State == multiplayer.AvailabilityPartial || row.Value.State == multiplayer.AvailabilityUnavailable {
-			page.Warning = "Some leaderboard values are partial or unavailable and remain unranked"
+			page.Warning = "Some leaderboard values are lower bounds or unavailable"
 		}
 	}
 	return page
@@ -314,8 +324,6 @@ func metricLabel(metric multiplayer.Metric) string {
 	switch metric {
 	case multiplayer.MetricTotalTokens:
 		return "Tokens"
-	case multiplayer.MetricOutput:
-		return "Output"
 	case multiplayer.MetricAPIEstimate:
 		return "API estimate"
 	default:
@@ -342,15 +350,60 @@ func formatRemoteValue(value multiplayer.Value, metric multiplayer.Metric) strin
 	formatted := formatDigits(*value.Value)
 	if metric == multiplayer.MetricAPIEstimate {
 		formatted = formatMicroUSD(*value.Value) + " (estimate)"
-	} else if metric == multiplayer.MetricOutput {
-		formatted += " output tokens"
 	} else {
 		formatted += " tokens"
 	}
 	if value.State == multiplayer.AvailabilityPartial {
-		formatted += " (partial; unranked)"
+		// Some usage is missing from the value. Whether the row is ranked is
+		// the server's decision and is shown by its rank.
+		formatted = "at least " + formatted
 	}
 	return formatted
+}
+
+// comparisonLabel names what rank movement is measured against.
+func comparisonLabel(board *multiplayer.Board) string {
+	if board.Comparison.Kind == multiplayer.ComparisonDayEarlier {
+		return "against 24 hours ago"
+	}
+	switch board.Period {
+	case multiplayer.PeriodToday:
+		return "against yesterday"
+	case multiplayer.PeriodWeek:
+		return "against last week"
+	case multiplayer.PeriodLast30Days:
+		return "against the prior 30 days"
+	default:
+		return "against the previous period"
+	}
+}
+
+// movementLabel describes a row's rank change in words, so it reads the same
+// without color or Unicode.
+func movementLabel(row multiplayer.Row) string {
+	switch {
+	case row.Trend.New:
+		return "new"
+	case row.Trend.RankChange == nil:
+		return "no movement to compare"
+	case *row.Trend.RankChange > 0:
+		return fmt.Sprintf("up %d", *row.Trend.RankChange)
+	case *row.Trend.RankChange < 0:
+		return fmt.Sprintf("down %d", -*row.Trend.RankChange)
+	default:
+		return "no change"
+	}
+}
+
+// basisPointsLabel renders hundredths of a percent, such as 9400 as "94%".
+func basisPointsLabel(basisPoints *int) string {
+	if basisPoints == nil {
+		return "none"
+	}
+	if *basisPoints%100 == 0 {
+		return fmt.Sprintf("%d%%", *basisPoints/100)
+	}
+	return fmt.Sprintf("%d.%02d%%", *basisPoints/100, *basisPoints%100)
 }
 
 func formatMicroUSD(value string) string {

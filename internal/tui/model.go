@@ -450,7 +450,7 @@ func nextPeriod(period multiplayer.Period) multiplayer.Period {
 
 func nextMetric(metric multiplayer.Metric) multiplayer.Metric {
 	metrics := []multiplayer.Metric{
-		multiplayer.MetricTotalTokens, multiplayer.MetricOutput, multiplayer.MetricAPIEstimate,
+		multiplayer.MetricTotalTokens, multiplayer.MetricAPIEstimate,
 	}
 	for index, candidate := range metrics {
 		if candidate == metric {

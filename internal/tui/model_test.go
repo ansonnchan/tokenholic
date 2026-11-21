@@ -284,7 +284,7 @@ func TestGroupsViewLoadsSwitchesPeriodMetricAndSelection(t *testing.T) {
 	}
 	updated, command = updated.(Model).Update(key('m'))
 	updated, _ = updated.(Model).Update(command())
-	if remote.metric != multiplayer.MetricOutput {
+	if remote.metric != multiplayer.MetricAPIEstimate {
 		t.Fatalf("metric = %s", remote.metric)
 	}
 	updated, command = updated.(Model).Update(key('j'))

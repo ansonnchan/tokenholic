@@ -357,10 +357,36 @@ The query calculates Today, current week, and 30-local-date boundaries from the
 group's IANA timezone; all periods end at the response generation time. Weeks
 start Monday. All-time has no lower bound.
 
-Rows rank by complete total tokens, output tokens, or API-equivalent estimates.
-Partial lower-bound values remain visible but unranked, while unavailable and
-empty values remain distinct from zero. Equal complete values use competition
-ranking. Every row includes last-upload freshness, source mix, most-used model,
+Boards rank by total tokens or by the API-equivalent estimate. Output tokens
+and the other categories stay in personal views.
+
+- **Tokens** rank every member with a known total. A total can be a lower
+  bound, because some sources never report every category; it is ranked and
+  stays labelled partial. Unpriced tokens count in full.
+- **Estimates** rank a member only when at least 95% of their tokens in the
+  window are priced. Below that the estimate leaves out too much usage to
+  compare, so the row shows its lower bound and priced share without a rank.
+  The share is computed from the priced and unpriced token counts the server
+  stores beside every bucket.
+
+Equal values share a rank and the next rank skips. Unavailable and empty
+values remain distinct from zero, and every unranked row says why.
+
+Each row carries a trend: its value and rank in a comparison window read in
+the same snapshot. A calendar period is compared with the one before it, cut
+off after the same elapsed time, so a board early in the week is measured
+against the same part of last week. The previous period starts on a local
+calendar boundary and never overlaps the current window. All-time has no
+previous period and is compared with itself 24 hours earlier; the response
+names which comparison it used. A member with usage now and none in the
+comparison window is marked new. Ranks in the comparison window follow the
+same rules over the current members.
+
+Usage is self-reported. A member whose tokens on one local day exceed 5
+billion, about ten times the heaviest day observed during development, gets an
+advisory plausibility note. The note changes neither the value nor the rank.
+
+Every row also includes last-upload freshness, source mix, most-used model,
 and counts for unknown or inferred model resolution and unavailable API
 estimates. Revoked devices and inactive memberships do not contribute.
 
@@ -473,6 +499,10 @@ client: observed model ID + token categories (protocol v2)
   demo usage data rather than translating it.
 
 ### Leaderboard v2
+
+Metrics, the cost-coverage rule, trends, and the plausibility note are
+implemented for private groups and described under "Leaderboards" above. The
+public-group and global scopes follow.
 
 - Scopes: a private group (membership-authorized), a public group (by slug,
   read-only), and the opt-in global board.

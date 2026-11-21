@@ -204,21 +204,30 @@ func TestTotalTokensDoesNotDoubleCountReasoningSubset(t *testing.T) {
 func TestGroupPageKeepsPartialAndEstimateMeaningVisible(t *testing.T) {
 	t.Parallel()
 	partial, estimate := "12345", "1500001"
-	rank := 1
+	rank, climbed, priced := 1, 2, 9425
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	page := groupPage(multiplayer.Snapshot{
 		Groups:   []multiplayer.Group{{ID: "group", Name: "Quiet", Timezone: "UTC", Role: "member"}},
 		Selected: multiplayer.Group{ID: "group", Name: "Quiet", Timezone: "UTC", Role: "member"},
 		Board: &multiplayer.Board{
 			Period: multiplayer.PeriodToday, Metric: multiplayer.MetricAPIEstimate, GeneratedAt: now,
+			Comparison:                   multiplayer.Comparison{Kind: multiplayer.ComparisonPreviousPeriod},
+			CostRankMinPricedBasisPoints: 9500,
 			Rows: []multiplayer.Row{
-				{Rank: &rank, DisplayName: "Complete", Value: multiplayer.Value{Value: &estimate, State: multiplayer.AvailabilityComplete}},
-				{DisplayName: "Partial", CurrentUser: true, Value: multiplayer.Value{Value: &partial, State: multiplayer.AvailabilityPartial}},
+				{Rank: &rank, DisplayName: "Complete", Value: multiplayer.Value{Value: &estimate, State: multiplayer.AvailabilityComplete},
+					Trend: multiplayer.Trend{RankChange: &climbed}},
+				{DisplayName: "Partial", CurrentUser: true, Value: multiplayer.Value{Value: &partial, State: multiplayer.AvailabilityPartial},
+					UnrankedReason: multiplayer.UnrankedCostCoverage, Coverage: multiplayer.Coverage{PricedBasisPoints: &priced},
+					Trend: multiplayer.Trend{New: true}, Plausibility: multiplayer.Plausibility{DailyTokensAboveLimit: true}},
 			},
 		},
 	})
 	joined := strings.Join(page.Lines, "\n")
-	for _, want := range []string{"Metric: API estimate", "$1.500001 (estimate)", "$0.012345 (estimate) (partial; unranked)", "Your standing: unranked"} {
+	for _, want := range []string{
+		"Metric: API estimate", "Movement is against yesterday", "$1.500001 (estimate) · up 2",
+		"at least $0.012345 (estimate) · new", "94.25% of tokens priced; an estimate is ranked from 95%",
+		"above the plausibility limit", "Your standing: unranked",
+	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("group page = %q, want %q", joined, want)
 		}

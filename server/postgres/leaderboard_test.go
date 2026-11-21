@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -128,14 +129,16 @@ func TestPostgresLeaderboardPeriodsDevicesPricesAndTies(t *testing.T) {
 	alphaCost := leaderboardRowByUser(t, costBoard.Rows, owner.UserID)
 	betaCost := leaderboardRowByUser(t, costBoard.Rows, member.UserID)
 	assertLeaderboardValue(t, alphaCost.Value, "200", serveraccount.AvailabilityComplete)
-	if betaCost.Value.Value != nil || betaCost.Value.State != serveraccount.AvailabilityUnavailable || betaCost.Rank != nil {
+	if alphaCost.Rank == nil || *alphaCost.Rank != 1 || alphaCost.Coverage.PricedBasisPoints == nil || *alphaCost.Coverage.PricedBasisPoints != 10_000 {
+		t.Fatalf("fully priced row = %#v", alphaCost)
+	}
+	if betaCost.Value.Value != nil || betaCost.Value.State != serveraccount.AvailabilityUnavailable || betaCost.Rank != nil ||
+		betaCost.UnrankedReason != leaderboard.UnrankedValueUnavailable || betaCost.Coverage.UnpricedTokens != "20" {
 		t.Fatalf("unknown-price row = %#v", betaCost)
 	}
-	outputBoard, err := service.Get(ctx, "credential", groupID, leaderboard.PeriodToday, leaderboard.MetricOutput)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := service.Get(ctx, "credential", groupID, leaderboard.PeriodToday, "output_tokens"); !errors.Is(err, servergroup.ErrInvalidInput) {
+		t.Fatalf("retired output metric error = %v", err)
 	}
-	assertLeaderboardValue(t, leaderboardRowByUser(t, outputBoard.Rows, owner.UserID).Value, "10", serveraccount.AvailabilityComplete)
 	allTimeBoard, err := service.Get(ctx, "credential", groupID, leaderboard.PeriodAllTime, leaderboard.MetricTotalTokens)
 	if err != nil {
 		t.Fatal(err)
@@ -148,6 +151,233 @@ func TestPostgresLeaderboardPeriodsDevicesPricesAndTies(t *testing.T) {
 		GroupID: groupID, Period: leaderboard.PeriodToday, Metric: leaderboard.MetricTotalTokens, GeneratedAt: now,
 	}); !errors.Is(err, servergroup.ErrNotFound) {
 		t.Fatalf("outsider leaderboard error = %v", err)
+	}
+}
+
+// The group keeps Tokyo time, nine hours ahead of UTC with no clock changes,
+// so every boundary below falls on a different UTC date than its local one.
+// "Now" is Wednesday November 18 at 10:00 in Tokyo.
+func TestPostgresLeaderboardTrendsCoverageAndPlausibility(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := t.Context()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	user := func(n int) string { return fmt.Sprintf("61000000-0000-4000-8000-%012d", n) }
+	names := []string{"Alpha", "Beta", "Charlie", "Delta", "Echo"}
+	devices := map[string]string{}
+	for index, name := range names {
+		devices[user(index+1)] = user(index + 11)
+		if _, err := pool.Exec(ctx, `INSERT INTO users(id, display_name) VALUES ($1::uuid, $2)`, user(index+1), name); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO devices(id, user_id) VALUES ($1::uuid, $2::uuid)`, user(index+11), user(index+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alpha, beta, charlie, delta, echo := user(1), user(2), user(3), user(4), user(5)
+	groupRepository, err := NewGroupRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID := user(100)
+	if _, err := groupRepository.CreateGroup(ctx, serverauth.Principal{UserID: alpha}, servergroup.NewGroup{ID: groupID, Name: "Tokyo group", Timezone: "Asia/Tokyo"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range []string{beta, charlie, delta, echo} {
+		if _, err := pool.Exec(ctx, `INSERT INTO group_memberships(group_id, user_id, role) VALUES ($1::uuid, $2::uuid, 'member')`, groupID, member); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO pricing_revisions(revision, catalog_checksum, effective_at) VALUES ('leaderboard-r1', $1, $2)`,
+		bytes.Repeat([]byte{0x61}, 32), time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(day, hour, minute int) time.Time { return time.Date(2026, 11, day, hour, minute, 0, 0, tokyo) }
+	now := at(18, 10, 0)
+	sequence := 0
+	// add stores tokens for a member. A positive estimate makes the bucket
+	// fully priced; zero leaves all of its tokens unpriced.
+	add := func(member string, start time.Time, tokens, estimate int64) {
+		t.Helper()
+		sequence++
+		bucket := leaderboardBucket{
+			deviceID: devices[member], key: fmt.Sprintf("%064x", sequence), start: start,
+			source: "claude", surface: "cli", observedModel: "unknown-model", resolution: "unknown",
+			input: tokens, estimateState: "unavailable",
+		}
+		if estimate > 0 {
+			bucket.observedModel, bucket.canonicalModel, bucket.modelProvider, bucket.pricingKey = "model-a", "model-a", "synthetic", "model-a"
+			bucket.resolution, bucket.estimate, bucket.estimateState = "resolved", &estimate, "complete"
+		}
+		insertLeaderboardBucket(t, pool, bucket)
+	}
+	// Alpha: 300 today, 100 in yesterday's first ten hours.
+	add(alpha, at(18, 9, 0), 300, 3000)
+	add(alpha, at(17, 9, 0), 100, 1000)
+	add(alpha, at(17, 11, 0), 5000, 50000) // yesterday, but after the same elapsed time
+	add(alpha, at(18, 10, 0), 9999, 99990) // exactly at "now": the window end is exclusive
+	// Beta: 200 today on the first minute of the local day, 200 yesterday.
+	add(beta, at(18, 0, 0), 200, 2000)
+	add(beta, at(17, 8, 0), 200, 2000)
+	add(beta, at(17, 23, 59), 7, 70) // the last minute of yesterday is in neither window
+	// Charlie: exactly 95% priced today; half priced yesterday.
+	add(charlie, at(18, 1, 0), 190, 9000)
+	add(charlie, at(18, 2, 0), 10, 0)
+	add(charlie, at(17, 1, 0), 50, 500)
+	add(charlie, at(17, 2, 0), 50, 0)
+	// Delta: first usage today, 94% priced, with the largest estimate.
+	add(delta, at(18, 3, 0), 94, 9999)
+	add(delta, at(18, 4, 0), 6, 0)
+	// Echo has no usage at all.
+	// Two members each report six billion tokens last week. Beta's fall on
+	// one Tokyo date that spans two UTC dates; Alpha's fall on two Tokyo
+	// dates inside one UTC date.
+	const threeBillion = 3_000_000_000
+	add(beta, at(10, 0, 10), threeBillion, 1)
+	add(beta, at(10, 23, 50), threeBillion, 1)
+	add(alpha, at(10, 23, 30), threeBillion, 1)
+	add(alpha, at(11, 0, 30), threeBillion, 1)
+
+	repository, err := NewLeaderboardRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := leaderboard.NewService(staticLeaderboardAuthenticator{principal: serverauth.Principal{UserID: alpha}}, fixedLeaderboardRepository{repository: repository, now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type line struct {
+		name          string
+		rank          string
+		value         string
+		previousValue string
+		previousRank  string
+		change        string
+		isNew         bool
+		basisPoints   string
+	}
+	describe := func(board leaderboard.Board) []line {
+		number := func(value *int) string {
+			if value == nil {
+				return "-"
+			}
+			return fmt.Sprint(*value)
+		}
+		text := func(value serveraccount.Value) string {
+			if value.Value == nil {
+				return string(value.State)
+			}
+			return *value.Value
+		}
+		lines := make([]line, 0, len(board.Rows))
+		for _, row := range board.Rows {
+			rank := number(row.Rank)
+			if row.Rank == nil {
+				rank = string(row.UnrankedReason)
+			}
+			lines = append(lines, line{
+				name: row.DisplayName, rank: rank, value: text(row.Value), previousValue: text(row.Trend.PreviousValue),
+				previousRank: number(row.Trend.PreviousRank), change: number(row.Trend.RankChange), isNew: row.Trend.New,
+				basisPoints: number(row.Coverage.PricedBasisPoints),
+			})
+		}
+		return lines
+	}
+	assertLines := func(name string, got, want []line) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s: %d rows, want %d: %+v", name, len(got), len(want), got)
+		}
+		for index := range want {
+			if got[index] != want[index] {
+				t.Errorf("%s row %d =\n  %+v\nwant\n  %+v", name, index, got[index], want[index])
+			}
+		}
+	}
+
+	tokens, err := service.Get(ctx, "credential", groupID, leaderboard.PeriodToday, leaderboard.MetricTotalTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tokens.Window.Start.Equal(at(18, 0, 0)) || !tokens.Window.End.Equal(now) || tokens.Comparison.Kind != leaderboard.ComparisonPreviousPeriod ||
+		!tokens.Comparison.Window.Start.Equal(at(17, 0, 0)) || !tokens.Comparison.Window.End.Equal(at(17, 10, 0)) {
+		t.Fatalf("windows = %#v / %#v", tokens.Window, tokens.Comparison)
+	}
+	// Yesterday by 10:00: Beta 200, Alpha and Charlie 100 each.
+	assertLines("tokens today", describe(tokens), []line{
+		{name: "Alpha", rank: "1", value: "300", previousValue: "100", previousRank: "2", change: "1", basisPoints: "10000"},
+		{name: "Beta", rank: "2", value: "200", previousValue: "200", previousRank: "1", change: "-1", basisPoints: "10000"},
+		{name: "Charlie", rank: "2", value: "200", previousValue: "100", previousRank: "2", change: "0", basisPoints: "9500"},
+		{name: "Delta", rank: "4", value: "100", previousValue: "empty", previousRank: "-", change: "-", isNew: true, basisPoints: "9400"},
+		{name: "Echo", rank: "no_usage", value: "empty", previousValue: "empty", previousRank: "-", change: "-", basisPoints: "-"},
+	})
+	for _, row := range tokens.Rows {
+		if row.Plausibility.DailyTokensAboveLimit {
+			t.Fatalf("%s is flagged today, when nobody is near the limit", row.DisplayName)
+		}
+	}
+
+	cost, err := service.Get(ctx, "credential", groupID, leaderboard.PeriodToday, leaderboard.MetricAPIEstimate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Charlie ranks at exactly 95%. Delta has the largest estimate but only
+	// 94% of the tokens behind it, so it is shown without a rank. Charlie was
+	// half priced yesterday and so has no rank to move from.
+	assertLines("estimate today", describe(cost), []line{
+		{name: "Charlie", rank: "1", value: "9000", previousValue: "500", previousRank: "-", change: "-", basisPoints: "9500"},
+		{name: "Alpha", rank: "2", value: "3000", previousValue: "1000", previousRank: "2", change: "0", basisPoints: "10000"},
+		{name: "Beta", rank: "3", value: "2000", previousValue: "2000", previousRank: "1", change: "-2", basisPoints: "10000"},
+		{name: "Delta", rank: "cost_coverage_below_threshold", value: "9999", previousValue: "empty", previousRank: "-", change: "-", isNew: true, basisPoints: "9400"},
+		{name: "Echo", rank: "no_usage", value: "empty", previousValue: "empty", previousRank: "-", change: "-", basisPoints: "-"},
+	})
+	if delta := leaderboardRowByUser(t, cost.Rows, delta); delta.Value.State != serveraccount.AvailabilityPartial || delta.Coverage.UnpricedTokens != "6" {
+		t.Fatalf("below-threshold estimate = %#v, want a lower bound with its unpriced tokens", delta)
+	}
+	if echo := leaderboardRowByUser(t, cost.Rows, echo); echo.Rank != nil || echo.Trend.New {
+		t.Fatalf("member without usage = %#v", echo)
+	}
+
+	// Thirty local dates reach back past last week's large days.
+	month, err := service.Get(ctx, "credential", groupID, leaderboard.PeriodLast30Days, leaderboard.MetricTotalTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flagged := map[string]bool{}
+	for _, row := range month.Rows {
+		flagged[row.DisplayName] = row.Plausibility.DailyTokensAboveLimit
+	}
+	if !flagged["Beta"] || flagged["Alpha"] || flagged["Charlie"] {
+		t.Fatalf("flagged members = %v; want only Beta, whose six billion fall on one Tokyo date", flagged)
+	}
+	// A flag is advisory: the member keeps every token and the rank it earns,
+	// here second to Alpha's 6,000,005,400.
+	if beta := leaderboardRowByUser(t, month.Rows, beta); beta.Rank == nil || *beta.Rank != 2 || beta.Value.Value == nil || *beta.Value.Value != "6000000407" {
+		t.Fatalf("flagged member = %#v, want rank 2 with every token counted", beta)
+	}
+
+	// All-time has no previous period: it is compared with 24 hours earlier.
+	allTime, err := service.Get(ctx, "credential", groupID, leaderboard.PeriodAllTime, leaderboard.MetricTotalTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allTime.Comparison.Kind != leaderboard.ComparisonDayEarlier || allTime.Comparison.Window.Start != nil || !allTime.Comparison.Window.End.Equal(at(17, 10, 0)) {
+		t.Fatalf("all-time comparison = %#v", allTime.Comparison)
+	}
+	// Delta's first usage is inside the last 24 hours.
+	deltaRow := leaderboardRowByUser(t, allTime.Rows, delta)
+	if !deltaRow.Trend.New || deltaRow.Trend.PreviousRank != nil || deltaRow.Value.Value == nil || *deltaRow.Value.Value != "100" {
+		t.Fatalf("all-time entrant = %#v", deltaRow)
+	}
+	// Charlie: 300 tokens now, 100 as of 24 hours ago.
+	charlieRow := leaderboardRowByUser(t, allTime.Rows, charlie)
+	if *charlieRow.Value.Value != "300" || charlieRow.Trend.PreviousValue.Value == nil || *charlieRow.Trend.PreviousValue.Value != "100" {
+		t.Fatalf("all-time values = %v now, %v before", charlieRow.Value.Value, charlieRow.Trend.PreviousValue.Value)
 	}
 }
 
