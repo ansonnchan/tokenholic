@@ -20,7 +20,7 @@ test("rejects invalid release versions before filesystem changes", async () => {
   await assert.rejects(prepareNpmRelease("v1.2.3", "missing", "missing"), /semantic version/);
 });
 
-async function syntheticRelease(t, { optionalDependencies } = {}) {
+async function syntheticRelease(t, { optionalDependencies, license = "synthetic-license" } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "tokenholic-npm-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const artifacts = path.join(root, "artifacts");
@@ -47,6 +47,9 @@ async function syntheticRelease(t, { optionalDependencies } = {}) {
     await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: packageName(platform), version: "development" }));
   }
   await writeFile(path.join(artifacts, "SHA256SUMS"), `${sums.join("\n")}\n`);
+  if (license !== null) {
+    await writeFile(path.join(workspace, "LICENSE"), license);
+  }
 
   const cliDirectory = path.join(workspace, "packages", "cli");
   await mkdir(cliDirectory, { recursive: true });
@@ -90,6 +93,17 @@ test("prepares exact platform and umbrella packages", async (t) => {
     assert.notEqual((await stat(binary)).mode & 0o111, 0);
     const manifest = JSON.parse(await readFile(path.join(workspace, "packages", directory, "package.json"), "utf8"));
     assert.equal(manifest.version, "1.2.3");
+    assert.equal(await readFile(path.join(workspace, "packages", directory, "LICENSE"), "utf8"), "synthetic-license");
+  }
+  assert.equal(await readFile(path.join(cliDirectory, "LICENSE"), "utf8"), "synthetic-license");
+});
+
+test("refuses a release whose workspace has no license to ship", async (t) => {
+  const { artifacts, workspace } = await syntheticRelease(t, { license: null });
+  await assert.rejects(prepareNpmRelease("1.2.3", artifacts, workspace), /no LICENSE/);
+  for (const platform of platforms) {
+    // It stops before any package is touched.
+    await assert.rejects(stat(path.join(workspace, "packages", packageDirectory(platform), "bin")), { code: "ENOENT" });
   }
 });
 

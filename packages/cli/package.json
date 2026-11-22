@@ -2,6 +2,7 @@
   "name": "@tokenholic/cli",
   "version": "0.0.0-development",
   "description": "Native tokenholic coding-agent usage tracker launcher",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ansonnchan/tokenholic.git"
