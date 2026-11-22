@@ -219,3 +219,54 @@ export function untilText(instant, now) {
   if (minutes < 48 * 60) return `in ${Math.floor(minutes / 60)}h`;
   return `in ${Math.floor(minutes / (60 * 24))}d`;
 }
+
+// ---- Sharing -------------------------------------------------------------
+//
+// A share button is a plain link to X's compose page. The site posts nothing
+// and calls no API: the visitor reviews the draft there and sends it
+// themselves. The link attached to the draft is the API's share page, which
+// unfurls with a card and sends browsers back here.
+
+const INSTALL_LINE = ">_ npx @tokenholic/cli";
+
+// intentLink builds the compose link the way internal/share does.
+export function intentLink(text, url) {
+  const query = new URLSearchParams({ text: text.trim() });
+  if (url) query.set("url", url);
+  return `https://x.com/intent/post?${query}`;
+}
+
+// spoken turns a formatted value into prose: "≥4.26B" reads "at least 4.26B".
+function spoken(text) {
+  return text.startsWith(AT_LEAST) ? `at least ${text.slice(AT_LEAST.length)}` : text;
+}
+
+// profileShareText drafts a post about a public profile's last 30 days, in
+// the third person because the visitor may not be its owner. It is "" when
+// there is no token total to state: an unknown total is never drafted.
+export function profileShareText(profile) {
+  const recent = profile?.last_30_days;
+  const total = tokensText(recent?.total_tokens);
+  if (!validLogin(profile?.login) || total === UNAVAILABLE || total === "0" || total === `${AT_LEAST}0`) return "";
+  let text = `@${profile.login} burned ${spoken(total)} tokens with coding agents in the last 30 days.`;
+  const estimate = estimateText(recent?.api_equivalent_estimate_microusd);
+  if (estimate !== UNAVAILABLE) text += ` That is ${spoken(estimate)} at API list prices (an estimate).`;
+  return `${text}\n\n${INSTALL_LINE}`;
+}
+
+// boardShareText drafts a post about a public board. It names the group,
+// which its owner made public, and no member.
+export function boardShareText(board) {
+  const name = typeof board?.group_name === "string" ? board.group_name.trim() : "";
+  if (!name) return "";
+  const period = PERIODS[board?.period]?.phrase ?? "";
+  return `${name} standings ${period}, on tokenholic.`.replace(" ,", ",") + `\n\n${INSTALL_LINE}`;
+}
+
+// profileSharePage and boardSharePage are the API's share pages.
+export function profileSharePage(api, login) {
+  return `${api}/s/u/${encodeURIComponent(login)}`;
+}
+export function boardSharePage(api, slug, period, metric) {
+  return `${api}/s/b/${encodeURIComponent(slug)}?${new URLSearchParams({ period, metric })}`;
+}

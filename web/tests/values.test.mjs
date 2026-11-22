@@ -4,6 +4,11 @@ import { test } from "node:test";
 import {
   boardNotes,
   boardRows,
+  boardSharePage,
+  boardShareText,
+  intentLink,
+  profileSharePage,
+  profileShareText,
   comparisonLabel,
   estimateText,
   estimateNote,
@@ -178,4 +183,46 @@ test("untilText says how far away an expiry is", () => {
   assert.equal(untilText("2026-11-25T18:00:00Z", now), "in 4d");
   assert.equal(untilText("2026-11-21T17:00:00Z", now), "now");
   assert.equal(untilText("not a date", now), "");
+});
+
+test("a share link is X's compose page with an encoded draft", () => {
+  const link = new URL(intentLink("  @dana burned 4.26B tokens & more.\n\n>_ npx @tokenholic/cli  ", "https://api.tokenholic.example/s/u/dana"));
+  assert.equal(link.origin + link.pathname, "https://x.com/intent/post");
+  assert.equal(link.searchParams.get("text"), "@dana burned 4.26B tokens & more.\n\n>_ npx @tokenholic/cli");
+  assert.equal(link.searchParams.get("url"), "https://api.tokenholic.example/s/u/dana");
+  assert.equal(intentLink("text only"), "https://x.com/intent/post?text=text+only");
+});
+
+test("a profile draft states lower bounds and calls the estimate an estimate", () => {
+  const profile = (tokens, estimate) => ({ login: "dana", last_30_days: { total_tokens: tokens, api_equivalent_estimate_microusd: estimate } });
+  assert.equal(
+    profileShareText(profile(value("4263000000", "partial"), value("1180420000", "partial"))),
+    "@dana burned at least 4.26B tokens with coding agents in the last 30 days. That is at least $1,180.42 at API list prices (an estimate).\n\n>_ npx @tokenholic/cli",
+  );
+  assert.equal(
+    profileShareText(profile(value("987"), value(null, "unavailable"))),
+    "@dana burned 987 tokens with coding agents in the last 30 days.\n\n>_ npx @tokenholic/cli",
+  );
+  // Nothing to state means no draft, never a draft about zero.
+  for (const tokens of [value(null, "empty"), value(null, "unavailable"), value("0"), value("0", "partial"), undefined]) {
+    assert.equal(profileShareText(profile(tokens, value("5"))), "", JSON.stringify(tokens));
+  }
+  assert.equal(profileShareText({ login: "not a login", last_30_days: { total_tokens: value("5") } }), "");
+  assert.doesNotMatch(profileShareText(profile(value("5"), value("5"))), /spent|spend/);
+});
+
+test("a board draft names the group and its period, and no member", () => {
+  assert.equal(boardShareText({ group_name: "night-shift", period: "week" }), "night-shift standings this week, on tokenholic.\n\n>_ npx @tokenholic/cli");
+  assert.equal(boardShareText({ group_name: "night-shift", period: "all_time" }), "night-shift standings all-time, on tokenholic.\n\n>_ npx @tokenholic/cli");
+  assert.equal(boardShareText({ group_name: "night-shift", period: "soon" }), "night-shift standings, on tokenholic.\n\n>_ npx @tokenholic/cli");
+  assert.equal(boardShareText({ group_name: "  " }), "");
+  assert.equal(boardShareText({}), "");
+});
+
+test("share pages live on the API", () => {
+  assert.equal(profileSharePage("https://api.tokenholic.example", "dana"), "https://api.tokenholic.example/s/u/dana");
+  assert.equal(
+    boardSharePage("https://api.tokenholic.example", "g-nightshift", "all_time", "total_tokens"),
+    "https://api.tokenholic.example/s/b/g-nightshift?period=all_time&metric=total_tokens",
+  );
 });

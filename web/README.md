@@ -39,6 +39,10 @@ the server hosting the page; it goes only to the API.
 - Text from the API is set as text and never parsed as HTML. Avatars load
   only from GitHub's avatar host.
 
+A public profile and board each have a `SHARE ON X` link. It opens X's
+compose page with a draft and the API's share page for that record; the site
+itself posts nothing.
+
 Each page carries a Content-Security-Policy that allows this site's own
 scripts, styles, and fonts, GitHub avatars, and HTTPS requests. Nothing else
 loads: no third-party script, font, or analytics.

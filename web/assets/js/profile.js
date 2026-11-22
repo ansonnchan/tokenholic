@@ -2,10 +2,12 @@
 // the account chose to publish: the GitHub login, avatar, and aggregate
 // totals. There is no account ID, device, group, or sync time to show.
 
-import { OK, readPublic } from "./api.js";
+import { apiBase, OK, readPublic } from "./api.js";
 import { apiOrigin } from "./config.js";
-import { avatar, command, el, INSTALL, instantText, panel, show, showLoading, showProblem, showWaking } from "./ui.js";
-import { estimateNote, estimateText, pricedBasisPoints, pricedText, tokensNote, tokensText, validLogin } from "./values.js";
+import { avatar, command, el, INSTALL, instantText, panel, shareButton, show, showLoading, showProblem, showWaking } from "./ui.js";
+import {
+  estimateNote, estimateText, intentLink, pricedBasisPoints, pricedText, profileSharePage, profileShareText, tokensNote, tokensText, validLogin,
+} from "./values.js";
 
 const NOT_FOUND = {
   title: "No public profile",
@@ -35,6 +37,8 @@ function totals(title, window) {
 
 function render(view, profile) {
   const login = typeof profile.login === "string" ? profile.login : "";
+  const draft = profileShareText(profile);
+  const share = shareButton(draft && intentLink(draft, profileSharePage(apiBase(apiOrigin), login)));
   const asOf = instantText(profile.generated_at, "UTC", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
   show(view, `@${login}`,
     el("header", { class: "profile-head" },
@@ -44,6 +48,7 @@ function render(view, profile) {
         el("h1", { class: "profile-name", text: `@${login}` }),
         el("a", { class: "profile-link", href: `https://github.com/${encodeURIComponent(login)}`, rel: "noopener noreferrer", text: `github.com/${login}` }),
       ),
+      share ? el("p", { class: "profile-share" }, share) : null,
     ),
     el("div", { class: "pair" }, totals("Last 30 days", profile.last_30_days), totals("All-time", profile.all_time)),
     el("p", { class: "fineprint", text: `Periods use UTC days${asOf ? `, as of ${asOf} UTC` : ""}. $ EST is an estimate at API list prices, never spending. Usage is reported by this member's own machines.` }),
