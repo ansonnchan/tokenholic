@@ -9,6 +9,7 @@ require (
 	github.com/muesli/termenv v0.16.0
 	github.com/ncruces/go-sqlite3 v0.32.0
 	github.com/zalando/go-keyring v0.2.8
+	golang.org/x/image v0.40.0
 	golang.org/x/sys v0.41.0
 )
 
