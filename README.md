@@ -19,8 +19,6 @@ terminal, and ranks you against the friends you invite.
 
 <img src="docs/images/demo.gif" alt="A walk through the tokenholic terminal interface: usage by period, a group board ranked by estimate and by tokens, the opt-in global board, models, sources, and the dark look" width="860">
 
-<sub>Invented data. The real thing runs in your terminal, on your own usage.</sub>
-
 </div>
 
 ---
@@ -64,15 +62,41 @@ which comes with the npm package and can be turned off with
   something you turn on.
 - Costs are estimates at API list prices, never what you spent. An unknown
   value is shown as unknown, never as zero.
-- Sync when you run it, or hourly in the background if you enable it.
+- Sync when you run it, or hourly in the background once you turn it on
+  with `tokenholic autosync enable`.
 
 ## Privacy
 
-tokenholic counts usage. It does not inspect work. It never uploads or keeps
+**tokenholic counts usage.** It does not inspect work. It never uploads or keeps
 prompts, responses, source code, command text, file paths, project or
 repository names, branch names, credentials, or transcripts. What is uploaded
 is token counts by category, the model ID, which agent, and a UTC time bucket.
 `tokenholic show-data` prints that payload, byte for byte, without an account.
+
+## Future work
+
+### Known gaps
+
+- **Slow uploads on the free API.** A batch of 100 buckets takes about twelve
+  seconds. A long history finishes in one run, but still takes minutes.
+- **No upload count in the claim screen.** The terminal `sync` command prints
+  progress; the TUI's claim step shows only a spinner.
+- **Codex compaction usage** is not counted yet; it waits on real records to
+  build a fixture from.
+- **`CLAUDE_CONFIG_DIR` is ignored.** Claude records are read from the default
+  location only.
+- **Group timezone on Windows** falls back to UTC.
+- **Cold starts.** The hosted API is on a free tier and can take about a
+  minute to wake.
+
+### Ideas
+
+- **Native readers for the day-level agents**, so they report by the minute
+  like Claude and Codex instead of one total per UTC day.
+- **More agents**, as ccusage or a native reader makes them available.
+- **Batch speed on the server**, measured first, then fixed where the time
+  actually goes.
+- **Other install channels**, such as Homebrew, alongside npm.
 
 ## Documentation
 
