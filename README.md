@@ -1,255 +1,88 @@
+<div align="center">
+
 # tokenholic
 
-tokenholic is a terminal-first application for understanding coding-agent usage.
-The current local implementation collects supported Claude and Codex evidence,
-normalizes token and model metadata, persists privacy-safe aggregates, reports
-installation health, and provides a keyboard-first application shell without
-reading ordinary chat data.
+### How many tokens did your coding agents burn?
 
-The hosted PostgreSQL data model, HTTP API, GitHub device login, idempotent
-absolute-bucket synchronization, and account-level multi-device aggregation
-complete the accounts/devices milestone. Private groups and authenticated
-multiplayer leaderboards are implemented in the API and TUI. Local mode still
-works without a server. The final social-loop operation permanently deletes
-hosted account data without touching local usage.
+A terminal leaderboard for AI coding-agent usage. tokenholic reads the usage
+records your agents already keep on your machine, totals them in your
+terminal, and ranks you against the friends you invite.
 
-## Privacy boundary
+[![npm](https://img.shields.io/npm/v/@tokenholic/cli?color=d9805f&label=%40tokenholic%2Fcli)](https://www.npmjs.com/package/@tokenholic/cli)
+[![ci](https://img.shields.io/github/actions/workflow/status/ansonnchan/tokenholic/ci.yml?branch=main&color=d9805f&label=ci)](https://github.com/ansonnchan/tokenholic/actions/workflows/ci.yml)
+[![issues welcome](https://img.shields.io/badge/issues-welcome-d9805f)](CONTRIBUTING.md)
 
-tokenholic is designed to count usage, not inspect work. Local collection must never upload or retain prompts, responses, source code, command text, credentials, identifying paths, project names, repository metadata, branch names, or raw transcripts.
+[**Website → ansonnchan.github.io/tokenholic**](https://ansonnchan.github.io/tokenholic/) &nbsp;·&nbsp; [Quickstart](#quickstart) &nbsp;·&nbsp; [How it works](#how-it-works) &nbsp;·&nbsp; [Privacy](#privacy)
 
-The compatibility suite uses synthetic fixtures. Do not replace them with records copied from a real local agent installation. See [fixtures/README.md](./fixtures/README.md) before adding a source-format regression case.
+<img src="docs/images/board.png" alt="A group board in the tokenholic terminal interface, ranking members by API-equivalent estimate" width="860">
 
-## Current capabilities
+<sub>Sample data. The real thing runs in your terminal.</sub>
 
-The native Go command currently provides:
+</div>
 
-- read-only discovery for Claude Code CLI;
-- read-only discovery for Claude Desktop Code, Agent, and Cowork sessions;
-- read-only discovery for Codex CLI and Codex Desktop/shared local storage;
-- native parsing of supported Claude and Codex JSONL evidence;
-- daily totals for GitHub Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, and Qwen Code, read through one pinned, digest-checked ccusage release that comes with the npm package, is reported by `tokenholic doctor`, and is switched with `tokenholic ccusage on|off|status`;
-- deterministic per-model normalization, cumulative-counter reduction, recovery from partial records, and deduplication;
-- transactional local SQLite observations, checkpoints, health, and absolute usage buckets;
-- timezone-aware local totals with explicit complete, partial, unavailable, and empty states;
-- a keyboard-first Overview, Sources, Models, Settings, and private Groups TUI with manual collection;
-- GitHub device-flow `claim`/`login` and revoking `logout` commands backed by the OS credential vault;
-- bounded `sync` and offline exact-payload `show-data`/`sync --dry-run` commands with durable acknowledgements;
-- opt-in hourly autosync on macOS (launchd), Linux (a systemd user timer), and Windows (Task Scheduler) with a stable binary, overlap lock, private logs, status, and complete removal;
-- one authenticated account usage row across active devices with independent revocation and freshness;
-- private groups with owner/member roles, expiring limited-use invites, and membership-authorized reads;
-- timezone-aware group leaderboards for total tokens and API-equivalent estimates, with cost coverage, rank trends, and freshness;
-- explicit authorization-checked deletion of the hosted account and uploaded aggregates; and
-- privacy-safe source and storage diagnostics through `tokenholic doctor`.
-
-Model names are not allowlisted. A previously unseen, non-empty observed identifier can retain its token counts while canonical resolution and pricing remain unavailable. Reported, resolved, inferred, and unknown attribution are separate states.
-
-## Requirements
-
-- Go 1.25 or newer.
-- macOS, Linux, or Windows 10 or later. On Linux, signing in needs a Secret Service keyring and autosync needs a systemd user session; local use needs neither. Windows support is verified in CI and has not yet had its manual run on a real machine.
-- PostgreSQL 18 only when exercising the hosted schema integration tests.
-- Nothing for ccusage: the pinned 20.0.51 executable is installed with the npm package. A build from source has none, and `tokenholic doctor` says so.
-
-The pnpm workspace owns npm distribution tooling; it is not needed to build the native command from source. Checksummed macOS, Linux, and Windows archives, each for arm64 and x64, are produced by the release workflow.
-
-Tagged releases publish the same native binaries through `npx @tokenholic/cli`.
-The launcher installs only the optional package matching the current system:
-macOS, Linux, or Windows, on arm64 or x64. Other platforms fail with a
-supported-target message.
+---
 
 ## Quickstart
 
 ```sh
-npx @tokenholic/cli        # see your usage locally — no login required
+npx @tokenholic/cli        # see your usage locally, no login required
 ```
 
-That's it. The command opens the native dashboard using supported usage records
-already on this machine. Nothing is uploaded and no account is created. The first
-run may ask npm for permission to download the launcher and matching native
-binary.
-
-Install it globally when you want the shorter command:
+That's it. Nothing is uploaded and no account is created. After a global
+install (`npm install --global @tokenholic/cli`) the command is `tokenholic`:
 
 ```sh
-npm install --global @tokenholic/cli
-
-tokenholic                 # local dashboard + option to claim
-tokenholic show-data       # exact payload preview; nothing uploaded
-tokenholic claim           # GitHub sign-in followed by the initial sync
-tokenholic sync            # collect and upload now
-tokenholic autosync enable # explicitly enable hourly background sync
+tokenholic                 # local dashboard, with the option to claim
+tokenholic show-data       # print the exact payload before anything is sent
+tokenholic claim           # sign in with GitHub, then upload
+tokenholic group create "Night shift"
 ```
 
-`show-data` is the friendly alias for `sync --dry-run`; both work without a
-login. `claim` is the onboarding form of `login` and runs
-the first sync after GitHub authorization. Existing `login` and `sync --dry-run`
-commands remain supported.
+Runs on macOS, Linux, and Windows. Every command is in the
+[command reference](docs/commands.md).
 
-Claiming and synchronization talk to the hosted tokenholic API. A released
-build already knows its address, so there is nothing to configure:
+## Works with
 
-```sh
-tokenholic claim
-tokenholic sync
-tokenholic group create "Demo group"
-tokenholic
-```
+`Claude Code` · `Codex` · `Gemini CLI` · `OpenCode` · `Copilot CLI` · `Grok Build CLI` · `Qwen Code`
 
-`TOKENHOLIC_API_URL` exists only to point the client somewhere else: at your
-own deployment, or at a local API during development. You never need to set
-it to use tokenholic. A build made from source with `go build` carries no
-address and does need it; `tokenholic doctor` says which case applies.
+Claude and Codex are read natively, per request. The other five are read as
+daily totals through a pinned [ccusage](https://github.com/ccusage/ccusage),
+which comes with the npm package and can be turned off with
+`tokenholic ccusage off`.
 
-The free demo API may take about a minute to wake after inactivity. Hourly
-synchronization is opt-in and is never silently installed by `sync`.
+## How it works
 
-The complete command surface remains available after global installation:
+- One command scans the usage records your agents already write **on your
+  machine** and opens a dashboard: tokens, an API-equivalent estimate, models,
+  and sources.
+- Claiming with GitHub uploads **token counts only**, after you confirm what
+  is sent. Groups are private and invite-only; a public profile or board is
+  something you turn on.
+- Costs are estimates at API list prices, never what you spent. An unknown
+  value is shown as unknown, never as zero.
+- Sync when you run it, or hourly in the background if you enable it.
 
-```sh
-tokenholic login
-tokenholic logout
-tokenholic show-data
-tokenholic sync --dry-run
-tokenholic sync
-tokenholic autosync enable
-tokenholic autosync status
-tokenholic autosync disable
-tokenholic group list
-tokenholic group create "Quiet team"
-tokenholic group invite --expires 24h --uses 10 "Quiet team"
-tokenholic group join "$TOKENHOLIC_INVITE_CODE"
-tokenholic group leave "Quiet team"
-tokenholic group public "Quiet team"
-tokenholic group private "Quiet team"
-tokenholic group transfer "Quiet team" new-owner-login
-tokenholic group delete --confirm "Quiet team" "Quiet team"
-tokenholic global join
-tokenholic global leave
-tokenholic profile
-tokenholic profile public
-tokenholic profile private
-tokenholic share
-tokenholic share --period week
-tokenholic ccusage status
-tokenholic ccusage off
-tokenholic ccusage on
-tokenholic account delete --confirm DELETE
-```
+<div align="center">
+<img src="docs/images/home.png" alt="The tokenholic home view: tokens, estimate, daily usage, and breakdowns by source and model" width="860">
+</div>
 
-`tokenholic ccusage` controls the one third-party program tokenholic runs:
-ccusage, at a pinned and digest-checked release, for agents tokenholic has
-no reader of its own for (GitHub Copilot CLI, Gemini CLI, Grok Build CLI,
-OpenCode, and Qwen Code). It is on by default, comes with the npm package,
-and reads those agents' local session records on this machine. `off` stops
-tokenholic from running it; the choice is saved. Claude and Codex are never
-read through it. The [runner guide](./internal/adapters/ccusage/README.md)
-lists exactly what it reads and how it is confined.
+## Privacy
 
-`tokenholic share` drafts a post about your own local totals and prints an
-`x.com/intent/post` link. It posts nothing: the link opens X's compose page,
-where you review and send it. When your profile is public the post also
-carries your share page, which unfurls with a card.
-
-Login requests public GitHub identity only. The CLI never receives a GitHub
-access token, and the API uses it only in memory to resolve the stable numeric
-GitHub identity before discarding it.
-
-The API can be run locally or deployed as an optional free demo. The documented
-Render and Supabase configuration is intentionally a personal test environment,
-not a production availability claim. See the [deployment guide](./docs/deployment.md).
-
-## Build and verify
-
-Run the complete local verification suite from a clean checkout:
-
-```sh
-make check
-```
-
-That command checks formatting, runs `go vet`, executes the race-enabled test suite, builds every package, and checks the Git diff for whitespace errors.
-
-Build a local executable:
-
-```sh
-go build -o ./bin/tokenholic ./cmd/tokenholic
-./bin/tokenholic
-```
-
-The first launch scans local usage and shows what it found; nothing leaves
-the machine. Press `enter` for the dashboard, `r` to scan again, `1`–`5` to
-switch views, `p` to change the period, `d` for exact token categories, `s`
-to draft a post of your totals, `?` for help, and `q` to quit. `c` claims an
-account from inside the TUI; a build from source offers it once
-`TOKENHOLIC_API_URL` names an API. The
-minimum supported width is 48 columns.
-
-The TUI is in color and light by default, on its own background, so it looks
-the same in every terminal. Press `t` to switch to a dark look or back; the
-choice is remembered. Three optional environment variables adjust display:
-
-| Variable | Effect |
-| --- | --- |
-| `TOKENHOLIC_THEME=light` or `dark` | Start in that look regardless of the saved choice |
-| `NO_COLOR` (any value) | Disable all styling; selection and status use brackets and words |
-| `TOKENHOLIC_ASCII` (any value) | Replace box-drawing and symbol characters with ASCII |
-
-Run the source diagnostic:
-
-```sh
-./bin/tokenholic doctor
-```
-
-`doctor` reports source types, health, candidate-file availability,
-capabilities, parser compatibility, and privacy-safe local database health. It
-intentionally does not print local source or database paths, parse session
-contents, or expose persisted observations.
-
-## Repository guide
-
-| Path | Responsibility |
-| --- | --- |
-| `cmd/tokenholic` | Native executable entry point |
-| `cmd/pricegen` | Generator that vendors the pinned, checksum-verified price snapshot |
-| `internal/adapters` | Source discovery, source-specific parsers, and the ccusage compatibility contract |
-| `internal/normalize` | Provider-neutral observations, capabilities, and invariants |
-| `internal/collect` | Parsing orchestration, deduplication, and cumulative reduction |
-| `internal/application` | Local refresh sequencing and committed dashboard queries |
-| `internal/account` | Device login, rotation, revocation, account deletion, and OS credential-vault storage |
-| `internal/doctor` | Privacy-safe source and storage diagnostic reporting |
-| `internal/fixturecheck` | Automated fixture privacy validation |
-| `internal/modelcatalog` | Vendored price snapshot, model resolution, and API-equivalent estimates |
-| `internal/store` | Local SQLite lifecycle, observations, aggregates, and diagnostics |
-| `internal/tui` | Bubble Tea application shell and local presentation boundary |
-| `internal/sync` | Privacy-allowlisted protocol, bounded batching, retry, and dry-run serialization |
-| `fixtures` | Synthetic compatibility and regression data |
-| `server/postgres` | Hosted PostgreSQL connection and migration boundary |
-| `server/account`, `server/auth`, `server/sync`, and `server/httpapi` | Account aggregation/deletion, device authorization, idempotent upload, and bounded JSON API |
-| `deploy/render` and `render.yaml` | Optional free demo API container and Render Blueprint |
-| `migrations` | Immutable, embedded hosted PostgreSQL schema history |
-| `docs` | Cross-cutting architecture and design decisions |
-
-Package-level navigation and ownership are documented in [internal/README.md](./internal/README.md). Cross-cutting documents are indexed in [docs/README.md](./docs/README.md).
-
-## Design principles
-
-- Keep discovery, parsing, normalization, collection, persistence, synchronization, and presentation separate.
-- Keep observed model identifiers distinct from canonical model and pricing identifiers.
-- Treat unavailable metadata as unavailable, never as zero.
-- Make repeated collection deterministic and safe.
-- Keep provider-specific rules inside adapters.
-- Validate external tool output as a pinned, versioned contract.
-- Normalize and commit local state before any network upload attempt.
+tokenholic counts usage. It does not inspect work. It never uploads or keeps
+prompts, responses, source code, command text, file paths, project or
+repository names, branch names, credentials, or transcripts. What is uploaded
+is token counts by category, the model ID, which agent, and a UTC time bucket.
+`tokenholic show-data` prints that payload, byte for byte, without an account.
 
 ## Documentation
 
-- [Documentation index](./docs/README.md)
-- [Development guide](./docs/development.md)
-- [Free demo deployment](./docs/deployment.md)
-- [Roadmap](./ROADMAP.md)
-- [Architecture](./docs/architecture.md)
-- [TUI and website design direction](./docs/design.md)
-- [Contributor and agent guidance](./AGENTS.md)
+- [Command reference](docs/commands.md)
+- [Architecture](docs/architecture.md) and [design](docs/design.md)
+- [Development guide](docs/development.md) and [all documentation](docs/README.md)
+- [Roadmap](ROADMAP.md)
 
 ## Contributing
 
-Read [AGENTS.md](./AGENTS.md), the roadmap, architecture, and design documents before changing the project. Keep fixtures synthetic, use conventional commits, run `make check`, and leave pull requests open for review unless a specific merge is explicitly requested.
+Found a bug, or want an agent or feature added? Open an
+[issue](https://github.com/ansonnchan/tokenholic/issues). See
+[CONTRIBUTING.md](CONTRIBUTING.md).
