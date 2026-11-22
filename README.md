@@ -36,6 +36,7 @@ install (`npm install --global @tokenholic/cli`) the command is `tokenholic`:
 
 ```sh
 tokenholic                 # local dashboard, with the option to claim
+tokenholic demo            # the same dashboard on invented data, safe to show
 tokenholic show-data       # print the exact payload before anything is sent
 tokenholic claim           # sign in with GitHub, then upload
 tokenholic group create "EXAMPLE_GROUP_NAME"
