@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { archiveName, binaryName, packageDirectory, packageName, platforms } from "./platforms.mjs";
+import { archiveName, binaryName, ccusagePackageName, packageDirectory, packageName, platforms } from "./platforms.mjs";
 import { parseChecksums, prepareNpmRelease } from "./prepare-npm-release.mjs";
 
 test("parses strict checksum manifests", () => {
@@ -54,8 +54,10 @@ async function syntheticRelease(t, { optionalDependencies } = {}) {
     name: "@tokenholic/cli",
     version: "development",
     // Deliberately unsorted: preparation orders them.
-    optionalDependencies: optionalDependencies ??
-      Object.fromEntries(platforms.map((platform) => [packageName(platform), "workspace:*"]).reverse()),
+    optionalDependencies: optionalDependencies ?? Object.fromEntries([
+      ...platforms.map((platform) => [packageName(platform), "workspace:*"]).reverse(),
+      ...platforms.map((platform) => [ccusagePackageName(platform), "20.0.51"]),
+    ]),
   }));
   return { artifacts, workspace, cliDirectory };
 }
@@ -65,7 +67,15 @@ test("prepares exact platform and umbrella packages", async (t) => {
   await prepareNpmRelease("1.2.3", artifacts, workspace);
   const umbrella = JSON.parse(await readFile(path.join(cliDirectory, "package.json"), "utf8"));
   assert.equal(umbrella.version, "1.2.3");
+  // The native packages take the release version; the pinned ccusage
+  // packages keep the exact version they were reviewed at.
   assert.deepEqual(Object.entries(umbrella.optionalDependencies), [
+    ["@ccusage/ccusage-darwin-arm64", "20.0.51"],
+    ["@ccusage/ccusage-darwin-x64", "20.0.51"],
+    ["@ccusage/ccusage-linux-arm64", "20.0.51"],
+    ["@ccusage/ccusage-linux-x64", "20.0.51"],
+    ["@ccusage/ccusage-win32-arm64", "20.0.51"],
+    ["@ccusage/ccusage-win32-x64", "20.0.51"],
     ["@tokenholic/darwin-arm64", "1.2.3"],
     ["@tokenholic/darwin-x64", "1.2.3"],
     ["@tokenholic/linux-arm64", "1.2.3"],
@@ -88,6 +98,25 @@ test("refuses a launcher that does not depend on every platform package", async 
     optionalDependencies: { "@tokenholic/darwin-arm64": "workspace:*", "@tokenholic/darwin-x64": "workspace:*" },
   });
   await assert.rejects(prepareNpmRelease("1.2.3", artifacts, workspace), /exactly the supported platform packages/);
+});
+
+test("refuses a launcher without the pinned ccusage packages", async (t) => {
+  const { artifacts, workspace } = await syntheticRelease(t, {
+    optionalDependencies: Object.fromEntries(platforms.map((platform) => [packageName(platform), "workspace:*"])),
+  });
+  await assert.rejects(prepareNpmRelease("1.2.3", artifacts, workspace), /pinned ccusage packages/);
+});
+
+test("refuses a ccusage dependency that is a range rather than one version", async (t) => {
+  for (const range of ["^20.0.51", "~20.0.51", "20", "latest", ">=20.0.51", "20.0.x", "workspace:*"]) {
+    const { artifacts, workspace } = await syntheticRelease(t, {
+      optionalDependencies: Object.fromEntries([
+        ...platforms.map((platform) => [packageName(platform), "workspace:*"]),
+        ...platforms.map((platform, index) => [ccusagePackageName(platform), index === 3 ? range : "20.0.51"]),
+      ]),
+    });
+    await assert.rejects(prepareNpmRelease("1.2.3", artifacts, workspace), /must be pinned to one exact version/, range);
+  }
 });
 
 test("refuses a release that is missing a platform archive", async (t) => {

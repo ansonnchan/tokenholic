@@ -21,6 +21,12 @@ export function packageName(platform) {
   return `@tokenholic/${packageDirectory(platform)}`;
 }
 
+// The pinned ccusage package for the same platform. ccusage.lock.json holds
+// its version, npm integrity, and the digest of the executable inside it.
+export function ccusagePackageName(platform) {
+  return `@ccusage/ccusage-${packageDirectory(platform)}`;
+}
+
 export function archiveName(platform, version) {
   return `tokenholic_${version}_${platform.archiveOS}_${platform.cpu}.tar.gz`;
 }
