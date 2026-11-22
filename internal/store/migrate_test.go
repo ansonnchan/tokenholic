@@ -300,3 +300,104 @@ func createMigrationTable(t *testing.T, db *sql.DB) {
 		t.Fatal(err)
 	}
 }
+
+// The day-level migration rebuilds three tables to widen their source lists.
+// Every existing row, and the link between a source's health and its
+// checkpoint, must come through unchanged.
+func TestDayLevelMigrationKeepsEveryExistingRow(t *testing.T) {
+	t.Parallel()
+	db := openTestSQLDB(t)
+	if err := migrate(t.Context(), db, applicationMigrations[:7]); err != nil {
+		t.Fatal(err)
+	}
+	statements := []string{
+		`INSERT INTO observations(
+			identity, source, surface, source_version, session_fingerprint, occurred_at, observed_model_id, model_resolution,
+			input_uncached_tokens, input_cache_write_tokens, input_cache_write_5m_tokens, input_cache_write_1h_tokens,
+			output_tokens, count_semantics, measurement, adapter_version, normalization_version, warnings_json,
+			service_tier, prompt_tokens
+		) VALUES
+			('claude-row', 'claude', 'desktop_cowork', 'synthetic-v1', 'session-print', '2026-01-06T03:00:00Z', 'model-synthetic', 'reported',
+			 '11', '9', '4', '5', '7', 'incremental', 'reported', '3', '1', '[{"code":"synthetic"}]', 'priority', '120000'),
+			('codex-row', 'codex', 'shared_local', 'synthetic-v1', NULL, '2026-01-06T03:01:00Z', 'model-synthetic', 'inferred',
+			 NULL, NULL, NULL, NULL, '18446744073709551615', 'cumulative_snapshot', 'derived', '3', '1', '[{"code":"model_inferred"}]', NULL, NULL)`,
+		`INSERT INTO source_checkpoints(source_identity, source, surface, cursor_value, last_record_fingerprint, collected_at)
+		 VALUES ('claude-source', 'claude', 'cli', '12', 'record-print', '2026-01-06T03:00:00Z'),
+		        ('codex-source', 'codex', 'desktop', '3', NULL, '2026-01-06T03:00:00Z')`,
+		`INSERT INTO adapter_health(source_identity, source, surface, status, record_count, format, capabilities_json, warnings_json, adapter_version, checked_at, last_success_at)
+		 VALUES ('claude-source', 'claude', 'cli', 'detected', '12', 'claude-jsonl-v1', '{"model":"reported"}', '[]', '3', '2026-01-06T03:00:00Z', '2026-01-06T02:00:00Z'),
+		        ('codex-source', 'codex', 'desktop', 'degraded', NULL, 'codex-rollout-jsonl', '{}', '[{"code":"no_candidate_records"}]', '3', '2026-01-06T03:00:00Z', NULL)`,
+		`INSERT INTO usage_buckets(bucket_key, bucket_start, revision, content_hash, payload_json, preview_json)
+		 VALUES ('kept-bucket', '2026-01-06T03:00:00Z', '4', '` + strings.Repeat("a", 64) + `', '{}', '{}')`,
+		`INSERT INTO outbox_records(bucket_key, revision, payload_json, state) VALUES ('kept-bucket', '4', '{}', 'acknowledged')`,
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dump := func() string {
+		t.Helper()
+		var all []string
+		for _, query := range []string{
+			`SELECT identity || '|' || source || '|' || surface || '|' || source_version || '|' || COALESCE(session_fingerprint,'<null>') || '|' || occurred_at || '|' ||
+				observed_model_id || '|' || model_resolution || '|' || COALESCE(input_uncached_tokens,'<null>') || '|' || COALESCE(input_cache_read_tokens,'<null>') || '|' ||
+				COALESCE(input_cache_write_tokens,'<null>') || '|' || COALESCE(input_cache_write_5m_tokens,'<null>') || '|' || COALESCE(input_cache_write_1h_tokens,'<null>') || '|' ||
+				COALESCE(output_tokens,'<null>') || '|' || COALESCE(reasoning_output_tokens,'<null>') || '|' || count_semantics || '|' || measurement || '|' || adapter_version || '|' ||
+				normalization_version || '|' || warnings_json || '|' || COALESCE(service_tier,'<null>') || '|' || COALESCE(prompt_tokens,'<null>') FROM observations ORDER BY identity`,
+			`SELECT source_identity || '|' || source || '|' || surface || '|' || cursor_value || '|' || COALESCE(last_record_fingerprint,'<null>') || '|' || collected_at FROM source_checkpoints ORDER BY source_identity`,
+			`SELECT source_identity || '|' || source || '|' || surface || '|' || status || '|' || COALESCE(record_count,'<null>') || '|' || format || '|' || capabilities_json || '|' ||
+				warnings_json || '|' || adapter_version || '|' || checked_at || '|' || COALESCE(last_success_at,'<null>') FROM adapter_health ORDER BY source_identity`,
+			`SELECT bucket_key || '|' || revision || '|' || payload_json FROM usage_buckets ORDER BY bucket_key`,
+			`SELECT bucket_key || '|' || revision || '|' || state FROM outbox_records ORDER BY bucket_key`,
+		} {
+			rows, err := db.QueryContext(t.Context(), query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var line string
+				if err := rows.Scan(&line); err != nil {
+					t.Fatal(err)
+				}
+				all = append(all, line)
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatal(err)
+			}
+			rows.Close()
+		}
+		return strings.Join(all, "\n")
+	}
+	before := dump()
+	if strings.Count(before, "\n") != 7 {
+		t.Fatalf("seeded rows = %q", before)
+	}
+	if err := migrate(t.Context(), db, applicationMigrations); err != nil {
+		t.Fatal(err)
+	}
+	if after := dump(); after != before {
+		t.Fatalf("rows changed across the migration:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+	// The health row still belongs to its checkpoint, and to nothing left
+	// over from the rebuild.
+	var violations int
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil || violations != 0 {
+		t.Fatalf("foreign key violations = %d, %v", violations, err)
+	}
+	if _, err := db.ExecContext(t.Context(), `DELETE FROM source_checkpoints WHERE source_identity = 'codex-source'`); err != nil {
+		t.Fatal(err)
+	}
+	var health int
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM adapter_health`).Scan(&health); err != nil || health != 1 {
+		t.Fatalf("adapter health rows after deleting one checkpoint = %d, %v; want the cascade to leave 1", health, err)
+	}
+	var leftovers int
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE name LIKE '%\_new' ESCAPE '\' OR sql LIKE '%\_new%' ESCAPE '\'`).Scan(&leftovers); err != nil || leftovers != 0 {
+		t.Fatalf("objects still naming a rebuild table = %d, %v", leftovers, err)
+	}
+	var indexes int
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('observations_occurred_at', 'observations_model')`).Scan(&indexes); err != nil || indexes != 2 {
+		t.Fatalf("observation indexes = %d, %v", indexes, err)
+	}
+}

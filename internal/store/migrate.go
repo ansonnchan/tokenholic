@@ -34,6 +34,7 @@ var applicationMigrations = mustLoadMigrations([]struct {
 	{version: 5, name: "sync_v2_buckets", file: "migrations/0005_sync_v2_buckets.sql"},
 	{version: 6, name: "recollect_codex_usage", file: "migrations/0006_recollect_codex_usage.sql"},
 	{version: 7, name: "pricing_evidence", file: "migrations/0007_pricing_evidence.sql"},
+	{version: 8, name: "day_level_sources", file: "migrations/0008_day_level_sources.sql"},
 })
 
 func mustLoadMigrations(definitions []struct {

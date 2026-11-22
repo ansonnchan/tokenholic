@@ -57,6 +57,15 @@ writes that means a combined total with an unknown time-to-live, and for
 pricing evidence it means none. Model attribution, measurement, and
 normalization version are never replaced.
 
+The other exception is a day total (see
+[day-level sources](../normalize/README.md#day-level-sources)). Its identity
+is the agent, the UTC day, and the model, and its value is the day's whole
+total so far, so a later reading with different values replaces the stored
+ones in place. It is one record however many times the day is read: rereading
+an unchanged day changes nothing, and a day that grew holds the new value,
+not the sum of the readings. The schema ties `day_total` to the day-level
+sources, so a Claude or Codex row cannot be stored as one.
+
 Pricing evidence is the service tier and the prompt size of one request (see
 the [normalized contract](../normalize/README.md)). Both columns are nullable,
 and NULL means the source did not prove the fact. Evidence is part of the
@@ -83,6 +92,13 @@ normalization version, and pricing evidence: the service tier and the prompt
 band. The key holds observed evidence only, so a catalog update never moves a
 bucket. The server prices a bucket from one rate card, which is why requests
 at different tiers or on different sides of a price threshold never share one.
+
+A day total becomes one bucket filed at the start of its UTC day and marked
+`"granularity": "day"`. The mark is part of its key and its JSON. A minute
+bucket has no such field, so admitting day-level sources changed no existing
+bucket. Because a day total is replaced in place, its bucket is replaced the
+same way every other bucket is: a new revision of the same key, holding the
+day's new absolute value.
 
 A bucket with no pricing evidence omits both fields from its key and its JSON.
 It is byte-identical to a bucket built before the evidence existed, keeps its
