@@ -6,7 +6,9 @@ import (
 	"compress/gzip"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +79,58 @@ func TestReplaceEnvironment(t *testing.T) {
 	for _, want := range []string{"PATH=/bin", "CGO_ENABLED=0", "GOARCH=arm64", "GOOS=darwin"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("environment %q does not contain %q", got, want)
+		}
+	}
+}
+
+func TestTargetsNameEveryShippedPlatform(t *testing.T) {
+	var names []string
+	for _, target := range targets {
+		if target.verify == nil {
+			t.Fatalf("%s has no binary check", target)
+		}
+		names = append(names, target.archiveName("1.2.3"))
+	}
+	want := []string{
+		"tokenholic_1.2.3_darwin_arm64.tar.gz", "tokenholic_1.2.3_darwin_x64.tar.gz",
+		"tokenholic_1.2.3_linux_arm64.tar.gz", "tokenholic_1.2.3_linux_x64.tar.gz",
+	}
+	if !slices.Equal(names, want) {
+		t.Fatalf("archives = %q, want %q", names, want)
+	}
+}
+
+// Each target's check must accept its own build and refuse every other
+// target's, so an archive can never carry the wrong binary.
+func TestTargetChecksAcceptOnlyTheirOwnBinary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("cross-compiles one small program per target")
+	}
+	source := filepath.Join(t.TempDir(), "main.go")
+	if err := os.WriteFile(source, []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	built := make(map[string]string, len(targets))
+	for _, target := range targets {
+		path := filepath.Join(t.TempDir(), "synthetic")
+		command := exec.Command("go", "build", "-o", path, source)
+		command.Env = replaceEnvironment(os.Environ(), map[string]string{
+			"CGO_ENABLED": "0", "GOOS": target.goOS, "GOARCH": target.goArch,
+		})
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("build %s: %v: %s", target, err, output)
+		}
+		built[target.String()] = path
+	}
+	for _, target := range targets {
+		for name, path := range built {
+			err := target.verify(path)
+			if name == target.String() && err != nil {
+				t.Errorf("%s refused its own binary: %v", target, err)
+			}
+			if name != target.String() && err == nil {
+				t.Errorf("%s accepted the %s binary", target, name)
+			}
 		}
 	}
 }
