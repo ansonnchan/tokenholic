@@ -35,6 +35,7 @@ type apiClient interface {
 	GlobalLeaderboard(context.Context, string, Period, Metric) (Board, error)
 	SetGlobalParticipation(context.Context, string, bool) error
 	Profile(context.Context, string) (Profile, error)
+	SharePage(ctx context.Context, login string) (address string, served bool, err error)
 	SetProfileVisibility(context.Context, string, bool) error
 	SetGroupVisibility(context.Context, string, string, bool) (Group, error)
 	DeleteGroup(context.Context, string, string) error
@@ -184,6 +185,40 @@ func (s *Service) Profile(ctx context.Context) (Profile, error) {
 	}
 	profile, err := s.client.Profile(ctx, credential)
 	return profile, normalizeSessionError(err)
+}
+
+// ShareLink says whether a post by the signed-in account can carry a card.
+type ShareLink struct {
+	// Login is the account's GitHub login.
+	Login string
+	// URL is the account's share page, set only when the server serves it.
+	// Attached to a post, it unfurls with the account's card.
+	URL string
+	// Private reports that the profile is private, so there is no page.
+	Private bool
+}
+
+// ShareLink finds the signed-in account's share page. A private profile has
+// none, and neither does a server without a website; both leave URL empty.
+// The page is fetched once without a credential, exactly as a crawler will,
+// so a link is offered only if it works.
+func (s *Service) ShareLink(ctx context.Context) (ShareLink, error) {
+	profile, err := s.Profile(ctx)
+	if err != nil {
+		return ShareLink{}, err
+	}
+	link := ShareLink{Login: profile.Login, Private: profile.Visibility != "public"}
+	if link.Private {
+		return link, nil
+	}
+	address, served, err := s.client.SharePage(ctx, profile.Login)
+	if err != nil {
+		return ShareLink{}, err
+	}
+	if served {
+		link.URL = address
+	}
+	return link, nil
 }
 
 // SetProfileVisibility makes the signed-in account's profile public or private.

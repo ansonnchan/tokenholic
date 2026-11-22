@@ -13,6 +13,7 @@ import (
 
 	"github.com/ansonnchan/tokenholic/internal/account"
 	"github.com/ansonnchan/tokenholic/internal/adapters"
+	"github.com/ansonnchan/tokenholic/internal/application"
 	"github.com/ansonnchan/tokenholic/internal/autosync"
 	"github.com/ansonnchan/tokenholic/internal/doctor"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
@@ -40,6 +41,8 @@ type dependencies struct {
 	sync       func(context.Context, string, string, string, bool, io.Writer) error
 	executable func() (string, error)
 	autosync   func(string, string, string, string) (autosyncManager, error)
+	// usage scans local records and returns the dashboard's totals.
+	usage func(ctx context.Context, home, codexHome string) (application.Dashboard, error)
 }
 
 type accountManager interface {
@@ -56,6 +59,7 @@ type groupManager interface {
 	Leave(context.Context, string) error
 	SetGlobalParticipation(context.Context, bool) error
 	Profile(context.Context) (multiplayer.Profile, error)
+	ShareLink(context.Context) (multiplayer.ShareLink, error)
 	SetProfileVisibility(context.Context, bool) error
 	SetGroupVisibility(context.Context, string, bool) (multiplayer.Group, error)
 	DeleteGroup(context.Context, string) error
@@ -90,7 +94,8 @@ func defaultDependencies() dependencies {
 			}
 			return multiplayer.NewService(client, account.NewKeyringStore(apiURL), localTimezone())
 		},
-		sync: synchronizeLocal,
+		sync:  synchronizeLocal,
+		usage: loadLocalUsage,
 		autosync: func(home, executable, apiURL, codexHome string) (autosyncManager, error) {
 			return autosync.NewManager(autosync.Config{
 				Home: home, Executable: executable, APIURL: apiURL, CodexHome: codexHome,
@@ -134,6 +139,9 @@ func run(args []string, stdout, stderr io.Writer, deps dependencies) int {
 	}
 	if len(args) > 0 && args[0] == "autosync" {
 		return runAutosyncCommand(args[1:], stdout, stderr, deps)
+	}
+	if len(args) > 0 && args[0] == "share" {
+		return runShareCommand(args[1:], stdout, stderr, deps)
 	}
 	flags := flag.NewFlagSet("tokenholic", flag.ContinueOnError)
 	flags.SetOutput(stderr)

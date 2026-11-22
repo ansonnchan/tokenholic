@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/ansonnchan/tokenholic/internal/store"
 )
 
 func TestIntentLinkEncodesTheDraftForXsComposePage(t *testing.T) {
@@ -59,5 +61,49 @@ func TestUsageTextLabelsEstimatesAndLowerBounds(t *testing.T) {
 		if strings.Contains(got, "$") && !strings.Contains(got, "estimate") {
 			t.Errorf("%s: a dollar amount is not called an estimate: %q", test.name, got)
 		}
+	}
+}
+
+func TestUsageForNeverDraftsAnUnknownTotal(t *testing.T) {
+	t.Parallel()
+	count := func(value uint64, state store.Availability) store.AggregateValue {
+		return store.AggregateValue{Value: &value, State: state}
+	}
+	tokens := func(output store.AggregateValue) store.TokenBreakdown {
+		zero := count(0, store.AvailabilityComplete)
+		return store.TokenBreakdown{InputUncached: zero, InputCacheRead: zero, InputCacheWrite: zero, Output: output}
+	}
+	known := store.UsageSummary{
+		Period: store.PeriodLast30Days, Tokens: tokens(count(4_263_000_000, store.AvailabilityComplete)),
+		APIEstimate: count(1_180_420_000, store.AvailabilityComplete),
+	}
+	usage, ok := UsageFor(known)
+	if !ok || usage != (Usage{Tokens: "4.26B", Estimate: "$1,180.42", Period: "in the last 30 days"}) {
+		t.Fatalf("UsageFor(known) = %+v, %t", usage, ok)
+	}
+
+	partial := known
+	partial.Period, partial.APIEstimate = store.PeriodWeek, count(1_180_420_000, store.AvailabilityPartial)
+	if usage, ok := UsageFor(partial); !ok || !usage.LowerBound || usage.Period != "this week" {
+		t.Fatalf("UsageFor(partial estimate) = %+v, %t", usage, ok)
+	}
+
+	unpriced := known
+	unpriced.Period, unpriced.APIEstimate = store.PeriodAllTime, store.AggregateValue{State: store.AvailabilityUnavailable}
+	usage, ok = UsageFor(unpriced)
+	if !ok || usage.Estimate != "" || usage.Period != "so far" || strings.Contains(UsageText(usage), "$") {
+		t.Fatalf("UsageFor(unpriced) = %+v, %t: %q", usage, ok, UsageText(usage))
+	}
+
+	for name, summary := range map[string]store.UsageSummary{
+		"no usage":      {Period: store.PeriodToday},
+		"unknown total": {Period: store.PeriodToday, Tokens: tokens(store.AggregateValue{State: store.AvailabilityUnavailable})},
+	} {
+		if usage, ok := UsageFor(summary); ok || usage != (Usage{}) {
+			t.Errorf("UsageFor(%s) = %+v, %t; want nothing to post", name, usage, ok)
+		}
+	}
+	if PeriodPhrase(store.PeriodToday) != "today" {
+		t.Errorf("PeriodPhrase(today) = %q", PeriodPhrase(store.PeriodToday))
 	}
 }

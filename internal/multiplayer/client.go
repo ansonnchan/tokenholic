@@ -364,6 +364,33 @@ func (c *Client) Profile(ctx context.Context, credential string) (Profile, error
 	return profile, err
 }
 
+// SharePage returns the address of a login's public share page and whether
+// the server serves it. A share page is public, so the request carries no
+// credential: it is the request a crawler will make when the link is posted.
+// A missing page is not an error; it means a post would unfurl nothing.
+func (c *Client) SharePage(ctx context.Context, login string) (string, bool, error) {
+	endpoint := *c.baseURL
+	endpoint.Path += "/s/u/" + url.PathEscape(login)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return "", false, fmt.Errorf("create share-page request: %w", err)
+	}
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return "", false, fmt.Errorf("request share page: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+	switch response.StatusCode {
+	case http.StatusOK:
+		return endpoint.String(), true, nil
+	case http.StatusNotFound:
+		return "", false, nil
+	default:
+		return "", false, fmt.Errorf("share page returned status %s", strconv.Itoa(response.StatusCode))
+	}
+}
+
 // SetProfileVisibility makes the caller's profile public or private.
 func (c *Client) SetProfileVisibility(ctx context.Context, credential string, public bool) error {
 	want := visibilityName(public)

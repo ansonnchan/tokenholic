@@ -124,8 +124,15 @@ tokenholic global leave
 tokenholic profile
 tokenholic profile public
 tokenholic profile private
+tokenholic share
+tokenholic share --period week
 tokenholic account delete --confirm DELETE
 ```
+
+`tokenholic share` drafts a post about your own local totals and prints an
+`x.com/intent/post` link. It posts nothing: the link opens X's compose page,
+where you review and send it. When your profile is public the post also
+carries your share page, which unfurls with a card.
 
 Login requests public GitHub identity only. The CLI never receives a GitHub
 access token, and the API uses it only in memory to resolve the stable numeric

@@ -390,10 +390,25 @@ type fakeClient struct {
 	transferGroup   string
 	transferLogin   string
 	profilePublic   *bool
+	visibility      string
+	sharePages      map[string]bool
+	shareErr        error
+	shareRequests   []string
 }
 
 func (f *fakeClient) Profile(context.Context, string) (Profile, error) {
-	return Profile{Login: "member", Visibility: "private"}, nil
+	visibility := f.visibility
+	if visibility == "" {
+		visibility = "private"
+	}
+	return Profile{Login: "member", Visibility: visibility}, nil
+}
+func (f *fakeClient) SharePage(_ context.Context, login string) (string, bool, error) {
+	f.shareRequests = append(f.shareRequests, login)
+	if f.shareErr != nil {
+		return "", false, f.shareErr
+	}
+	return "https://api.example.test/s/u/" + login, f.sharePages[login], nil
 }
 func (f *fakeClient) SetProfileVisibility(_ context.Context, _ string, public bool) error {
 	f.profilePublic = &public
@@ -451,4 +466,65 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func TestShareLinkIsOfferedOnlyForAPublicProfileTheServerServes(t *testing.T) {
+	t.Parallel()
+	session := fakeStore{session: account.Session{Credential: "device-credential"}}
+	tests := []struct {
+		name     string
+		client   *fakeClient
+		want     ShareLink
+		requests int
+		wantErr  bool
+	}{
+		{name: "private profile is never fetched", client: &fakeClient{visibility: "private", sharePages: map[string]bool{"member": true}}, want: ShareLink{Login: "member", Private: true}},
+		{name: "public profile with a share page", client: &fakeClient{visibility: "public", sharePages: map[string]bool{"member": true}}, want: ShareLink{Login: "member", URL: "https://api.example.test/s/u/member"}, requests: 1},
+		{name: "server without share pages", client: &fakeClient{visibility: "public"}, want: ShareLink{Login: "member"}, requests: 1},
+		{name: "unreachable share page", client: &fakeClient{visibility: "public", shareErr: errors.New("timeout")}, requests: 1, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			service, err := NewService(test.client, session, "UTC")
+			if err != nil {
+				t.Fatal(err)
+			}
+			link, err := service.ShareLink(t.Context())
+			if (err != nil) != test.wantErr || link != test.want || len(test.client.shareRequests) != test.requests {
+				t.Fatalf("ShareLink() = %+v, %v after %d page requests; want %+v", link, err, len(test.client.shareRequests), test.want)
+			}
+		})
+	}
+	signedOut, err := NewService(&fakeClient{}, fakeStore{err: account.ErrNoSession}, "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := signedOut.ShareLink(t.Context()); !errors.Is(err, ErrSignedOut) {
+		t.Fatalf("signed-out ShareLink() error = %v", err)
+	}
+}
+
+// The share page is public, so asking for it must not send the credential.
+func TestSharePageRequestCarriesNoCredential(t *testing.T) {
+	t.Parallel()
+	statuses := map[string]int{"/s/u/member": http.StatusOK, "/s/u/hidden": http.StatusNotFound, "/s/u/broken": http.StatusBadGateway}
+	client, err := NewClient("https://api.example.test/", &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.Header.Get("Authorization") != "" {
+			t.Errorf("share-page request = %s with Authorization %q", request.Method, request.Header.Get("Authorization"))
+		}
+		return &http.Response{StatusCode: statuses[request.URL.Path], Body: io.NopCloser(strings.NewReader("page")), Header: http.Header{}}, nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if address, served, err := client.SharePage(t.Context(), "member"); err != nil || !served || address != "https://api.example.test/s/u/member" {
+		t.Errorf("SharePage(member) = %q, %t, %v", address, served, err)
+	}
+	if address, served, err := client.SharePage(t.Context(), "hidden"); err != nil || served || address != "" {
+		t.Errorf("SharePage(hidden) = %q, %t, %v", address, served, err)
+	}
+	if _, served, err := client.SharePage(t.Context(), "broken"); err == nil || served {
+		t.Errorf("SharePage(broken) = %t, %v; want an error", served, err)
+	}
 }

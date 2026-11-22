@@ -629,6 +629,12 @@ type fakeGroupManager struct {
 	visibility    string
 	deleted       string
 	transferred   string
+	shareLink     multiplayer.ShareLink
+	shareErr      error
+}
+
+func (f *fakeGroupManager) ShareLink(context.Context) (multiplayer.ShareLink, error) {
+	return f.shareLink, f.shareErr
 }
 
 func (f *fakeGroupManager) Profile(context.Context) (multiplayer.Profile, error) {
