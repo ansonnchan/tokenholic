@@ -16,7 +16,17 @@ importers:
       '@tokenholic/darwin-x64':
         specifier: workspace:*
         version: link:../darwin-x64
+      '@tokenholic/linux-arm64':
+        specifier: workspace:*
+        version: link:../linux-arm64
+      '@tokenholic/linux-x64':
+        specifier: workspace:*
+        version: link:../linux-x64
 
   packages/darwin-arm64: {}
 
   packages/darwin-x64: {}
+
+  packages/linux-arm64: {}
+
+  packages/linux-x64: {}

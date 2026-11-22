@@ -17,7 +17,9 @@
   },
   "optionalDependencies": {
     "@tokenholic/darwin-arm64": "workspace:*",
-    "@tokenholic/darwin-x64": "workspace:*"
+    "@tokenholic/darwin-x64": "workspace:*",
+    "@tokenholic/linux-arm64": "workspace:*",
+    "@tokenholic/linux-x64": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

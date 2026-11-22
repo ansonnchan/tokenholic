@@ -8,13 +8,15 @@ const childProcess = require("node:child_process");
 const packageByTarget = Object.freeze({
   "darwin-arm64": "@tokenholic/darwin-arm64",
   "darwin-x64": "@tokenholic/darwin-x64",
+  "linux-arm64": "@tokenholic/linux-arm64",
+  "linux-x64": "@tokenholic/linux-x64",
 });
 
 function targetPackage(platform, arch) {
   const packageName = packageByTarget[`${platform}-${arch}`];
   if (!packageName) {
     throw new Error(
-      `tokenholic does not support ${platform}/${arch}. Supported targets: macOS arm64 and x64.`,
+      `tokenholic does not support ${platform}/${arch}. Supported targets: macOS and Linux, each on arm64 and x64.`,
     );
   }
   return packageName;
@@ -67,4 +69,4 @@ if (require.main === module) {
   process.exitCode = run(process.argv.slice(2));
 }
 
-module.exports = { resolveExecutable, run, targetPackage };
+module.exports = { packageByTarget, resolveExecutable, run, targetPackage };

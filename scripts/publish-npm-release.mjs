@@ -3,7 +3,10 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-const packageDirectories = ["darwin-arm64", "darwin-x64", "cli"];
+import { packageDirectory, platforms } from "./platforms.mjs";
+
+// Every native package goes out before the launcher that depends on them.
+const packageDirectories = [...platforms.map(packageDirectory), "cli"];
 
 export async function publishNpmRelease(workspaceRoot, runner = spawnSync, output = process.stdout) {
   for (const directory of packageDirectories) {

@@ -9,7 +9,10 @@ const { resolveExecutable, run, targetPackage } = require("./tokenholic.js");
 test("selects each supported platform package", () => {
   assert.equal(targetPackage("darwin", "arm64"), "@tokenholic/darwin-arm64");
   assert.equal(targetPackage("darwin", "x64"), "@tokenholic/darwin-x64");
-  assert.throws(() => targetPackage("linux", "x64"), /does not support linux\/x64/);
+  assert.equal(targetPackage("linux", "arm64"), "@tokenholic/linux-arm64");
+  assert.equal(targetPackage("linux", "x64"), "@tokenholic/linux-x64");
+  assert.throws(() => targetPackage("linux", "riscv64"), /does not support linux\/riscv64/);
+  assert.throws(() => targetPackage("freebsd", "x64"), /Supported targets: macOS and Linux/);
 });
 
 test("resolves the binary beside the platform manifest", () => {
