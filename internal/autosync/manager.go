@@ -36,6 +36,11 @@ type Config struct {
 	// the executable, so an upgrade that moves the hosted API is followed.
 	PinAPIURL bool
 	CodexHome string
+	// CCUsagePath is where the pinned ccusage executable was installed, as
+	// the npm launcher reported it to the command enabling autosync. A
+	// scheduled run does not start through the launcher, so the schedule
+	// carries the location. Empty leaves the scheduled run without ccusage.
+	CCUsagePath string
 	// Getenv reads the environment of the command enabling autosync, for the
 	// platform directories a scheduler honors. It defaults to os.Getenv.
 	Getenv func(string) string
@@ -54,6 +59,7 @@ type Status struct {
 // system's own scheduler.
 type Manager struct {
 	executable, apiURL, codexHome string
+	ccusagePath                   string
 	pinAPIURL                     bool
 	scheduler                     scheduler
 	// remove, rename, and wait are the file operations a busy executable can
@@ -63,6 +69,11 @@ type Manager struct {
 	wait   time.Duration
 }
 
+// CCUsagePathVariable names the variable that tells tokenholic where the
+// pinned ccusage executable is. The npm launcher sets it; a schedule repeats
+// it for runs the launcher does not start.
+const CCUsagePathVariable = "TOKENHOLIC_CCUSAGE_PATH"
+
 // NewManager validates paths and binds the platform scheduler.
 func NewManager(config Config) (*Manager, error) {
 	if !filepath.IsAbs(config.Home) || !filepath.IsAbs(config.Executable) {
@@ -70,6 +81,9 @@ func NewManager(config Config) (*Manager, error) {
 	}
 	if config.CodexHome != "" && !filepath.IsAbs(config.CodexHome) {
 		return nil, errors.New("autosync Codex home must be absolute")
+	}
+	if config.CCUsagePath != "" && !filepath.IsAbs(config.CCUsagePath) {
+		return nil, errors.New("autosync ccusage location must be absolute")
 	}
 	if config.Getenv == nil {
 		config.Getenv = os.Getenv
@@ -83,7 +97,7 @@ func NewManager(config Config) (*Manager, error) {
 	}
 	return &Manager{
 		executable: config.Executable, apiURL: strings.TrimSpace(config.APIURL),
-		pinAPIURL: config.PinAPIURL, codexHome: config.CodexHome, scheduler: scheduler,
+		pinAPIURL: config.PinAPIURL, codexHome: config.CodexHome, ccusagePath: config.CCUsagePath, scheduler: scheduler,
 		remove: os.Remove, rename: os.Rename, wait: busyWait,
 	}, nil
 }
@@ -229,6 +243,12 @@ func (m *Manager) job(installed installation) job {
 	}
 	if m.codexHome != "" {
 		environment = append(environment, variable{"CODEX_HOME", m.codexHome})
+	}
+	if m.ccusagePath != "" {
+		// A location, not a permission: the scheduled run still refuses any
+		// file whose digest is not the pinned one, and honors the saved
+		// choice to keep ccusage off.
+		environment = append(environment, variable{CCUsagePathVariable, m.ccusagePath})
 	}
 	environment = append(environment, variable{"NO_COLOR", "1"})
 	return job{installation: installed, environment: environment}

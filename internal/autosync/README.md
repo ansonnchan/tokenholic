@@ -41,7 +41,8 @@ stored sign-in.
 ## What the job runs
 
 The stable executable with the single argument `sync`, and a fixed
-environment: `CODEX_HOME` when the user had it set, `NO_COLOR`, on Linux
+environment: `CODEX_HOME` when the user had it set, `TOKENHOLIC_CCUSAGE_PATH`
+when the npm launcher had reported where the pinned ccusage is, `NO_COLOR`, on Linux
 `XDG_CONFIG_HOME` when the user had it set, and the API address only when the
 user had overridden it with `TOKENHOLIC_API_URL`. Without an override the job
 uses the address built into the executable it runs, so re-enabling after an
