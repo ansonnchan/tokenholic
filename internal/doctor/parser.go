@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 
+	"github.com/ansonnchan/tokenholic/internal/adapters"
 	"github.com/ansonnchan/tokenholic/internal/adapters/ccusage"
+	"github.com/ansonnchan/tokenholic/internal/collect"
+	"github.com/ansonnchan/tokenholic/internal/normalize"
 )
 
 // RunnerState says whether the pinned ccusage can be run at all.
@@ -22,78 +25,60 @@ const (
 	RunnerUnpinned RunnerState = "unpinned"
 )
 
-// AgentState is the outcome of one agent's pinned report.
-type AgentState string
-
-const (
-	// AgentValid means the report satisfied the pinned contract.
-	AgentValid AgentState = "valid"
-	// AgentMalformed means ccusage answered with something the contract
-	// does not describe.
-	AgentMalformed AgentState = "malformed"
-	// AgentTimedOut means the report did not finish within its time limit.
-	AgentTimedOut AgentState = "timed_out"
-	// AgentFailed means ccusage could not be started or exited with an error.
-	AgentFailed AgentState = "failed"
-)
-
-// AgentReport is one agent's result. It holds a count, never report content.
+// AgentReport is one day-level agent's health as collection would record it:
+// whether its records are here and, if ccusage read them, how many days it
+// reported. It holds a count and a reason code, never report content.
 type AgentReport struct {
-	Agent ccusage.Agent
-	State AgentState
-	// Days is how many daily rows a valid report held.
-	Days int
+	Source       normalize.Source
+	Status       normalize.HealthStatus
+	Reason       string
+	Days         uint64
+	Capabilities normalize.Capabilities
 }
 
-// ParserStatus is the health of the pinned ccusage runner and of each
-// agent's report. It retains no ccusage output.
+// ParserStatus is the health of the pinned ccusage runner and of each agent
+// read through it. It retains no ccusage output.
 type ParserStatus struct {
 	State  RunnerState
 	Agents []AgentReport
 }
 
-// AgentRunner runs one agent's pinned daily report.
-type AgentRunner interface {
-	Verify() error
-	Daily(context.Context, ccusage.Agent) (ccusage.Report, error)
-}
-
-// CCUsageProbe checks the pinned runner and every agent's report.
+// CCUsageProbe checks the pinned runner and reads each agent exactly as a
+// scan does, through the same reader, so the diagnosis and the collection
+// cannot disagree. It stores nothing.
 type CCUsageProbe struct {
-	Runner AgentRunner
+	Roots  []adapters.AgentRoot
+	Runner collect.DayRunner
 	// Off is the user's choice not to run ccusage.
 	Off bool
 }
 
-// Check verifies the executable, then runs each agent's report on its own so
-// one failing agent does not hide the others.
+// Check verifies the executable, then reads each agent that is present. An
+// agent whose records are not here is reported as not found without running
+// anything for it.
 func (p CCUsageProbe) Check(ctx context.Context) ParserStatus {
-	if p.Off {
-		return ParserStatus{State: RunnerOff}
-	}
-	if p.Runner == nil {
-		return ParserStatus{State: RunnerUnavailable}
-	}
-	if err := p.Runner.Verify(); err != nil {
-		if errors.Is(err, ccusage.ErrUnavailable) {
-			return ParserStatus{State: RunnerUnavailable}
-		}
-		return ParserStatus{State: RunnerUnpinned}
-	}
 	status := ParserStatus{State: RunnerReady}
-	for _, agent := range ccusage.Agents() {
-		report, err := p.Runner.Daily(ctx, agent)
-		result := AgentReport{Agent: agent, State: AgentValid, Days: len(report.Days)}
-		switch {
-		case err == nil:
-		case errors.Is(err, ccusage.ErrMalformed):
-			result.State = AgentMalformed
-		case errors.Is(err, ccusage.ErrTimeout), errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
-			result.State = AgentTimedOut
-		default:
-			result.State = AgentFailed
+	switch {
+	case p.Off:
+		status.State = RunnerOff
+	case p.Runner == nil:
+		status.State = RunnerUnavailable
+	default:
+		if err := p.Runner.Verify(); errors.Is(err, ccusage.ErrUnavailable) {
+			status.State = RunnerUnavailable
+		} else if err != nil {
+			status.State = RunnerUnpinned
 		}
-		status.Agents = append(status.Agents, result)
+	}
+	for _, reading := range (collect.DayLevel{Roots: p.Roots, Runner: p.Runner, Off: p.Off}).Read(ctx) {
+		report := AgentReport{Source: reading.Health.Source, Status: reading.Health.Status, Capabilities: reading.Health.Capabilities}
+		if len(reading.Health.Warnings) > 0 {
+			report.Reason = reading.Health.Warnings[0].Code
+		}
+		if reading.Health.RecordCount != nil {
+			report.Days = *reading.Health.RecordCount
+		}
+		status.Agents = append(status.Agents, report)
 	}
 	return status
 }

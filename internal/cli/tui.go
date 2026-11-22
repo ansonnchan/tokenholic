@@ -161,6 +161,9 @@ func openLocalApplication(ctx context.Context, home, codexHome string) (*store.D
 		Discovery: adapters.Discoverer{Roots: defaultRoots(home, codexHome)},
 		Collector: collect.Collector{SourceVersion: "local-jsonl-v1"},
 		Store:     database, AdapterVersion: "native-v1",
+		// Agents without a native adapter are read through the pinned
+		// ccusage, unless the user turned it off or this install has none.
+		DayLevel: dayLevelReader(home, os.Getenv, preferences.DefaultPath),
 	}
 	service, err := application.NewService(database, orchestrator, previewer, time.Local, time.Now)
 	if err != nil {

@@ -132,53 +132,102 @@ func (f *fakeRunner) Daily(_ context.Context, agent ccusage.Agent) (ccusage.Repo
 	if err := f.results[agent]; err != nil {
 		return ccusage.Report{}, err
 	}
-	return ccusage.Report{Days: make([]ccusage.Day, f.days)}, nil
+	report := ccusage.Report{}
+	for day := 1; day <= f.days; day++ {
+		report.Days = append(report.Days, ccusage.Day{
+			Date: fmt.Sprintf("2026-01-%02d", day), Counts: ccusage.Counts{Input: 5}, Total: 5,
+			Models: []ccusage.ModelUsage{{Model: "model-synthetic", Counts: ccusage.Counts{Input: 5}}},
+		})
+	}
+	return report, nil
 }
 
-func TestCCUsageProbeReportsTheRunner(t *testing.T) {
+// probeRoots makes a record folder for each listed source and none for the
+// others.
+func probeRoots(t *testing.T, present ...normalize.Source) []adapters.AgentRoot {
+	t.Helper()
+	home := t.TempDir()
+	var roots []adapters.AgentRoot
+	for _, source := range normalize.DayLevelSources() {
+		path := filepath.Join(home, string(source))
+		for _, installed := range present {
+			if installed == source {
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		roots = append(roots, adapters.AgentRoot{Source: source, Paths: []string{path}})
+	}
+	return roots
+}
+
+func TestCCUsageProbeReportsTheRunnerAndEachAgent(t *testing.T) {
 	t.Parallel()
+	everything := normalize.DayLevelSources()
 	tests := []struct {
 		name     string
-		probe    CCUsageProbe
+		present  []normalize.Source
+		runner   *fakeRunner
+		off      bool
 		state    RunnerState
 		runs     int
 		exitCode int
 		want     []string
 	}{
-		{name: "turned off", probe: CCUsageProbe{Off: true, Runner: &fakeRunner{}}, state: RunnerOff,
-			want: []string{"ccusage: turned off", "tokenholic ccusage on", "Gemini CLI"}},
-		{name: "no runner in this install", probe: CCUsageProbe{}, state: RunnerUnavailable,
-			want: []string{"ccusage: not available in this install", "not counted: GitHub Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, Qwen Code", "npm install -g @tokenholic/cli"}},
-		{name: "runner missing on disk", probe: CCUsageProbe{Runner: &fakeRunner{verify: ccusage.ErrUnavailable}}, state: RunnerUnavailable,
-			want: []string{"ccusage: not available in this install"}},
-		{name: "an unpinned executable", probe: CCUsageProbe{Runner: &fakeRunner{verify: ccusage.ErrUnpinned}}, state: RunnerUnpinned, exitCode: 1,
-			want: []string{"ccusage: refused", "not the pinned " + ccusage.PinnedVersion + " build and was not run"}},
-		{name: "every report valid", probe: CCUsageProbe{Runner: &fakeRunner{days: 3}}, state: RunnerReady, runs: 5,
-			want: []string{"ccusage: ready (pinned " + ccusage.PinnedVersion + ", executable verified)", "report valid (3 days of usage)"}},
-		{name: "no usage is not an issue", probe: CCUsageProbe{Runner: &fakeRunner{}}, state: RunnerReady, runs: 5,
-			want: []string{"report valid (no usage found)"}},
-		{name: "one agent degrades alone", probe: CCUsageProbe{Runner: &fakeRunner{days: 1, results: map[ccusage.Agent]error{
+		{name: "nothing installed", runner: &fakeRunner{}, state: RunnerReady, want: []string{
+			"ccusage: ready (pinned " + ccusage.PinnedVersion + ", executable verified)",
+			"GitHub Copilot CLI            not found", "Gemini CLI                    not found", "Grok Build CLI                not found",
+			"OpenCode                      not found", "Qwen Code                     not found",
+		}},
+		{name: "every agent read", present: everything, runner: &fakeRunner{days: 3}, state: RunnerReady, runs: 5, want: []string{
+			"Gemini CLI                    detected (3 days of usage); by day through ccusage; model reported; cache-write unsupported",
+			"OpenCode                      detected (3 days of usage); by day through ccusage; model reported; cache-write reported",
+		}},
+		{name: "an agent in use with nothing reported yet", present: []normalize.Source{normalize.SourceGrok}, runner: &fakeRunner{}, state: RunnerReady, runs: 1,
+			want: []string{"Grok Build CLI                detected (no usage reported)", "Gemini CLI                    not found"}},
+		{name: "turned off", present: []normalize.Source{normalize.SourceGemini}, runner: &fakeRunner{}, off: true, state: RunnerOff, want: []string{
+			"ccusage: turned off; run `tokenholic ccusage on`",
+			"Gemini CLI                    unavailable: ccusage is turned off; not counted",
+			"Qwen Code                     not found",
+		}},
+		{name: "no runner in this install", present: []normalize.Source{normalize.SourceCopilot}, state: RunnerUnavailable, want: []string{
+			"ccusage: not available in this install", "npm install -g @tokenholic/cli",
+			"GitHub Copilot CLI            unavailable: this install has no ccusage; not counted",
+		}},
+		{name: "runner missing on disk", present: []normalize.Source{normalize.SourceQwen}, runner: &fakeRunner{verify: ccusage.ErrUnavailable}, state: RunnerUnavailable,
+			want: []string{"Qwen Code                     unavailable: this install has no ccusage; not counted"}},
+		{name: "an unpinned executable", present: []normalize.Source{normalize.SourceQwen}, runner: &fakeRunner{verify: ccusage.ErrUnpinned}, state: RunnerUnpinned, exitCode: 1, want: []string{
+			"ccusage: refused", "not the pinned " + ccusage.PinnedVersion + " build and was not run",
+			"Qwen Code                     unavailable: the ccusage here is not the pinned build; not counted",
+		}},
+		{name: "an unpinned executable is an issue even with no agent installed", runner: &fakeRunner{verify: ccusage.ErrUnpinned}, state: RunnerUnpinned, exitCode: 1,
+			want: []string{"ccusage: refused"}},
+		{name: "one agent degrades alone", present: everything, runner: &fakeRunner{days: 1, results: map[ccusage.Agent]error{
 			ccusage.AgentGemini:   fmt.Errorf("%w: /synthetic/private/location", ccusage.ErrMalformed),
 			ccusage.AgentGrok:     ccusage.ErrTimeout,
 			ccusage.AgentOpenCode: ccusage.ErrFailed,
-		}}}, state: RunnerReady, runs: 5, exitCode: 1,
-			want: []string{
-				"Gemini CLI                    malformed output; this agent is not counted",
-				"Grok Build CLI                timed out; this agent is not counted",
-				"OpenCode                      could not run; this agent is not counted",
-				"GitHub Copilot CLI            report valid (1 days of usage)",
-				"Qwen Code                     report valid (1 days of usage)",
-			}},
+		}}, state: RunnerReady, runs: 5, exitCode: 1, want: []string{
+			"Gemini CLI                    error: ccusage answered outside the pinned contract; not counted",
+			"Grok Build CLI                error: ccusage timed out; not counted",
+			"OpenCode                      error: ccusage could not run; not counted",
+			"GitHub Copilot CLI            detected (1 days of usage)",
+			"Qwen Code                     detected (1 days of usage)",
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			status := test.probe.Check(context.Background())
-			if status.State != test.state {
-				t.Fatalf("Check() state = %q, want %q", status.State, test.state)
+			probe := CCUsageProbe{Roots: probeRoots(t, test.present...), Off: test.off}
+			if test.runner != nil {
+				probe.Runner = test.runner
 			}
-			if runner, ok := test.probe.Runner.(*fakeRunner); ok && len(runner.ran) != test.runs {
-				t.Fatalf("reports run = %d, want %d", len(runner.ran), test.runs)
+			status := probe.Check(context.Background())
+			if status.State != test.state || len(status.Agents) != len(normalize.DayLevelSources()) {
+				t.Fatalf("Check() = %q with %d agents, want %q with every agent", status.State, len(status.Agents), test.state)
+			}
+			if test.runner != nil && len(test.runner.ran) != test.runs {
+				t.Fatalf("reports run = %v, want %d", test.runner.ran, test.runs)
 			}
 			report := Report{GOOS: "darwin", GOARCH: "arm64", Parser: status}
 			output := report.Render()
@@ -187,13 +236,29 @@ func TestCCUsageProbeReportsTheRunner(t *testing.T) {
 					t.Errorf("report is missing %q:\n%s", want, output)
 				}
 			}
-			if strings.Contains(output, "/synthetic/private") {
-				t.Fatalf("report repeats ccusage output:\n%s", output)
+			if strings.Contains(output, "/synthetic/private") || strings.Contains(output, filepath.Dir(probe.Roots[0].Paths[0])) {
+				t.Fatalf("report repeats ccusage output or a local path:\n%s", output)
 			}
 			if report.ExitCode() != test.exitCode {
-				t.Fatalf("ExitCode() = %d, want %d", report.ExitCode(), test.exitCode)
+				t.Fatalf("ExitCode() = %d, want %d\n%s", report.ExitCode(), test.exitCode, output)
 			}
 		})
+	}
+}
+
+// With no native source and no day-level agent found, the report says so.
+// One day-level agent in use is enough for it not to.
+func TestNoSourceSummaryCountsDayLevelAgents(t *testing.T) {
+	t.Parallel()
+	missing := []adapters.Finding{{Kind: adapters.RootClaudeCLI, Status: normalize.HealthNotFound}}
+	none := Report{GOOS: "darwin", GOARCH: "arm64", Findings: missing, Parser: ParserStatus{State: RunnerReady, Agents: []AgentReport{{Source: normalize.SourceGemini, Status: normalize.HealthNotFound}}}}
+	if !strings.Contains(none.Render(), "no supported coding-agent usage found") {
+		t.Fatalf("report = %q", none.Render())
+	}
+	some := none
+	some.Parser.Agents = []AgentReport{{Source: normalize.SourceGemini, Status: normalize.HealthDetected, Days: 2}}
+	if strings.Contains(some.Render(), "no supported coding-agent usage found") {
+		t.Fatalf("report = %q", some.Render())
 	}
 }
 

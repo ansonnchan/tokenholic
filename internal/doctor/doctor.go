@@ -10,6 +10,7 @@ import (
 
 	"github.com/ansonnchan/tokenholic/internal/adapters"
 	"github.com/ansonnchan/tokenholic/internal/adapters/ccusage"
+	"github.com/ansonnchan/tokenholic/internal/collect"
 	"github.com/ansonnchan/tokenholic/internal/normalize"
 	"github.com/ansonnchan/tokenholic/internal/store"
 )
@@ -74,7 +75,9 @@ func (r Report) ExitCode() int {
 		return 1
 	}
 	for _, agent := range r.Parser.Agents {
-		if agent.State != AgentValid {
+		// An agent that is absent, or unavailable because ccusage is off or
+		// was not installed, is not a fault. One that failed is.
+		if agent.Status == normalize.HealthError || agent.Status == normalize.HealthPermissionDenied {
 			return 1
 		}
 	}
@@ -136,6 +139,7 @@ func (r Report) Render() string {
 			fmt.Fprintf(&output, "    warning: %s\n", warningText(warning.Code))
 		}
 	}
+	r.renderAgents(&output)
 	if r.Database.State != "" {
 		r.renderDatabase(&output)
 	}
@@ -151,49 +155,78 @@ func (r Report) Render() string {
 	return output.String()
 }
 
-// renderParser reports the ccusage runner and each agent's report. A runner
-// that is off or absent is stated as such: the agents it would read are not
-// counted, which is different from having no usage.
+// renderParser reports whether the pinned ccusage can run. The agents read
+// through it are listed with the other sources.
 func (r Report) renderParser(output *strings.Builder) {
-	names := make([]string, 0, len(ccusage.Agents()))
-	for _, agent := range ccusage.Agents() {
-		names = append(names, agent.Label())
-	}
-	covered := strings.Join(names, ", ")
 	switch r.Parser.State {
 	case RunnerReady:
 		fmt.Fprintf(output, "ccusage: ready (pinned %s, executable verified)\n", ccusage.PinnedVersion)
 	case RunnerOff:
-		fmt.Fprintf(output, "ccusage: turned off; not counted: %s\n", covered)
-		fmt.Fprintln(output, "  Run `tokenholic ccusage on` to count them.")
+		fmt.Fprintln(output, "ccusage: turned off; run `tokenholic ccusage on` to count the agents read through it")
 	case RunnerUnpinned:
 		fmt.Fprintf(output, "ccusage: refused; the installed executable is not the pinned %s build and was not run\n", ccusage.PinnedVersion)
-		fmt.Fprintf(output, "  Not counted: %s. Reinstall @tokenholic/cli to restore the pinned build.\n", covered)
+		fmt.Fprintln(output, "  Reinstall @tokenholic/cli to restore the pinned build.")
 	case RunnerUnavailable:
-		fmt.Fprintf(output, "ccusage: not available in this install; not counted: %s\n", covered)
+		fmt.Fprintln(output, "ccusage: not available in this install; the agents read through it are not counted")
 		fmt.Fprintf(output, "  The pinned ccusage %s comes with the npm package: `npm install -g @tokenholic/cli`.\n", ccusage.PinnedVersion)
-	default:
-		return
-	}
-	for _, agent := range r.Parser.Agents {
-		fmt.Fprintf(output, "  %-29s %s\n", agent.Agent.Label(), agentText(agent))
 	}
 }
 
-func agentText(agent AgentReport) string {
-	switch agent.State {
-	case AgentValid:
-		if agent.Days == 0 {
-			return "report valid (no usage found)"
+// renderAgents lists each day-level agent under the sources: detected with
+// the days ccusage reported, not found, or unavailable with its reason. An
+// agent that cannot be read is said to be not counted, never shown as zero.
+func (r Report) renderAgents(output *strings.Builder) {
+	for _, agent := range r.Parser.Agents {
+		fmt.Fprintf(output, "  %-29s %s", agentLabel(agent.Source), agentText(agent))
+		if agent.Status == normalize.HealthDetected {
+			fmt.Fprintf(output, "; by day through ccusage; model %s; cache-write %s", agent.Capabilities.Model, agent.Capabilities.InputCacheWrite)
 		}
-		return fmt.Sprintf("report valid (%d days of usage)", agent.Days)
-	case AgentMalformed:
-		return "malformed output; this agent is not counted"
-	case AgentTimedOut:
-		return "timed out; this agent is not counted"
-	default:
-		return "could not run; this agent is not counted"
+		fmt.Fprintln(output)
 	}
+}
+
+func agentLabel(source normalize.Source) string {
+	for _, profile := range ccusage.Profiles() {
+		if profile.Source == source {
+			return profile.Agent.Label()
+		}
+	}
+	return "Unknown agent"
+}
+
+func agentText(agent AgentReport) string {
+	switch agent.Status {
+	case normalize.HealthDetected:
+		if agent.Days == 0 {
+			return "detected (no usage reported)"
+		}
+		return fmt.Sprintf("detected (%d days of usage)", agent.Days)
+	case normalize.HealthNotFound:
+		return "not found"
+	case normalize.HealthPermissionDenied:
+		return "permission denied"
+	}
+	var reason string
+	switch agent.Reason {
+	case collect.WarningCCUsageOff:
+		reason = "ccusage is turned off"
+	case collect.WarningCCUsageNotInstalled:
+		reason = "this install has no ccusage"
+	case collect.WarningCCUsageUnpinned:
+		reason = "the ccusage here is not the pinned build"
+	case collect.WarningCCUsageMalformed:
+		reason = "ccusage answered outside the pinned contract"
+	case collect.WarningCCUsageTimeout:
+		reason = "ccusage timed out"
+	case "collection_canceled":
+		reason = "the check ran out of time"
+	default:
+		reason = "ccusage could not run"
+	}
+	if agent.Status == normalize.HealthUnavailable {
+		return "unavailable: " + reason + "; not counted"
+	}
+	return "error: " + reason + "; not counted"
 }
 
 // platformSupported reports whether default discovery knows any location on
@@ -208,6 +241,11 @@ func (r Report) noSupportedSources() bool {
 	}
 	for _, finding := range r.Findings {
 		if finding.Status != normalize.HealthNotFound {
+			return false
+		}
+	}
+	for _, agent := range r.Parser.Agents {
+		if agent.Status != normalize.HealthNotFound {
 			return false
 		}
 	}
