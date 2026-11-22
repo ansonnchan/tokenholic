@@ -372,6 +372,119 @@ func TestCommandsExplainAnUnavailableCredentialStore(t *testing.T) {
 	}
 }
 
+// A release build carries the hosted API address, so no command needs a
+// setting. TOKENHOLIC_API_URL replaces the address when it is set.
+func TestCommandsUseTheBuiltInAPIAddressUnlessOverridden(t *testing.T) {
+	const builtIn, override = "https://hosted.example.test", "https://self.example.test"
+	for _, test := range []struct {
+		name       string
+		configured string
+		want       string
+		pinned     bool
+		doctor     string
+	}{
+		{name: "nothing set", want: builtIn, doctor: "API address: built in; no setting needed"},
+		{name: "override set", configured: override, want: override, pinned: true, doctor: "API address: set by TOKENHOLIC_API_URL"},
+		{name: "override is only whitespace", configured: "  ", want: builtIn, doctor: "API address: built in"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			seen := map[string]string{}
+			deps := dependencies{
+				defaultAPIURL: builtIn,
+				homeDir:       func() (string, error) { return syntheticHome, nil },
+				executable:    func() (string, error) { return syntheticBinary, nil },
+				timeout:       time.Second,
+				getenv: func(name string) string {
+					if name == "TOKENHOLIC_API_URL" {
+						return test.configured
+					}
+					return ""
+				},
+				account: func(apiURL string) (accountManager, error) {
+					seen["account"] = apiURL
+					return &fakeAccountManager{}, nil
+				},
+				groups: func(apiURL string) (groupManager, error) {
+					seen["groups"] = apiURL
+					return &fakeGroupManager{}, nil
+				},
+				sync: func(_ context.Context, _, _, apiURL string, _ bool, _ io.Writer) error {
+					seen["sync"] = apiURL
+					return nil
+				},
+				launch: func(_ context.Context, _, _, apiURL string, _ io.Reader, _ io.Writer, _ displayOptions) error {
+					seen["launch"] = apiURL
+					return nil
+				},
+				autosync: func(config autosync.Config) (autosyncManager, error) {
+					seen["autosync"] = config.APIURL
+					if config.PinAPIURL != test.pinned {
+						t.Errorf("autosync pins the address = %t, want %t", config.PinAPIURL, test.pinned)
+					}
+					return &fakeAutosyncManager{}, nil
+				},
+				diagnose: func(context.Context, string, string) doctor.Report {
+					return doctor.Report{GOOS: "darwin", GOARCH: "arm64"}
+				},
+			}
+			var stdout, stderr bytes.Buffer
+			for _, args := range [][]string{{"login"}, {"sync"}, {"group", "list"}, {"autosync", "enable"}, {}} {
+				if code := run(args, &stdout, &stderr, deps); code != 0 {
+					t.Fatalf("%v = %d/%q", args, code, stderr.String())
+				}
+			}
+			for _, command := range []string{"account", "sync", "groups", "autosync", "launch"} {
+				if seen[command] != test.want {
+					t.Errorf("%s used %q, want %q", command, seen[command], test.want)
+				}
+			}
+			stdout.Reset()
+			run([]string{"doctor"}, &stdout, &stderr, deps)
+			// The source is reported; the address itself never is.
+			if !strings.Contains(stdout.String(), test.doctor) || strings.Contains(stdout.String(), "example.test") {
+				t.Errorf("doctor = %q", stdout.String())
+			}
+		})
+	}
+}
+
+// Only a development build has no address. It says so, and offline commands
+// still work.
+func TestDevelopmentBuildNamesTheMissingAPIAddress(t *testing.T) {
+	deps := dependencies{
+		homeDir:    func() (string, error) { return syntheticHome, nil },
+		executable: func() (string, error) { return syntheticBinary, nil },
+		timeout:    time.Second,
+		getenv:     func(string) string { return "" },
+		account:    func(string) (accountManager, error) { t.Fatal("account reached"); return nil, nil },
+		groups:     func(string) (groupManager, error) { t.Fatal("groups reached"); return nil, nil },
+		autosync:   func(autosync.Config) (autosyncManager, error) { return &fakeAutosyncManager{}, nil },
+		sync: func(_ context.Context, _, _, apiURL string, dryRun bool, _ io.Writer) error {
+			if !dryRun || apiURL != "" {
+				t.Fatalf("sync reached with dryRun=%t apiURL=%q", dryRun, apiURL)
+			}
+			return nil
+		},
+		diagnose: func(context.Context, string, string) doctor.Report {
+			return doctor.Report{GOOS: "darwin", GOARCH: "arm64"}
+		},
+	}
+	for _, args := range [][]string{{"login"}, {"claim"}, {"logout"}, {"sync"}, {"group", "list"}, {"global", "join"}, {"autosync", "enable"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr, deps); code != 1 || !strings.Contains(stderr.String(), noAPIAddress) {
+			t.Errorf("%v = %d/%q", args, code, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"show-data"}, &stdout, &stderr, deps); code != 0 {
+		t.Fatalf("show-data = %d/%q", code, stderr.String())
+	}
+	run([]string{"doctor"}, &stdout, &stderr, deps)
+	if !strings.Contains(stdout.String(), "API address: none; this is a development build") {
+		t.Errorf("doctor = %q", stdout.String())
+	}
+}
+
 func TestAutosyncCommandsUseExplicitManagerBoundary(t *testing.T) {
 	manager := &fakeAutosyncManager{status: autosync.Status{Installed: true, Loaded: true}}
 	managerCalls := 0

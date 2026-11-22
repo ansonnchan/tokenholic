@@ -24,23 +24,34 @@ import (
 // version is replaced at link time for release artifacts.
 var version = "dev"
 
+// defaultAPIURL is the hosted API a release build talks to. cmd/release sets
+// it at link time. A development build has none, so it can never reach the
+// hosted service by accident and must be pointed at an API explicitly.
+var defaultAPIURL = ""
+
+// noAPIAddress is shown only by a development build: a release build always
+// has an address.
+const noAPIAddress = "this development build has no API address; set TOKENHOLIC_API_URL to one"
+
 // Run executes the native command without owning process termination.
 func Run(args []string, stdout, stderr io.Writer) int {
 	return run(args, stdout, stderr, defaultDependencies())
 }
 
 type dependencies struct {
-	homeDir    func() (string, error)
-	getenv     func(string) string
-	diagnose   func(context.Context, string, string) doctor.Report
-	input      io.Reader
-	launch     func(context.Context, string, string, string, io.Reader, io.Writer, displayOptions) error
-	timeout    time.Duration
-	account    func(string) (accountManager, error)
-	groups     func(string) (groupManager, error)
-	sync       func(context.Context, string, string, string, bool, io.Writer) error
-	executable func() (string, error)
-	autosync   func(autosync.Config) (autosyncManager, error)
+	homeDir func() (string, error)
+	getenv  func(string) string
+	// defaultAPIURL is the address used when TOKENHOLIC_API_URL is unset.
+	defaultAPIURL string
+	diagnose      func(context.Context, string, string) doctor.Report
+	input         io.Reader
+	launch        func(context.Context, string, string, string, io.Reader, io.Writer, displayOptions) error
+	timeout       time.Duration
+	account       func(string) (accountManager, error)
+	groups        func(string) (groupManager, error)
+	sync          func(context.Context, string, string, string, bool, io.Writer) error
+	executable    func() (string, error)
+	autosync      func(autosync.Config) (autosyncManager, error)
 	// usage scans local records and returns the dashboard's totals.
 	usage func(ctx context.Context, home, codexHome string) (application.Dashboard, error)
 }
@@ -74,14 +85,25 @@ type autosyncManager interface {
 	Requirement() string
 }
 
+// apiOrigin returns the API address in effect and whether the user chose it.
+// TOKENHOLIC_API_URL is an override for self-hosting and development; nobody
+// has to set it to use a release build.
+func (d dependencies) apiOrigin() (origin string, overridden bool) {
+	if configured := strings.TrimSpace(d.getenv("TOKENHOLIC_API_URL")); configured != "" {
+		return configured, true
+	}
+	return strings.TrimSpace(d.defaultAPIURL), false
+}
+
 func defaultDependencies() dependencies {
 	return dependencies{
-		homeDir:    os.UserHomeDir,
-		getenv:     os.Getenv,
-		input:      os.Stdin,
-		executable: os.Executable,
-		launch:     launchLocalTUI,
-		timeout:    5 * time.Second,
+		homeDir:       os.UserHomeDir,
+		getenv:        os.Getenv,
+		defaultAPIURL: defaultAPIURL,
+		input:         os.Stdin,
+		executable:    os.Executable,
+		launch:        launchLocalTUI,
+		timeout:       5 * time.Second,
 		account: func(apiURL string) (accountManager, error) {
 			client, err := account.NewClient(apiURL, nil)
 			if err != nil {
@@ -199,9 +221,9 @@ func runSynchronization(dryRun bool, stdout, stderr io.Writer, deps dependencies
 		fmt.Fprintln(stderr, "CODEX_HOME must be an absolute directory")
 		return 1
 	}
-	apiURL := strings.TrimSpace(deps.getenv("TOKENHOLIC_API_URL"))
+	apiURL, _ := deps.apiOrigin()
 	if apiURL == "" && !dryRun {
-		fmt.Fprintln(stderr, "TOKENHOLIC_API_URL is required for synchronization")
+		fmt.Fprintln(stderr, noAPIAddress)
 		return 1
 	}
 	if deps.sync == nil {
@@ -286,10 +308,19 @@ func reportVaultProblem(stderr io.Writer, err error) bool {
 	return true
 }
 
+// invalidAPIAddress names whose address was refused: the user's override, or
+// the one the build carries, which only a broken release could get wrong.
+func invalidAPIAddress(overridden bool) string {
+	if overridden {
+		return "TOKENHOLIC_API_URL is invalid"
+	}
+	return "this build's API address is invalid; reinstall tokenholic"
+}
+
 func configuredAccountManager(stderr io.Writer, deps dependencies) (accountManager, bool) {
-	apiURL := strings.TrimSpace(deps.getenv("TOKENHOLIC_API_URL"))
+	apiURL, overridden := deps.apiOrigin()
 	if apiURL == "" {
-		fmt.Fprintln(stderr, "TOKENHOLIC_API_URL is required for account commands")
+		fmt.Fprintln(stderr, noAPIAddress)
 		return nil, false
 	}
 	if deps.account == nil {
@@ -298,7 +329,7 @@ func configuredAccountManager(stderr io.Writer, deps dependencies) (accountManag
 	}
 	manager, err := deps.account(apiURL)
 	if err != nil {
-		fmt.Fprintln(stderr, "TOKENHOLIC_API_URL is invalid")
+		fmt.Fprintln(stderr, invalidAPIAddress(overridden))
 		return nil, false
 	}
 	return manager, true
@@ -319,7 +350,8 @@ func runTUI(stdout, stderr io.Writer, deps dependencies) int {
 		fmt.Fprintln(stderr, "could not start the local application")
 		return 1
 	}
-	if err := deps.launch(context.Background(), home, codexHome, strings.TrimSpace(deps.getenv("TOKENHOLIC_API_URL")), deps.input, stdout, displayFromEnvironment(deps.getenv)); err != nil {
+	apiURL, _ := deps.apiOrigin()
+	if err := deps.launch(context.Background(), home, codexHome, apiURL, deps.input, stdout, displayFromEnvironment(deps.getenv)); err != nil {
 		// Runtime errors can wrap private local paths. Keep CLI output stable and
 		// direct detailed investigation through the redacted doctor report.
 		fmt.Fprintln(stderr, "could not start the local application; run `tokenholic doctor`")
@@ -342,6 +374,14 @@ func runDoctor(stdout, stderr io.Writer, deps dependencies) int {
 	ctx, cancel := context.WithTimeout(context.Background(), deps.timeout)
 	defer cancel()
 	report := deps.diagnose(ctx, home, codexHome)
+	switch apiURL, overridden := deps.apiOrigin(); {
+	case overridden:
+		report.API = doctor.APIOverridden
+	case apiURL != "":
+		report.API = doctor.APIBuiltIn
+	default:
+		report.API = doctor.APINone
+	}
 	fmt.Fprint(stdout, report.Render())
 	return report.ExitCode()
 }
