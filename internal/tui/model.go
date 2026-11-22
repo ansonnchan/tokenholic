@@ -228,7 +228,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = message.Width, message.Height
 		m.scroll = min(m.scroll, m.maxScroll())
-		return m, nil
+		// The frame fills the terminal exactly, so nothing after it erases
+		// what a wider or taller frame left behind. Start each size clean.
+		return m, tea.ClearScreen
 	case tea.KeyMsg:
 		return m.updateKey(message)
 	case modeSaved:
