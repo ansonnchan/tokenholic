@@ -240,8 +240,10 @@ func TestRunnerStartsARealProcess(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		observed := report.Days[0].Models[0].Model
-		if !strings.HasPrefix(observed, "config=true ") {
+		// Windows keeps one variable per name whatever its case, so the
+		// names are compared without regard to it.
+		observed := strings.ToUpper(report.Days[0].Models[0].Model)
+		if !strings.HasPrefix(observed, "CONFIG=TRUE ") {
 			t.Fatalf("the process did not start beside an empty configuration: %s", observed)
 		}
 		for _, absent := range []string{"GITHUB_TOKEN", "PATH", "TOKENHOLIC"} {
