@@ -12,6 +12,10 @@ import (
 // ErrSignedOut means multiplayer requires a fresh local login.
 var ErrSignedOut = errors.New("multiplayer account is signed out")
 
+// ErrReadOnly means these boards cannot be changed: nothing was created,
+// joined, or invited, and nothing failed. The demo's boards return it.
+var ErrReadOnly = errors.New("these boards are read-only")
+
 // GlobalScope selects the opt-in global board where a group ID is expected.
 // Group IDs are UUIDs, so it can never name a group.
 const GlobalScope = "global"

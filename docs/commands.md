@@ -7,6 +7,7 @@ the same commands without a global install.
 
 ```sh
 tokenholic                 # the terminal interface
+tokenholic demo            # the interface on invented data, for showing it
 tokenholic doctor          # health of each source and of local storage
 tokenholic show-data       # the exact upload payload; nothing is sent
 tokenholic sync --dry-run  # the same as show-data
@@ -20,6 +21,13 @@ capabilities, and local database health. It does not print local source or
 database paths, parse session contents, or show stored records.
 
 `show-data` works without a login, an account, or an API address.
+
+`tokenholic demo` opens the same interface on invented usage and boards, with
+`DEMO: invented data` in its header. It reads no agent records, opens no
+database, signs nobody in, and contacts no server, so it is safe to show or
+record on any machine. Every key works; creating or joining a group and
+inviting are declined in a line, since there is no account behind it, and the
+look you switch to is not saved.
 
 `tokenholic share` drafts a post about your own local totals and prints an
 `x.com/intent/post` link. It posts nothing: the link opens X's compose page,

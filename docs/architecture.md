@@ -35,6 +35,7 @@ internal/
   application/             Local refresh and dashboard orchestration
   autosync/                Opt-in hourly schedule and the shared sync lock
   collect/                 Deduplication and counter reduction
+  demo/                    Invented usage and boards for `tokenholic demo`
   doctor/                  Privacy-safe source and storage diagnostics
   fixturecheck/            Fixture privacy enforcement
   modelcatalog/            Model resolution and pricing revisions

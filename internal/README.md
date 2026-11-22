@@ -27,6 +27,7 @@ multiplayer owns authenticated group and leaderboard HTTP calls
 | `collect` | Application scan orchestration, deduplication, and cumulative reduction | SQL implementation or uploads |
 | `application` | Committed dashboard queries and manual refresh sequencing | Source parsing, SQL, or terminal rendering |
 | `autosync` | Opt-in hourly schedule through the system scheduler (launchd on macOS, a systemd user timer on Linux, Task Scheduler on Windows) and the cross-command synchronization lock | Collection, uploads, credentials, or deployment |
+| `demo` | Invented usage and boards, held in memory, behind the interfaces the TUI consumes | Reading the machine, storage, accounts, or the network |
 | `doctor` | Redacted source, parser, and storage diagnostics | Usage collection or repair |
 | `fixturecheck` | Privacy validation for committed fixtures | Runtime validation of user data |
 | `modelcatalog` | Versioned canonical model and API-equivalent pricing resolution | Source parsing |

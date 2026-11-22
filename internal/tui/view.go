@@ -154,6 +154,8 @@ func (m Model) status(width int) string {
 		return m.spin() + " scanning"
 	case !m.loaded:
 		return ""
+	case m.notice != "":
+		return m.notice
 	}
 	diagnostics := m.dashboard.Diagnostics
 	if diagnostics.LastSuccessfulCollection == nil {

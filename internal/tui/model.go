@@ -88,6 +88,9 @@ type Config struct {
 	Account Account
 	// OpenURL shows a link in the user's browser; nil means it cannot.
 	OpenURL func(string) error
+	// Notice replaces the header's freshness text with a fixed label. The
+	// demo sets it, so no picture of invented data can pass for real usage.
+	Notice string
 }
 
 // Model is the Bubble Tea model for the application shell. It holds the last
@@ -104,6 +107,7 @@ type Model struct {
 	clipboard   func(string)
 	account     Account
 	openURL     func(string) error
+	notice      string
 	section     Section
 	width       int
 	height      int
@@ -196,6 +200,7 @@ func NewModel(ctx context.Context, app Application, config Config) Model {
 		clipboard:    config.Clipboard,
 		account:      config.Account,
 		openURL:      config.OpenURL,
+		notice:       config.Notice,
 		section:      HomeSection,
 		tickEvery:    spinnerInterval,
 		flashFor:     flashDuration,

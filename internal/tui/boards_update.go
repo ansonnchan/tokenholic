@@ -171,6 +171,11 @@ func (m Model) applyBoardAction(message boardActionResult) (tea.Model, tea.Cmd) 
 	if message.requestID != m.board.request {
 		return m, nil
 	}
+	if errors.Is(message.err, multiplayer.ErrReadOnly) {
+		// Nothing failed, so there is nothing to retry.
+		m.board.loading = false
+		return m.flashNow("Not available here: these boards are read-only")
+	}
 	if message.err != nil {
 		m.board.loading = false
 		m.board.failure = message.failure

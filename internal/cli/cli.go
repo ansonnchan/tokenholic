@@ -57,6 +57,8 @@ type dependencies struct {
 	usage func(ctx context.Context, home, codexHome string) (application.Dashboard, error)
 	// preferences is where the user's saved choices live.
 	preferences func() (string, error)
+	// demo opens the interface on invented data.
+	demo func(context.Context, io.Reader, io.Writer, displayOptions) error
 }
 
 type accountManager interface {
@@ -124,6 +126,7 @@ func defaultDependencies() dependencies {
 		sync:        synchronizeLocal,
 		usage:       loadLocalUsage,
 		preferences: preferences.DefaultPath,
+		demo:        launchDemo,
 		autosync: func(config autosync.Config) (autosyncManager, error) {
 			return autosync.NewManager(config)
 		},
@@ -171,6 +174,9 @@ func run(args []string, stdout, stderr io.Writer, deps dependencies) int {
 	}
 	if len(args) > 0 && args[0] == "ccusage" {
 		return runCCUsageCommand(args[1:], stdout, stderr, deps)
+	}
+	if len(args) > 0 && args[0] == "demo" {
+		return runDemoCommand(args[1:], stdout, stderr, deps)
 	}
 	flags := flag.NewFlagSet("tokenholic", flag.ContinueOnError)
 	flags.SetOutput(stderr)
