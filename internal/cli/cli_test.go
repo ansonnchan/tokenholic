@@ -1014,3 +1014,39 @@ func (f *fakeAccountManager) DeleteAccount(context.Context) error {
 	f.deleted = true
 	return f.deleteErr
 }
+
+func TestDemoOpensTheInterfaceWithoutTouchingTheMachine(t *testing.T) {
+	t.Parallel()
+	opened := 0
+	deps := dependencies{
+		// Reaching for the home directory, an account, or a sync would be the
+		// demo reading or sending something real.
+		homeDir: func() (string, error) { t.Fatal("demo read the home directory"); return "", nil },
+		getenv:  func(string) string { return "" },
+		account: func(string) (accountManager, error) { t.Fatal("demo opened an account"); return nil, nil },
+		sync: func(context.Context, string, string, string, bool, io.Writer) error {
+			t.Fatal("demo synchronized")
+			return nil
+		},
+		launch: func(context.Context, string, string, string, io.Reader, io.Writer, displayOptions) error {
+			t.Fatal("demo opened the real interface")
+			return nil
+		},
+		demo: func(context.Context, io.Reader, io.Writer, displayOptions) error { opened++; return nil },
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"demo"}, &stdout, &stderr, deps); code != 0 || opened != 1 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "invented") {
+		t.Fatalf("demo = %d/%q/%q opened=%d", code, stdout.String(), stderr.String(), opened)
+	}
+	stdout.Reset()
+	if code := run([]string{"demo", "extra"}, &stdout, &stderr, deps); code != 2 || opened != 1 || !strings.Contains(stderr.String(), "no arguments") {
+		t.Fatalf("demo extra = %d/%q/%q opened=%d", code, stdout.String(), stderr.String(), opened)
+	}
+	stderr.Reset()
+	deps.demo = func(context.Context, io.Reader, io.Writer, displayOptions) error {
+		return errors.New("synthetic: /private/path")
+	}
+	if code := run([]string{"demo"}, &stdout, &stderr, deps); code != 1 || strings.Contains(stderr.String(), "/private/path") {
+		t.Fatalf("failed demo = %d/%q/%q", code, stdout.String(), stderr.String())
+	}
+}

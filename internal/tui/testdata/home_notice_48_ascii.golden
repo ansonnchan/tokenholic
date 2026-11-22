@@ -1,0 +1,28 @@
+>_ TOKENHOLIC                DEMO: invented data
+[HOME] BOARDS  MODELS  SOURCES  SETTINGS
+
++- YOUR USAGE ---------------------------------+
+|  TODAY  THIS WEEK [30 DAYS] ALL-TIME         |
+|                                              |
+| TOKENS        $ EST         PRICED           |
+| >=4.26B       >=$1,180.42   92.3%            |
+|                                              |
+| DAILY TOKENS - - - - - -  PEAK >=338M OCT 27 |
+| =..-#=.#_.=-#-... =.=-...#-#=.               |
+| OCT 23                   TODAY               |
++----------------------------------------------+
++- BY SOURCE ----------------------------------+
+| SOURCE            TOKENS        $ EST  SHARE |
+| Claude             2.92B      $820.40  68.4% |
+| Codex            >=1.34B    >=$360.02  31.5% |
++----------------------------------------------+
++- BY MODEL -----------------------------------+
+| MODEL             TOKENS        $ EST  SHARE |
+| claude-opus-5-5    2.12B      $688.30  49.6% |
+| gpt-5.2-codex    >=1.02B    >=$318.90  23.9% |
+| claude-sonnet-~     707M      $121.75  16.5% |
+| codex-auto-rev~   >=242M            -   5.6% |
+| claude-haiku-5~      92M       $10.35   2.1% |
+| 2 more models | press 3                      |
++----------------------------------------------+
+1-5 views | p period | ? help | q quit

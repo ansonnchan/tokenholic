@@ -29,11 +29,14 @@ type screen struct {
 	firstLaunch bool
 	// scanning stops at the first frame of that launch, mid-scan.
 	scanning bool
+	// notice is the fixed header label, as the demo sets it.
+	notice string
 }
 
 var screens = []screen{
 	{name: "home", dashboard: sampleDashboard},
 	{name: "home_detail", dashboard: sampleDashboard, keys: []string{"d"}},
+	{name: "home_notice", dashboard: sampleDashboard, notice: "DEMO: invented data"},
 	{name: "home_today", dashboard: quietToday, keys: []string{"p", "p"}},
 	{name: "home_no_sources", dashboard: emptyDashboard},
 	{name: "home_load_failed", dashboard: sampleDashboard, loadError: errors.New("synthetic failure")},
@@ -116,7 +119,7 @@ func renderScreen(t *testing.T, screen screen, tokens theme.Theme, width int) []
 	if screen.firstLaunch {
 		app = firstLaunch(screen.dashboard())
 	}
-	config := Config{Theme: &tokens, Clipboard: func(string) {}, OpenURL: func(string) error { return nil }}
+	config := Config{Theme: &tokens, Clipboard: func(string) {}, OpenURL: func(string) error { return nil }, Notice: screen.notice}
 	// As when it runs for real, the look can be switched.
 	config.Themes = func(mode theme.Mode) theme.Theme { return theme.Fixed(tokens.Color, mode == theme.Dark, tokens.ASCII) }
 	if screen.remote != nil {

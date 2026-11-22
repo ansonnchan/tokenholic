@@ -151,6 +151,9 @@ back to the one-line mark on narrow terminals and without Unicode.
 - The header shows freshness of the local scan (`scanned 4m ago`) and, when
   wide, how many buckets wait to upload. It says `scanned`, not `synced`:
   this device does not record when it last uploaded.
+- `tokenholic demo` runs the interface on invented data. Its header carries
+  `DEMO: invented data` in place of the freshness text, in every view and at
+  every width, so no picture or recording of it can pass for real usage.
 - When signed out, a primary chip under the panels: `[ c  CLAIM YOUR SPOT ]`.
 
 At 120 columns the breakdowns sit in a 50-column rail beside the usage
