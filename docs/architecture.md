@@ -1,6 +1,6 @@
 # Architecture
 
-Status: MVP and M6–M8 implemented, M9 website pages implemented; remaining M9–M10 design accepted (see "Planned target design")
+Status: MVP and M6–M9 implemented; M10 design accepted (see "Planned target design")
 Last updated: November 21, 2026
 
 ## System goals
@@ -52,6 +52,8 @@ server/
   sync/                    Authenticated absolute-revision application
   pricing/                 Server-owned model resolution and estimates
   ratelimit/               In-memory token buckets for the single instance
+  sharecard/               1200×630 PNG share cards drawn from display text
+  sharepage/               Share links: Open Graph pages and card routes under /s/
   website/                 The static site's address: allowed origin and links into it
 migrations/                Embedded hosted PostgreSQL schema history
 fixtures/                  Sanitized compatibility fixtures
@@ -113,8 +115,9 @@ implements: begin a device login, wait for it, and upload the outbox. It is
 the same login and upload `tokenholic claim` runs, split so a view can show
 the code while it waits. The upload takes the lock the scheduled sync uses.
 The TUI never sees the credential and uploads only after the user confirms.
-`internal/share` builds the compose link for a post; the user's browser opens
-it and the user sends it.
+`internal/share` builds the compose link for a post and drafts its text from
+stored totals; the user's browser opens it and the user sends it. The
+`tokenholic share` command uses the same draft outside the TUI.
 
 Dashboard loads query Today, This week, 30 days, and All time using the local
 timezone, add total tokens for each of the last 30 local dates, and attach the
@@ -422,6 +425,24 @@ path prefix and origin, never on the record, so the allowlist cannot be used
 to tell a private record from a missing one. It wraps the rate limiter, so a
 refused request is readable by the page too.
 
+Share links are the other public surface. `GET /s/u/{login}` and
+`GET /s/b/{slug}` return a small HTML page whose Open Graph tags name a PNG
+card at the same address plus `/card.png`, and whose meta refresh sends a
+browser on to the website's page. They read through the same two services as
+the public JSON routes, so they can show nothing those routes do not, and
+they keep the same rule: every miss under `/s/`, for a page or a card, a
+private, deleted, or nonexistent record, a malformed name, or an unknown
+path, is one response with identical status, headers, and body. The routes
+exist only when the API knows the website's address.
+
+A share page is never cached. A card may be reused by a shared cache for five
+minutes and carries an entity tag derived from its content; the page links
+the card with that tag in its address, so a crawler fetches a new card when
+the totals change. Making a profile or group private stops new pages and
+cards at once. A cache may serve the last card for up to those five minutes,
+and a site that already unfurled a link keeps its own copy, which the API
+cannot recall.
+
 Leaderboard authorization checks membership on every request. A member of one
 group cannot enumerate another group or its users.
 
@@ -645,8 +666,20 @@ X crawler  -->  API share page (/s/...) with Open Graph tags + PNG card
   colors from the TUI palette under a test, so neither can drift.
 - A page shows a private, deleted, or nonexistent record as one state, and
   an unknown value as unknown, exactly as the API reports them.
-- Share pages and 1200×630 PNG cards are rendered by the Go API because
-  crawlers do not execute JavaScript. Cards are cacheable and content-hashed.
+- Implemented: share pages and 1200×630 PNG cards are rendered by the Go API
+  because crawlers do not execute JavaScript. `server/sharepage` turns public
+  values into display text and serves the routes; `server/sharecard` only
+  draws that text, with the website's fonts embedded in the binary. Cards are
+  cacheable for five minutes and content-hashed. The absolute addresses Open
+  Graph needs are built from the request's host, which must be a plain name,
+  so the API needs no setting for its own address.
+- Implemented: `og:url` names the share page itself. A crawler that follows
+  it must land on the tags again, not on the static site, which has none per
+  record.
+- Implemented: `tokenholic share` and the website's share buttons build
+  `x.com/intent/post` links client-side. The native client attaches a share
+  page only after fetching it without a credential, as a crawler will, so a
+  private profile or a server without share pages yields a text-only post.
 - Render free-tier cold starts can delay pages and cards; that is an accepted
   demo limitation. Implemented for pages: a read that has not answered within
   a few seconds shows a wake-up state and keeps retrying for two minutes.
