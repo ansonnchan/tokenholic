@@ -46,6 +46,9 @@ func (o Observation) Validate() error {
 		// A running total spans many requests, so it has no single prompt size.
 		return errors.New("prompt size requires a record of exactly one request")
 	}
+	if err := o.validateDayLevel(); err != nil {
+		return err
+	}
 	for _, warning := range o.Warnings {
 		if warning.Code == "" {
 			return errors.New("warning code is required")
@@ -53,6 +56,27 @@ func (o Observation) Validate() error {
 		if strings.ContainsAny(warning.Message, "\r\n") {
 			return fmt.Errorf("warning %q message must be one line", warning.Code)
 		}
+	}
+	return nil
+}
+
+// validateDayLevel ties the day-total semantics to the sources that have it,
+// in both directions. A native source can never carry a day total, which is
+// what keeps Claude and Codex out of the coarse path, and a day-level source
+// can carry nothing finer.
+func (o Observation) validateDayLevel() error {
+	if o.Source.DayLevel() != (o.CountSemantics == CountDayTotal) {
+		return fmt.Errorf("count semantics %q do not belong to source %q", o.CountSemantics, o.Source)
+	}
+	if o.CountSemantics != CountDayTotal {
+		return nil
+	}
+	if !StartOfDay(o.OccurredAt) {
+		return errors.New("a day total is filed at the start of its UTC day")
+	}
+	if o.ServiceTier != ServiceTierUnknown || o.SessionIDLocal != nil {
+		// A day spans many requests and sessions and proves nothing about one.
+		return errors.New("a day total cannot carry a service tier or a session")
 	}
 	return nil
 }
@@ -162,7 +186,7 @@ func (c Capabilities) Validate() error {
 }
 
 func validSource(source Source) bool {
-	return source == SourceClaude || source == SourceCodex
+	return source == SourceClaude || source == SourceCodex || source.DayLevel()
 }
 
 func validSurface(source Source, surface Surface) bool {
@@ -172,12 +196,13 @@ func validSurface(source Source, surface Surface) bool {
 	case SourceCodex:
 		return surface == SurfaceCLI || surface == SurfaceDesktop || surface == SurfaceSharedLocal
 	default:
-		return false
+		// The day-level agents are terminal programs with one surface.
+		return source.DayLevel() && surface == SurfaceCLI
 	}
 }
 
 func validCountSemantics(value CountSemantics) bool {
-	return value == CountIncremental || value == CountCumulative
+	return value == CountIncremental || value == CountCumulative || value == CountDayTotal
 }
 
 func validMeasurement(value Measurement) bool {
