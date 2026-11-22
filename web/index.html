@@ -9,8 +9,8 @@
   <meta name="referrer" content="no-referrer">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0B1120">
-  <title>tokenholic: a terminal leaderboard for coding-agent tokens</title>
-  <meta name="description" content="tokenholic reads the usage records Claude Code and Codex keep on your machine, totals them in your terminal, and ranks you against the friends you invite.">
+  <title>tokenholic</title>
+  <meta name="description" content="A terminal leaderboard for the tokens your AI coding agents use.">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/tokens.css">
   <link rel="stylesheet" href="assets/site.css">
@@ -31,7 +31,7 @@
       <div>
         <p class="label">Terminal-native · Multiplayer · Private by default</p>
         <h1>How many tokens did your coding agents burn?</h1>
-        <p class="lede">tokenholic reads the usage records Claude Code and Codex already keep on your machine, totals them in your terminal, and ranks you against the friends you invite.</p>
+        <p class="lede">tokenholic reads the usage records your AI coding agents already keep on your machine, totals them in your terminal, and ranks you against the friends you invite.</p>
         <div class="command">
           <code id="install-command">npx @tokenholic/cli</code>
           <button class="button" type="button" data-copy="install-command" data-copy-status="install-status">Copy</button>
@@ -106,8 +106,8 @@
     </div>
 
     <!-- The agents tokenholic counts. The first two have readers of their
-         own; the rest, named here or not (Grok Build CLI and Qwen Code), are
-         read through a pinned ccusage. -->
+         own; the rest are read through a pinned ccusage. The "Read locally"
+         panel below names every one. -->
     <section class="works-with wrap" aria-labelledby="works-with">
       <h2 class="label accent" id="works-with">Works with</h2>
       <ul class="works-with-list">
@@ -151,8 +151,10 @@
             <li>Claude Code CLI sessions</li>
             <li>Claude Desktop Code, Agent, and Cowork sessions</li>
             <li>Codex CLI and Codex Desktop sessions</li>
+            <li>Gemini CLI, OpenCode, and GitHub Copilot CLI sessions</li>
+            <li>Grok Build CLI and Qwen Code sessions</li>
           </ul>
-          <p class="panel-foot">Only token counts and model IDs are taken from them. Ordinary chat apps are never read.</p>
+          <p class="panel-foot">Only token counts and model IDs are taken from them. The last two lines are read as daily totals through ccusage. Ordinary chat apps are never read.</p>
         </section>
 
         <section class="panel" aria-labelledby="uploads">

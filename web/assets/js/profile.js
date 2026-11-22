@@ -54,7 +54,7 @@ function render(view, profile) {
     el("p", { class: "fineprint", text: `Periods use UTC days${asOf ? `, as of ${asOf} UTC` : ""}. $ EST is an estimate at API list prices, never spending. Usage is reported by this member's own machines.` }),
     el("section", { class: "section", "aria-labelledby": "own" },
       el("h2", { class: "rule", id: "own", text: "Get your own" }),
-      command(INSTALL, "Reads your local Claude Code and Codex records. Nothing uploads until you claim."),
+      command(INSTALL, "Reads the records your AI coding agents keep locally. Nothing uploads until you claim."),
     ),
   );
 }
