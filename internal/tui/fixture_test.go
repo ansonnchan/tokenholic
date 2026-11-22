@@ -103,6 +103,24 @@ func (f *fakeAccount) Sync(context.Context) (int64, error) {
 	return f.uploaded, f.syncErr
 }
 
+// fakeAutosync stands in for the operating system's scheduler.
+type fakeAutosync struct {
+	unavailable bool
+	enableErr   error
+	asked       int
+	enabled     int
+}
+
+func (f *fakeAutosync) Available(context.Context) bool {
+	f.asked++
+	return !f.unavailable
+}
+
+func (f *fakeAutosync) Enable(context.Context) error {
+	f.enabled++
+	return f.enableErr
+}
+
 // fakeMultiplayer serves synthetic boards by scope and records what the
 // board area asked it to do.
 type fakeMultiplayer struct {

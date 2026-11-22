@@ -140,6 +140,8 @@ func TestWritePaintedPreviews(t *testing.T) {
 		keys      []string
 		// height is tall enough to show the whole view.
 		height int
+		// claimed is a device whose claim offers hourly sync.
+		claimed bool
 	}{
 		{name: "home", dashboard: sampleDashboard, height: 26},
 		{name: "board", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2"}, height: 24},
@@ -147,6 +149,8 @@ func TestWritePaintedPreviews(t *testing.T) {
 		{name: "sources_agents", dashboard: agentsDashboard, keys: []string{"4"}, height: 40},
 		{name: "sources_agents_unread", dashboard: agentsUnreadDashboard, keys: []string{"4"}, height: 40},
 		{name: "board_day_level", dashboard: agentsDashboard, remote: dayLevelRemote, keys: []string{"2"}, height: 36},
+		{name: "claim_autosync", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"c", "enter"}, height: 22, claimed: true},
+		{name: "claimed_autosync", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"c", "enter", "enter"}, height: 30, claimed: true},
 	}
 	for _, mode := range []theme.Mode{theme.Dark, theme.Light} {
 		for _, width := range []int{120, 88, 48} {
@@ -158,6 +162,9 @@ func TestWritePaintedPreviews(t *testing.T) {
 				}
 				if preview.remote != nil {
 					config.Multiplayer = preview.remote()
+				}
+				if preview.claimed {
+					config.Account, config.Autosync = &fakeAccount{uploaded: 4014}, &fakeAutosync{}
 				}
 				model := start(t, &fakeApplication{dashboard: preview.dashboard()}, config, width, preview.height)
 				path := filepath.Join(directory, preview.name+"_"+mode.String()+"_"+"w"+strconv.Itoa(width)+".ansi")

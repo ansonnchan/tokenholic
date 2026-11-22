@@ -333,3 +333,75 @@ func TestOpeningALinkSaysWhenItCannot(t *testing.T) {
 		t.Errorf("share with a failing browser = %q", got)
 	}
 }
+
+// scheduled starts a signed-out device whose claim can offer hourly sync.
+func scheduled(t *testing.T, device *fakeAccount, scheduler *fakeAutosync) Model {
+	t.Helper()
+	config := Config{Account: device, Autosync: scheduler, Multiplayer: sampleRemote()}
+	return start(t, &fakeApplication{dashboard: sampleDashboard()}, config, 88, 0)
+}
+
+// Hourly sync is asked for once, after the first upload, and installed only
+// on a yes.
+func TestClaimOffersHourlySyncAndInstallsItOnlyOnYes(t *testing.T) {
+	t.Parallel()
+	scheduler := &fakeAutosync{}
+	asked := press(scheduled(t, &fakeAccount{uploaded: 4014}, scheduler), "c", "enter")
+	offer := view(asked)
+	for _, want := range []string{"KEEP IT CURRENT", "4,014 buckets uploaded", "TURN ON HOURLY SYNC", "esc not now", "`tokenholic autosync disable`"} {
+		if !strings.Contains(offer, want) {
+			t.Errorf("offer = %q, want %q", offer, want)
+		}
+	}
+	if scheduler.asked != 1 || scheduler.enabled != 0 {
+		t.Fatalf("before an answer: asked %d, enabled %d", scheduler.asked, scheduler.enabled)
+	}
+	// Any other key is not a yes.
+	if press(asked, "y", "q", "1"); scheduler.enabled != 0 {
+		t.Fatalf("a key other than enter installed the schedule")
+	}
+
+	yes := view(press(asked, "enter"))
+	if scheduler.enabled != 1 || !strings.Contains(yes, "[BOARDS]") || !strings.Contains(yes, "DONE  Signed in as @you · 4,014 buckets uploaded · hourly sync on") {
+		t.Fatalf("after yes: enabled %d, view %q", scheduler.enabled, yes)
+	}
+
+	decliner := &fakeAutosync{}
+	no := view(press(scheduled(t, &fakeAccount{uploaded: 4014}, decliner), "c", "enter", "esc"))
+	if decliner.enabled != 0 || !strings.Contains(no, "[BOARDS]") || !strings.Contains(no, "DONE  Signed in as @you · 4,014 buckets uploaded") || strings.Contains(no, "hourly sync") {
+		t.Fatalf("after no: enabled %d, view %q", decliner.enabled, no)
+	}
+}
+
+func TestClaimSkipsTheOfferWhenThereIsNothingToOffer(t *testing.T) {
+	t.Parallel()
+	// Already scheduled, or a system that cannot schedule.
+	scheduler := &fakeAutosync{unavailable: true}
+	got := view(press(scheduled(t, &fakeAccount{uploaded: 4014}, scheduler), "c", "enter"))
+	if scheduler.asked != 1 || scheduler.enabled != 0 || strings.Contains(got, "KEEP IT CURRENT") || !strings.Contains(got, "[BOARDS]") {
+		t.Fatalf("unavailable: asked %d, enabled %d, view %q", scheduler.asked, scheduler.enabled, got)
+	}
+	// An upload that did not finish is not followed by an offer to repeat it hourly.
+	failing := &fakeAutosync{}
+	got = view(press(scheduled(t, &fakeAccount{syncErr: errors.New("synthetic: unreachable")}, failing), "c", "enter"))
+	if failing.asked != 0 || strings.Contains(got, "KEEP IT CURRENT") || !strings.Contains(got, "the first upload did not finish") {
+		t.Fatalf("failed upload: asked %d, view %q", failing.asked, got)
+	}
+}
+
+func TestClaimSurvivesASchedulerThatRefuses(t *testing.T) {
+	t.Parallel()
+	scheduler := &fakeAutosync{enableErr: errors.New("synthetic: /private/path is not writable")}
+	refused := press(scheduled(t, &fakeAccount{uploaded: 4014}, scheduler), "c", "enter", "enter")
+	got := view(refused)
+	if !strings.Contains(got, "could not be turned on here") || !strings.Contains(got, "`tokenholic autosync enable`") || strings.Contains(got, "/private/path") {
+		t.Fatalf("refusal = %q", got)
+	}
+	if refused.login != "you" {
+		t.Fatalf("a refused schedule lost the sign-in: login %q", refused.login)
+	}
+	after := view(press(refused, "enter"))
+	if !strings.Contains(after, "[BOARDS]") || !strings.Contains(after, "4,014 buckets uploaded") || strings.Contains(after, "hourly sync on") {
+		t.Fatalf("after continuing = %q", after)
+	}
+}

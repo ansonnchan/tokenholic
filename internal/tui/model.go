@@ -86,6 +86,9 @@ type Config struct {
 	// Account signs in and uploads; nil means no API is configured and no
 	// claim is offered.
 	Account Account
+	// Autosync turns on hourly background sync; nil means a claim does not
+	// offer it.
+	Autosync Autosync
 	// OpenURL shows a link in the user's browser; nil means it cannot.
 	OpenURL func(string) error
 	// Notice replaces the header's freshness text with a fixed label. The
@@ -106,6 +109,7 @@ type Model struct {
 	modeUnsaved bool
 	clipboard   func(string)
 	account     Account
+	autosync    Autosync
 	openURL     func(string) error
 	notice      string
 	section     Section
@@ -199,6 +203,7 @@ func NewModel(ctx context.Context, app Application, config Config) Model {
 		saveMode:     config.SaveMode,
 		clipboard:    config.Clipboard,
 		account:      config.Account,
+		autosync:     config.Autosync,
 		openURL:      config.OpenURL,
 		notice:       config.Notice,
 		section:      HomeSection,
@@ -288,7 +293,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		// so a failure offers no claim.
 		m.login, m.accountKnown = message.login, message.err == nil
 		return m, nil
-	case claimStarted, claimCompleted, claimSynced:
+	case claimStarted, claimCompleted, claimSynced, claimScheduled:
 		return m.applyClaim(message)
 	case boardLoadResult:
 		return m.applyBoardLoad(message), nil

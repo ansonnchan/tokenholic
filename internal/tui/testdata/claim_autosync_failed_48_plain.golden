@@ -1,0 +1,13 @@
+>_ TOKENHOLIC                     scanned 4m ago
+[HOME] BOARDS  MODELS  SOURCES  SETTINGS
+
+╭─ KEEP IT CURRENT ────────────────────────────╮
+│ WARNING  Hourly sync could not be turned on  │
+│          here. Your claim and upload are     │
+│          done; run `tokenholic autosync      │
+│          enable` in a terminal to see what   │
+│          is missing.                         │
+│                                              │
+│ [ enter  CONTINUE ]                          │
+╰──────────────────────────────────────────────╯
+enter continue · ctrl+c quit

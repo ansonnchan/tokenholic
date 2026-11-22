@@ -1,8 +1,9 @@
 # Autosync
 
 Autosync runs `tokenholic sync` at login and hourly through the operating
-system's own per-user scheduler. It is installed only when the user runs
-`tokenholic autosync enable`, stores no credential, and is removed completely
+system's own per-user scheduler. It is installed only when the user asks for
+it, with `tokenholic autosync enable` or by saying yes when a claim offers
+it, stores no credential, and is removed completely
 by `tokenholic autosync disable`.
 
 ## Shape

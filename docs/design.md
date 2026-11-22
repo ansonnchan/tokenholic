@@ -292,10 +292,17 @@ GitHub device flow inside the TUI:
 2. The verification address and the code are shown. `o` opens the page, `y`
    copies the code, `esc` cancels. A code approved after a cancel signs
    nobody in.
-3. Once approved, pending usage uploads, then the view moves to BOARDS with
-   `Signed in as @login · N buckets uploaded`.
+3. Once approved, pending usage uploads.
+4. A `KEEP IT CURRENT` panel asks whether to turn on hourly sync. It states
+   what is installed, what is uploaded, and how to undo it. `enter` installs
+   the schedule; `esc` skips it. The step is left out where hourly sync is
+   already on or this system cannot schedule one. A schedule that cannot be
+   installed is reported as a warning that says the claim itself is done.
+5. The view moves to BOARDS with `Signed in as @login · N buckets uploaded`,
+   and `· hourly sync on` after a yes.
 
-Nothing uploads before step 3. A failed start or an expired code offers
+Nothing uploads before step 3, and nothing is installed without the yes in
+step 4. A failed start or an expired code offers
 `enter` to try again. If the upload fails after sign-in, `enter` retries only
 the upload and `esc` continues signed in; local usage is kept either way.
 While the claim is open it takes every key, so none quits or navigates by
