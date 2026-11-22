@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestDiagnoseDiscoversSyntheticHome(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	discovery := adapters.Discoverer{Roots: adapters.DefaultMacRoots(home, "")}
+	discovery := adapters.Discoverer{Roots: adapters.MacRoots(home, "")}
 	report := Diagnose(context.Background(), discovery, fakeParser{status: ParserStatus{Found: true, Compatible: true}}, nil)
 	if len(report.Findings) != 5 {
 		t.Fatalf("findings = %d, want 5", len(report.Findings))
@@ -95,7 +96,7 @@ func TestReportMakesPermissionIssueActionable(t *testing.T) {
 		Warnings: []normalize.Warning{{Code: "source_root_unreadable"}},
 	}}}
 	output := report.Render()
-	if report.ExitCode() != 1 || !strings.Contains(output, "check macOS file permissions") {
+	if report.ExitCode() != 1 || !strings.Contains(output, "check its file permissions") {
 		t.Fatalf("report = %q, code = %d", output, report.ExitCode())
 	}
 }
@@ -156,5 +157,21 @@ func TestUnsupportedParserVersionIsAnIssue(t *testing.T) {
 	report := Report{GOOS: "darwin", GOARCH: "arm64", Parser: ParserStatus{Found: true}}
 	if report.ExitCode() != 1 {
 		t.Fatalf("ExitCode() = %d, want 1", report.ExitCode())
+	}
+}
+
+func TestUnsupportedPlatformIsNamed(t *testing.T) {
+	t.Parallel()
+	for goos, supported := range map[string]bool{"darwin": true, "linux": true, "plan9": false} {
+		report := Report{GOOS: goos, GOARCH: "amd64"}
+		output := report.Render()
+		if strings.Contains(output, "not supported") == supported || (report.ExitCode() == 0) != supported {
+			t.Errorf("%s: code %d, output %q", goos, report.ExitCode(), output)
+		}
+	}
+	// The doctor's list and default discovery must not drift apart.
+	roots := adapters.DefaultRoots(adapters.Environment{Home: t.TempDir()})
+	if platformSupported(runtime.GOOS) != (len(roots) > 0) {
+		t.Fatalf("platformSupported(%s) disagrees with %d default roots", runtime.GOOS, len(roots))
 	}
 }

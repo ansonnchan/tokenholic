@@ -205,63 +205,6 @@ func hasWarningCode(warnings []normalize.Warning, code string) bool {
 	return false
 }
 
-// DefaultMacRoots returns only coding-agent evidence roots supported on macOS.
-// Ordinary desktop chat storage is intentionally absent.
-func DefaultMacRoots(home, codexHome string) []RootSpec {
-	if codexHome == "" {
-		codexHome = filepath.Join(home, ".codex")
-	}
-	claudeDesktop := filepath.Join(home, "Library", "Application Support", "Claude")
-	defaultCodexHome := filepath.Join(home, ".codex")
-
-	roots := []RootSpec{
-		{
-			Kind: RootClaudeCLI, Source: normalize.SourceClaude, Surface: normalize.SurfaceCLI,
-			Path: filepath.Join(home, ".claude", "projects"), Format: "claude-jsonl-v1", Extensions: []string{".jsonl"},
-			Capabilities: claudeCapabilities(),
-		},
-		{
-			Kind: RootClaudeDesktopCode, Source: normalize.SourceClaude, Surface: normalize.SurfaceDesktopCode,
-			Path: filepath.Join(claudeDesktop, "claude-code-sessions"), Format: "claude-desktop-code", Extensions: []string{".json", ".jsonl"},
-			Capabilities: claudeCapabilities(),
-		},
-		{
-			Kind: RootClaudeDesktopAgent, Source: normalize.SourceClaude, Surface: normalize.SurfaceDesktopAgent,
-			Path: filepath.Join(claudeDesktop, "local-agent-mode-sessions"), Format: "claude-local-agent-jsonl", Extensions: []string{".jsonl"},
-			Match: func(relative string) bool { return hasPathSegment(relative, "rpm") }, Capabilities: claudeCapabilities(),
-		},
-		{
-			Kind: RootClaudeDesktopCowork, Source: normalize.SourceClaude, Surface: normalize.SurfaceDesktopCowork,
-			Path: filepath.Join(claudeDesktop, "local-agent-mode-sessions"), Format: "claude-cowork-audit-jsonl", Extensions: []string{".jsonl"},
-			Match: func(relative string) bool {
-				return filepath.Base(relative) == "audit.jsonl" && !hasPathSegment(relative, "rpm")
-			}, Capabilities: claudeCapabilities(),
-		},
-	}
-	if filepath.Clean(codexHome) == filepath.Clean(defaultCodexHome) {
-		// The default Codex home is shared by CLI and Desktop in current installs;
-		// one ambiguous root avoids double discovery and false attribution.
-		return append(roots, codexRoots(RootCodexShared, normalize.SurfaceSharedLocal, defaultCodexHome)...)
-	}
-	roots = append(roots, codexRoots(RootCodexCLI, normalize.SurfaceCLI, codexHome)...)
-	return append(roots, codexRoots(RootCodexDesktop, normalize.SurfaceDesktop, defaultCodexHome)...)
-}
-
-// codexRoots lists where one Codex home keeps rollouts. Codex moves a rollout
-// from sessions to archived_sessions when the user archives it, and the usage
-// in it is no less real. A rollout present in both is counted once, because a
-// request's identity does not depend on the file it was read from.
-func codexRoots(kind RootKind, surface normalize.Surface, home string) []RootSpec {
-	root := func(directory string, optional bool) RootSpec {
-		return RootSpec{
-			Kind: kind, Source: normalize.SourceCodex, Surface: surface,
-			Path: filepath.Join(home, directory), Format: "codex-rollout-jsonl", Extensions: []string{".jsonl"},
-			Capabilities: codexCapabilities(), Optional: optional,
-		}
-	}
-	return []RootSpec{root("sessions", false), root("archived_sessions", true)}
-}
-
 func matchesExtension(path string, allowed []string) bool {
 	for _, extension := range allowed {
 		if strings.EqualFold(filepath.Ext(path), extension) {

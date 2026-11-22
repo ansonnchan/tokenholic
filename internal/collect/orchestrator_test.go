@@ -175,7 +175,7 @@ func TestOrchestratorCountsArchivedCodexRolloutsOnce(t *testing.T) {
 	copyFixture(t, filepath.Join("codex-cli", "fork-child.jsonl"), filepath.Join(archive, "rollout-child.jsonl"))
 	db := openCollectionStore(t)
 	result, err := (Orchestrator{
-		Discovery: adapters.Discoverer{Roots: adapters.DefaultMacRoots(home, "")},
+		Discovery: adapters.Discoverer{Roots: adapters.MacRoots(home, "")},
 		Collector: Collector{SourceVersion: "synthetic-v1"}, Store: db,
 		Now: func() time.Time { return time.Date(2026, 11, 21, 20, 0, 0, 0, time.UTC) },
 	}).Scan(t.Context())
@@ -202,6 +202,55 @@ func TestOrchestratorCountsArchivedCodexRolloutsOnce(t *testing.T) {
 	}
 	if len(observations) != 5 || total != 870 {
 		t.Fatalf("stored %d observations totalling %d tokens, want 5 and 870", len(observations), total)
+	}
+}
+
+// Claude Code 1.0.28 to 1.0.30 wrote sessions under the XDG configuration
+// directory on Linux. A transcript present there and in the usual place is
+// the same usage and counts once.
+func TestOrchestratorCountsEarlierLinuxClaudeDirectoryOnce(t *testing.T) {
+	t.Parallel()
+	scan := func(home string) []store.StoredObservation {
+		db := openCollectionStore(t)
+		_, err := (Orchestrator{
+			Discovery: adapters.Discoverer{Roots: adapters.LinuxRoots(home, "", "")},
+			Collector: Collector{SourceVersion: "synthetic-v1"}, Store: db,
+			Now: func() time.Time { return time.Date(2026, 11, 21, 20, 0, 0, 0, time.UTC) },
+		}).Scan(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		observations, err := db.Observations(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return observations
+	}
+	usual := t.TempDir()
+	copyFixture(t, filepath.Join("claude-code", "basic.jsonl"), filepath.Join(usual, ".claude", "projects", "synthetic", "session.jsonl"))
+	want := scan(usual)
+	if len(want) == 0 {
+		t.Fatal("the fixture produced no observations")
+	}
+
+	both := t.TempDir()
+	copyFixture(t, filepath.Join("claude-code", "basic.jsonl"), filepath.Join(both, ".claude", "projects", "synthetic", "session.jsonl"))
+	copyFixture(t, filepath.Join("claude-code", "basic.jsonl"), filepath.Join(both, ".config", "claude", "projects", "synthetic", "session.jsonl"))
+	if got := scan(both); len(got) != len(want) {
+		t.Fatalf("observations with both directories = %d, want %d", len(got), len(want))
+	}
+
+	// A machine that only ever ran those versions still has its usage read.
+	earlier := t.TempDir()
+	copyFixture(t, filepath.Join("claude-code", "basic.jsonl"), filepath.Join(earlier, ".config", "claude", "projects", "synthetic", "session.jsonl"))
+	got := scan(earlier)
+	if len(got) != len(want) {
+		t.Fatalf("observations from the earlier directory alone = %d, want %d", len(got), len(want))
+	}
+	for _, observation := range got {
+		if observation.Source != normalize.SourceClaude || observation.Surface != normalize.SurfaceCLI {
+			t.Fatalf("observation = %s/%s", observation.Source, observation.Surface)
+		}
 	}
 }
 
