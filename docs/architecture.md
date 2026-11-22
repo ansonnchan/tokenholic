@@ -277,6 +277,14 @@ or credential, and performs no network or acknowledgement mutation. Transient
 network, rate limit, and server failures receive one exponential-backoff retry
 with jitter; an interrupted or rejected batch remains pending.
 
+An upload pass has no overall deadline. Each request is bounded, retried at
+most once, and never made to wait more than a minute by the server, so a pass
+either acknowledges another batch or stops; each acknowledged batch is
+committed locally before the next is sent. A first upload of a long history
+therefore finishes in one run however slow a batch is, and a run that stops
+partway reports how far it got and leaves only the rest pending. The local
+scan before it keeps its own five-minute limit.
+
 A day-level source is the one case that is not a minute. Its usage arrives as
 one total per UTC day and model, stored as a single record with the count
 semantics `day_total` that a later reading replaces in place, so a day that

@@ -1050,3 +1050,74 @@ func TestDemoOpensTheInterfaceWithoutTouchingTheMachine(t *testing.T) {
 		t.Fatalf("failed demo = %d/%q/%q", code, stdout.String(), stderr.String())
 	}
 }
+
+// The run that cut a first upload off after five minutes is the bug this
+// guards: the command must not put a deadline on the upload.
+func TestSyncRunsWithoutADeadline(t *testing.T) {
+	t.Parallel()
+	deps := dependencies{
+		homeDir: func() (string, error) { return syntheticHome, nil },
+		getenv: func(name string) string {
+			if name == "TOKENHOLIC_API_URL" {
+				return "https://api.example.test"
+			}
+			return ""
+		},
+		sync: func(ctx context.Context, _, _, _ string, _ bool, _ io.Writer) error {
+			if deadline, limited := ctx.Deadline(); limited {
+				t.Fatalf("sync was given a deadline of %v", deadline)
+			}
+			return nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"sync"}, &stdout, &stderr, deps); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("sync = %d/%q/%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestSyncSaysHowFarAnUnfinishedUploadGot(t *testing.T) {
+	t.Parallel()
+	deps := dependencies{
+		homeDir: func() (string, error) { return syntheticHome, nil },
+		getenv: func(name string) string {
+			if name == "TOKENHOLIC_API_URL" {
+				return "https://api.example.test"
+			}
+			return ""
+		},
+		sync: func(context.Context, string, string, string, bool, io.Writer) error {
+			return &unfinishedUpload{uploaded: 1200, pending: 4214, cause: errors.New("synthetic: https://private.example.test/path refused")}
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"sync"}, &stdout, &stderr, deps)
+	message := stderr.String()
+	if code != 1 || !strings.Contains(message, "1,200 of 4,214") || !strings.Contains(message, "`tokenholic sync`") {
+		t.Fatalf("sync = %d/%q", code, message)
+	}
+	if strings.Contains(message, "private.example.test") || strings.Contains(message, "could not synchronize") {
+		t.Fatalf("message leaks the cause or reads as a plain failure: %q", message)
+	}
+}
+
+func TestUploadProgressIsQuietForOneBatchAndCountsForMany(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+	report := reportUpload(&output)
+	report(usageSync.Progress{Batch: 0, Batches: 1, Pending: 40})
+	report(usageSync.Progress{Batch: 1, Batches: 1, Acknowledged: 40, Pending: 40})
+	if output.Len() != 0 {
+		t.Fatalf("one batch printed %q", output.String())
+	}
+	report(usageSync.Progress{Batch: 0, Batches: 43, Pending: 4214})
+	report(usageSync.Progress{Batch: 1, Batches: 43, Acknowledged: 100, Pending: 4214})
+	report(usageSync.Progress{Batch: 12, Batches: 43, Acknowledged: 1200, Pending: 4214})
+	want := "Uploading 4,214 buckets in 43 batches. A long history can take several minutes.\n" +
+		"Stopping is safe: what is uploaded is kept, and `tokenholic sync` continues from there.\n" +
+		"  100 of 4,214 uploaded\n" +
+		"  1,200 of 4,214 uploaded\n"
+	if output.String() != want {
+		t.Fatalf("progress =\n%s\nwant\n%s", output.String(), want)
+	}
+}

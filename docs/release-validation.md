@@ -201,13 +201,16 @@ on two Macs. Steps 5 to 7 were left for later.
   private, answered not found on the profile, the share page, and the card,
   exactly like a login that does not exist.
 - **Set:** `TOKENHOLIC_TRUSTED_PROXY_HOPS` is `3` on the service.
-- **A first upload can run out of time.** `tokenholic sync` gives itself five
-  minutes, and the free API took about twelve seconds for each batch of 100
-  buckets, so a machine with a long history reported "could not synchronize
-  usage" twice before a third run finished. Each run keeps what it uploaded;
-  nothing was lost or counted twice. It needs either a message that says the
-  upload is continuing, more time for a first sync, or a faster batch on the
-  server. Not fixed yet.
+- **A first upload could run out of time.** `tokenholic sync` gave itself
+  five minutes, and the free API took about twelve seconds for each batch of
+  100 buckets, so a machine with a long history reported "could not
+  synchronize usage" twice before a third run finished. Each run kept what it
+  uploaded; nothing was lost or counted twice. Fixed in the client after
+  0.3.0: the upload has no overall limit, prints its progress, and a run that
+  stops partway says how many buckets were uploaded and that `tokenholic
+  sync` continues from there. The fix is covered by tests against a fake
+  server; it has not been watched uploading a long history to the live API.
+  The server is as slow per batch as it was.
 - **Tagged and published.** `v0.2.0` was tagged on November 22, 2026, at the
   owner's instruction and before step 5: the Windows manual run has not been
   done. The release workflow ran for the first time and passed every job:

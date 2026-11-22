@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/ansonnchan/tokenholic/internal/autosync"
 	"github.com/ansonnchan/tokenholic/internal/doctor"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
+	"github.com/ansonnchan/tokenholic/internal/numfmt"
 	"github.com/ansonnchan/tokenholic/internal/preferences"
 	"github.com/ansonnchan/tokenholic/internal/store"
 	usageSync "github.com/ansonnchan/tokenholic/internal/sync"
@@ -243,7 +245,10 @@ func runSynchronization(dryRun bool, stdout, stderr io.Writer, deps dependencies
 		fmt.Fprintln(stderr, "synchronization support is unavailable")
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// No deadline: the scan bounds itself and the upload runs for as long as
+	// batches keep being accepted. Ctrl-C stops it between requests, with
+	// what was uploaded kept.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	if err := deps.sync(ctx, home, codexHome, apiURL, dryRun, stdout); err != nil {
 		if errors.Is(err, autosync.ErrAlreadyRunning) {
@@ -256,10 +261,16 @@ func runSynchronization(dryRun bool, stdout, stderr io.Writer, deps dependencies
 			fmt.Fprintln(stderr, "local usage was preserved and will upload after the upgrade")
 			return 1
 		}
+		var unfinished *unfinishedUpload
 		if dryRun {
 			fmt.Fprintln(stderr, "could not show usage data; local pending data was preserved")
 		} else if reportVaultProblem(stderr, err) {
 			fmt.Fprintln(stderr, "nothing was uploaded; local pending data was preserved")
+		} else if errors.As(err, &unfinished) {
+			// Counts only: the cause can carry an address or a server reply.
+			fmt.Fprintf(stderr, "the upload stopped after %s of %s buckets; those are kept and the rest stay pending\n",
+				numfmt.Exact(uint64(unfinished.uploaded)), numfmt.Exact(uint64(unfinished.pending)))
+			fmt.Fprintln(stderr, "run `tokenholic sync` to continue from there")
 		} else {
 			fmt.Fprintln(stderr, "could not synchronize usage; local pending data was preserved")
 		}

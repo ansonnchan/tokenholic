@@ -85,7 +85,7 @@ func (a *deviceAccount) Sync(ctx context.Context) (uploaded int64, err error) {
 			err = closeErr
 		}
 	}()
-	summary, err := uploadPending(ctx, a.database, a.apiURL)
+	summary, err := uploadPending(ctx, a.database, a.apiURL, nil)
 	if errors.Is(err, usageSync.ErrUpgradeRequired) {
 		return 0, tui.ErrUpgradeRequired
 	}
@@ -96,8 +96,9 @@ func (a *deviceAccount) Sync(ctx context.Context) (uploaded int64, err error) {
 }
 
 // uploadPending sends the outbox with this device's credential, rotating a
-// credential that is close to expiry first.
-func uploadPending(ctx context.Context, database *store.DB, apiURL string) (usageSync.Summary, error) {
+// credential that is close to expiry first. progress may be nil. On an error
+// the summary still says what the server accepted before it.
+func uploadPending(ctx context.Context, database *store.DB, apiURL string, progress func(usageSync.Progress)) (usageSync.Summary, error) {
 	credentialStore := account.NewKeyringStore(apiURL)
 	session, err := credentialStore.Load()
 	if err != nil {
@@ -124,7 +125,7 @@ func uploadPending(ctx context.Context, database *store.DB, apiURL string) (usag
 	if err != nil {
 		return usageSync.Summary{}, err
 	}
-	return client.Run(ctx, database, session.Credential)
+	return client.Run(ctx, database, session.Credential, progress)
 }
 
 // openBrowser shows a link in the user's default browser. It opens HTTPS
