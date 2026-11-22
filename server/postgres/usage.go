@@ -130,13 +130,14 @@ func upsertUsageBucket(ctx context.Context, tx pgx.Tx, deviceID string, bucket s
 			api_estimate_microusd, api_estimate_state, pricing_revision,
 			service_tier, prompt_band
 		) VALUES (
-			$1::uuid,$2,$3,60,$4,$5,$6,$7,$8,$9,
+			$1::uuid,$2,$3,$39,$4,$5,$6,$7,$8,$9,
 			$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
 			$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,
 			$37,$38
 		)
 		ON CONFLICT (device_id, bucket_key) DO UPDATE SET
-			bucket_start=excluded.bucket_start, source=excluded.source, surface=excluded.surface,
+			bucket_start=excluded.bucket_start, interval_seconds=excluded.interval_seconds,
+			source=excluded.source, surface=excluded.surface,
 			observed_model_id=excluded.observed_model_id, model_evidence=excluded.model_evidence,
 			measurement=excluded.measurement, normalization_version=excluded.normalization_version,
 			input_uncached_tokens=excluded.input_uncached_tokens, input_uncached_state=excluded.input_uncached_state,
@@ -169,11 +170,28 @@ func upsertUsageBucket(ctx context.Context, tx pgx.Tx, deviceID string, bucket s
 		derived.UnpricedReason, strconv.FormatUint(derived.PricedTokens, 10), strconv.FormatUint(derived.UnpricedTokens, 10),
 		numericPointer(derived.EstimateMicroUSD), derived.EstimateState, derived.PricingRevision,
 		evidenceValue(envelope.Bucket.ServiceTier), evidenceValue(envelope.Bucket.PromptBand),
+		intervalSeconds(envelope.Bucket.Granularity),
 	)
 	if err != nil {
 		return fmt.Errorf("write server usage bucket: %w", err)
 	}
 	return nil
+}
+
+// Bucket intervals, in seconds, as stored in usage_buckets.interval_seconds.
+const (
+	minuteInterval = 60
+	dayInterval    = 86400
+)
+
+// intervalSeconds is how much time a bucket covers. A day-level bucket is the
+// only kind that is not a minute; the protocol has already validated which
+// sources may send one.
+func intervalSeconds(granularity string) int {
+	if granularity == "day" {
+		return dayInterval
+	}
+	return minuteInterval
 }
 
 // evidenceValue stores unproven pricing evidence as NULL, never as a name.

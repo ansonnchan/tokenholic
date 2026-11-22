@@ -11,7 +11,7 @@ func TestAllReturnsContiguousImmutablePrivacySafeMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantNames := []string{"initialize_server", "private_groups", "sync_v2_usage_buckets", "pricing_evidence", "global_board_opt_in", "profiles_and_group_visibility"}
+	wantNames := []string{"initialize_server", "private_groups", "sync_v2_usage_buckets", "pricing_evidence", "global_board_opt_in", "profiles_and_group_visibility", "day_level_buckets"}
 	if len(migrations) != len(wantNames) {
 		t.Fatalf("All() returned %d migrations, want %d", len(migrations), len(wantNames))
 	}

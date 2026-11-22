@@ -110,11 +110,17 @@ type ModelUsage struct {
 	TotalTokens serveraccount.Value `json:"total_tokens"`
 }
 
-// Limitations makes incomplete model and price resolution visible per member.
+// Limitations makes incomplete model and price resolution, and coarse time,
+// visible per member.
 type Limitations struct {
 	UnknownModelBuckets           int64 `json:"unknown_model_buckets"`
 	InferredModelBuckets          int64 `json:"inferred_model_buckets"`
 	APIEstimateUnavailableBuckets int64 `json:"api_estimate_unavailable_buckets"`
+	// DayLevelBuckets counts the buckets in the window that are whole UTC
+	// days from a day-level source. Each is filed at the start of its UTC
+	// day, so where its usage falls against the board's day boundary is
+	// approximate, and a board says so when this is above zero.
+	DayLevelBuckets int64 `json:"day_level_buckets"`
 }
 
 // Coverage says how much of a member's usage in a window has a price.
