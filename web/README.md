@@ -10,7 +10,7 @@ collection, accounts, groups, and every change stay in the terminal.
 
 | Address | Shows | Reads |
 | --- | --- | --- |
-| `/` | Landing: what it is, the install command, what is read, sent, and never sent | Nothing |
+| `/` | Landing: what it is, the install command, the agents it works with, and what is read, sent, and never sent | Nothing |
 | `/u/?login=<login>` | A public profile | `GET /v1/public/users/{login}` |
 | `/b/?slug=<slug>[&period=][&metric=][#login]` | A public group board | `GET /v1/public/groups/{slug}/leaderboard` |
 | `/invite/#<code>` | Which group an invite joins, and how to join from the terminal | `GET /v1/public/invites/{code}` |

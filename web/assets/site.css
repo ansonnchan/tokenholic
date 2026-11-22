@@ -371,6 +371,28 @@ a.chip:hover {
   text-align: right;
 }
 
+/* The agents counted, as one centered line that wraps on a narrow screen. */
+.works-with {
+  margin-top: 56px;
+  text-align: center;
+}
+.works-with-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 0;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 16px;
+}
+.works-with-list li {
+  padding: 0 22px;
+}
+.works-with-list li + li {
+  border-left: 1px solid var(--border);
+}
+
 .section {
   margin-top: 64px;
 }
@@ -788,6 +810,17 @@ main.wrap {
   }
   .hero h1 {
     font-size: 24px;
+  }
+  /* Wrapped rows have no fixed first item, so the dividers give way to space. */
+  .works-with-list {
+    gap: 8px 20px;
+    font-size: 14px;
+  }
+  .works-with-list li {
+    padding: 0;
+  }
+  .works-with-list li + li {
+    border-left: 0;
   }
   .hero .command {
     width: 100%;

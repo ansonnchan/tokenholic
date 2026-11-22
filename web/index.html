@@ -105,6 +105,21 @@
       </figure>
     </div>
 
+    <!-- The agents tokenholic counts. The first two have readers of their
+         own; the rest, named here or not (Grok Build CLI and Qwen Code), are
+         read through a pinned ccusage. -->
+    <section class="works-with wrap" aria-labelledby="works-with">
+      <h2 class="label accent" id="works-with">Works with</h2>
+      <ul class="works-with-list">
+        <li>Claude Code</li>
+        <li>Codex</li>
+        <li>Gemini CLI</li>
+        <li>OpenCode</li>
+        <li>Copilot CLI</li>
+        <li class="muted">+ more via ccusage</li>
+      </ul>
+    </section>
+
     <section class="section wrap" aria-labelledby="how">
       <h2 class="rule" id="how">How it works</h2>
       <ol class="steps">
@@ -145,7 +160,7 @@
           <ul class="ticks is-yes">
             <li>Token counts by category</li>
             <li>The model ID each agent recorded</li>
-            <li>Which agent, and a one-minute UTC time bucket</li>
+            <li>Which agent, and a UTC time bucket: a minute, or a day for agents read through ccusage</li>
             <li>Service tier and a coarse prompt-size band, when recorded</li>
             <li>Your account and device identifiers</li>
           </ul>
