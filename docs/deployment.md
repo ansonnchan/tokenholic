@@ -105,10 +105,13 @@ the service log:
 curl --silent --output /dev/null https://<service>.onrender.com/v1/public/users/nobody
 ```
 
-The count on the line that appears is the number of proxies in front of the
-API, and the value to set. `/healthz` is not counted, because the platform's
-own probes do not come through its proxies. A later line with a larger count
-is a client that sent its own header, not a longer chain. After setting the
+The count on that line is the number of proxies in front of the API, and the
+value to set. The line is written once per distinct count, so it may already
+be in the log from earlier traffic. `/healthz` is not counted, because the
+platform's own probes do not come through its proxies. A line with a larger
+count is a client that sent its own header, not a longer chain: when there
+are several, the smallest count is the one to use, because a client can add
+entries but cannot remove a proxy's. After setting the
 variable, the same request must log the same count with the new setting
 beside it; then confirm the limit keys on you and not on the proxy by
 checking that a request from a second network is not slowed by the first.
