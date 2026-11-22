@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ansonnchan/tokenholic/internal/adapters"
+	"github.com/ansonnchan/tokenholic/internal/adapters/ccusage"
 	"github.com/ansonnchan/tokenholic/internal/normalize"
 	"github.com/ansonnchan/tokenholic/internal/store"
 )
@@ -36,6 +37,14 @@ type Orchestrator struct {
 	Store          ScanStore
 	AdapterVersion string
 	Now            func() time.Time
+	// DayLevel reads the agents that have no native adapter. Nil leaves
+	// them out of the scan entirely.
+	DayLevel DayLevelReader
+}
+
+// DayLevelReader supplies one reading per day-level agent.
+type DayLevelReader interface {
+	Read(context.Context) []DayReading
 }
 
 // ScanResult reports durable progress and safe collection warnings.
@@ -75,6 +84,17 @@ func (o Orchestrator) Scan(ctx context.Context) (ScanResult, error) {
 		DiscoveredSources: len(findings), NormalizedRecords: len(collected.Observations),
 		Warnings: append([]normalize.Warning(nil), collected.Warnings...),
 	}
+	// Day-level agents are read after the native sources and committed in
+	// the same transaction. They share nothing with the native path: their
+	// batches are built here from their own readings, so nothing they report
+	// can reach a Claude or Codex record.
+	if o.DayLevel != nil {
+		for _, reading := range o.DayLevel.Read(ctx) {
+			batches = append(batches, dayLevelBatch(reading, now))
+			result.DiscoveredSources++
+			result.NormalizedRecords += len(reading.Observations)
+		}
+	}
 	commitCtx := ctx
 	var cancel context.CancelFunc
 	if ctx.Err() != nil {
@@ -94,6 +114,26 @@ func (o Orchestrator) Scan(ctx context.Context) (ScanResult, error) {
 		return result, ctx.Err()
 	}
 	return result, nil
+}
+
+// dayLevelBatch stores one agent's reading. An agent that was not read
+// carries no observations, so its stored day totals stay as they were while
+// its health records why.
+func dayLevelBatch(reading DayReading, now time.Time) store.ObservationBatch {
+	source := reading.Health.Source
+	identity := store.NewSourceIdentity(source, normalize.SurfaceCLI,
+		strings.Join([]string{"day-level-v1", string(source)}, "\x00"))
+	batch := store.ObservationBatch{
+		Observations: reading.Observations,
+		Checkpoint:   store.Checkpoint{Source: identity, Cursor: uint64(len(reading.Observations)), CollectedAt: now},
+		Health: store.AdapterHealth{
+			Source: identity, Health: reading.Health, AdapterVersion: ccusage.AdapterVersion, CheckedAt: now,
+		},
+	}
+	if reading.Read {
+		batch.Health.LastSuccessAt = &now
+	}
+	return batch
 }
 
 func (o Orchestrator) adapterVersion() string {
