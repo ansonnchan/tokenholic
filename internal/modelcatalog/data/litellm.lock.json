@@ -4,6 +4,8 @@
   "commit": "ac7674625ceed298d6c411cc964f23aded63989d",
   "sha256": "f410a08e6d566829e3a858b00e8b23f5a796fd2360f056a69cab43526f908864",
   "retrieved": "2026-11-21",
-  "providers": ["anthropic", "openai"],
-  "modes": ["chat", "responses"]
+  "providers": ["anthropic", "openai", "gemini", "xai"],
+  "modes": ["chat", "responses"],
+  "prefixed_providers": ["gemini", "xai"],
+  "excluded_models": ["gemini-exp-1114", "gemini-exp-1206", "gemma-3-27b-it", "learnlm-1.5-pro-experimental"]
 }

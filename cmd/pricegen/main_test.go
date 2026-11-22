@@ -198,3 +198,108 @@ func pinFor(data string) modelcatalog.SnapshotPin {
 		Providers: []string{"anthropic", "openai"}, Modes: []string{"chat", "responses"},
 	}
 }
+
+// prefixedUpstream is a synthetic file for a provider whose own prices are
+// published only under its own prefix.
+const prefixedUpstream = `{
+  "model-flat": {"litellm_provider": "anthropic", "mode": "chat", "input_cost_per_token": 0.000004, "output_cost_per_token": 0.00002},
+  "vendor/model-own": {"litellm_provider": "vendor", "mode": "chat", "input_cost_per_token": 0.000001,
+    "output_cost_per_token": 0.000002, "output_cost_per_reasoning_token": 0.000002},
+  "vendor/model-long": {"litellm_provider": "vendor", "mode": "chat", "input_cost_per_token": 0.000001,
+    "output_cost_per_token": 0.000002, "input_cost_per_token_above_128k_tokens": 0.000002},
+  "model-own": {"litellm_provider": "vendor", "mode": "chat", "input_cost_per_token": 0.000009, "output_cost_per_token": 0.000009},
+  "vendor/reseller/model-own": {"litellm_provider": "vendor", "mode": "chat", "input_cost_per_token": 0.000009, "output_cost_per_token": 0.000009},
+  "elsewhere/model-own": {"litellm_provider": "vendor", "mode": "chat", "input_cost_per_token": 0.000009, "output_cost_per_token": 0.000009},
+  "vendor/model-routed": {"litellm_provider": "reseller", "mode": "chat", "input_cost_per_token": 0.000009, "output_cost_per_token": 0.000009},
+  "vendor/": {"litellm_provider": "vendor", "mode": "chat", "input_cost_per_token": 0.000009, "output_cost_per_token": 0.000009}
+}`
+
+func prefixedPin(data string) modelcatalog.SnapshotPin {
+	pin := pinFor(data)
+	pin.Providers = append(pin.Providers, "vendor")
+	pin.PrefixedProviders = []string{"vendor"}
+	pin.ExcludedModels = []string{"model-long"}
+	return pin
+}
+
+func TestBuildVendorsAPrefixedProvidersOwnPrices(t *testing.T) {
+	t.Parallel()
+	snapshot, err := build(prefixedPin(prefixedUpstream), []byte(prefixedUpstream))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := encode(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	// Only the provider's own prefixed entry is kept, under its bare name
+	// and at its own price. Its unprefixed copy, a route nested under it, the
+	// same name under another prefix, another provider's entry under this
+	// prefix, an empty name, and the excluded model leave no trace.
+	if len(snapshot.Models) != 2 {
+		t.Fatalf("vendored models = %+v, want model-flat and model-own", snapshot.Models)
+	}
+	flat, own := snapshot.Models[0], snapshot.Models[1]
+	if flat.ID != "model-flat" || flat.Provider != "anthropic" {
+		t.Fatalf("first model = %+v", flat)
+	}
+	if own.ID != "model-own" || own.Provider != "vendor" || own.Input == nil || *own.Input != 1_000_000 || own.Output == nil || *own.Output != 2_000_000 {
+		t.Fatalf("prefixed provider's model = %+v, want model-own at its own $1 and $2", own)
+	}
+}
+
+func TestBuildRefusesUnreviewedPrefixedInput(t *testing.T) {
+	t.Parallel()
+	replace := func(old, new string) string {
+		changed := strings.Replace(prefixedUpstream, old, new, 1)
+		if changed == prefixedUpstream {
+			t.Fatalf("the synthetic file no longer contains %q", old)
+		}
+		return changed
+	}
+	separateReasoning := replace(`"output_cost_per_reasoning_token": 0.000002`, `"output_cost_per_reasoning_token": 0.000003`)
+	reasoningAlone := replace(`"output_cost_per_token": 0.000002, "output_cost_per_reasoning_token": 0.000002`, `"output_cost_per_reasoning_token": 0.000002`)
+	collision := replace(`"model-own": {"litellm_provider": "vendor"`, `"model-own": {"litellm_provider": "anthropic"`)
+	tests := []struct {
+		name    string
+		pin     func(string) modelcatalog.SnapshotPin
+		data    string
+		wantErr string
+	}{
+		{name: "reasoning priced apart from output", pin: prefixedPin, data: separateReasoning, wantErr: "priced apart from output"},
+		{name: "a reasoning rate without an output rate", pin: prefixedPin, data: reasoningAlone, wantErr: "without an output rate"},
+		{name: "a bare name another provider already has", pin: prefixedPin, data: collision, wantErr: "vendored under the same name"},
+		{name: "a threshold no band can prove, not excluded", pin: func(data string) modelcatalog.SnapshotPin {
+			pin := prefixedPin(data)
+			pin.ExcludedModels = nil
+			return pin
+		}, data: prefixedUpstream, wantErr: "not on the upload ladder"},
+		{name: "an exclusion that matches nothing", pin: func(data string) modelcatalog.SnapshotPin {
+			pin := prefixedPin(data)
+			pin.ExcludedModels = append(pin.ExcludedModels, "model-retired")
+			return pin
+		}, data: prefixedUpstream, wantErr: "not a model the pin would vendor"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			snapshot, err := build(test.pin(test.data), []byte(test.data))
+			if err == nil {
+				_, err = encode(snapshot)
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("build() and encode() error = %v, want substring %q", err, test.wantErr)
+			}
+		})
+	}
+	for name, mutate := range map[string]func(*modelcatalog.SnapshotPin){
+		"a prefixed provider that is not pinned": func(pin *modelcatalog.SnapshotPin) { pin.PrefixedProviders = []string{"reseller"} },
+		"an exclusion named twice":               func(pin *modelcatalog.SnapshotPin) { pin.ExcludedModels = []string{"model-long", "model-long"} },
+		"an empty exclusion":                     func(pin *modelcatalog.SnapshotPin) { pin.ExcludedModels = []string{""} },
+	} {
+		pin := prefixedPin(prefixedUpstream)
+		mutate(&pin)
+		if err := pin.Validate(); err == nil {
+			t.Errorf("pin with %s was accepted", name)
+		}
+	}
+}

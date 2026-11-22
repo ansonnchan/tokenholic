@@ -22,6 +22,15 @@ type SnapshotPin struct {
 	Retrieved  string   `json:"retrieved"`
 	Providers  []string `json:"providers"`
 	Modes      []string `json:"modes"`
+	// PrefixedProviders lists the providers whose own models the upstream
+	// file publishes as "<provider>/<model>". For these the prefix marks the
+	// first-party price and is removed; for every other provider a prefix
+	// marks another vendor's route and the entry is dropped.
+	PrefixedProviders []string `json:"prefixed_providers,omitempty"`
+	// ExcludedModels are models of a pinned provider left out on purpose,
+	// each because its price cannot be applied from what a bucket proves.
+	// They resolve as unknown models and stay unpriced.
+	ExcludedModels []string `json:"excluded_models,omitempty"`
 }
 
 // Snapshot is the vendored, token-priced subset of the pinned upstream file.
@@ -88,6 +97,16 @@ func (p SnapshotPin) Validate() error {
 	}
 	if _, err := time.Parse(time.DateOnly, p.Retrieved); err != nil {
 		return fmt.Errorf("price snapshot pin retrieval date: %w", err)
+	}
+	for _, provider := range p.PrefixedProviders {
+		if !slices.Contains(p.Providers, provider) {
+			return fmt.Errorf("price snapshot pin: prefixed provider %q is not a pinned provider", provider)
+		}
+	}
+	for index, model := range p.ExcludedModels {
+		if model == "" || slices.Contains(p.ExcludedModels[:index], model) {
+			return errors.New("price snapshot pin: excluded models must be named once each")
+		}
 	}
 	return nil
 }

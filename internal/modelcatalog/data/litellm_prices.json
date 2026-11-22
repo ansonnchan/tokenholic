@@ -7,11 +7,23 @@
     "retrieved": "2026-11-21",
     "providers": [
       "anthropic",
-      "openai"
+      "openai",
+      "gemini",
+      "xai"
     ],
     "modes": [
       "chat",
       "responses"
+    ],
+    "prefixed_providers": [
+      "gemini",
+      "xai"
+    ],
+    "excluded_models": [
+      "gemini-exp-1114",
+      "gemini-exp-1206",
+      "gemma-3-27b-it",
+      "learnlm-1.5-pro-experimental"
     ]
   },
   "models": [
@@ -334,6 +346,24 @@
       }
     },
     {
+      "id": "deep-research-max-preview-04-2026",
+      "provider": "gemini",
+      "input": 2000000,
+      "output": 12000000
+    },
+    {
+      "id": "deep-research-preview-04-2026",
+      "provider": "gemini",
+      "input": 2000000,
+      "output": 12000000
+    },
+    {
+      "id": "deep-research-pro-preview-12-2025",
+      "provider": "gemini",
+      "input": 2000000,
+      "output": 12000000
+    },
+    {
       "id": "ft:gpt-3.5-turbo",
       "provider": "openai",
       "input": 3000000,
@@ -411,6 +441,529 @@
       "input": 4000000,
       "cache_read": 1000000,
       "output": 16000000
+    },
+    {
+      "id": "gemini-2.5-computer-use-preview-10-2025",
+      "provider": "gemini",
+      "input": 1250000,
+      "output": 10000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "output": 15000000
+      }
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "provider": "gemini",
+      "input": 300000,
+      "cache_read": 30000,
+      "output": 2500000,
+      "tiers": {
+        "flex": {
+          "input": 150000,
+          "cache_read": 30000,
+          "output": 1250000
+        },
+        "priority": {
+          "input": 540000,
+          "cache_read": 54000,
+          "output": 4500000
+        }
+      }
+    },
+    {
+      "id": "gemini-2.5-flash-lite",
+      "provider": "gemini",
+      "input": 100000,
+      "cache_read": 10000,
+      "output": 400000,
+      "tiers": {
+        "flex": {
+          "input": 50000,
+          "cache_read": 10000,
+          "output": 200000
+        },
+        "priority": {
+          "input": 180000,
+          "cache_read": 18000,
+          "output": 720000
+        }
+      }
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "provider": "gemini",
+      "input": 1250000,
+      "cache_read": 125000,
+      "output": 10000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 250000,
+        "output": 15000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 625000,
+          "cache_read": 125000,
+          "output": 5000000,
+          "long_prompt": {
+            "input": 1250000,
+            "cache_read": 250000,
+            "output": 7500000
+          }
+        },
+        "priority": {
+          "input": 2250000,
+          "cache_read": 225000,
+          "output": 18000000,
+          "long_prompt": {
+            "input": 4500000,
+            "cache_read": 450000,
+            "output": 27000000
+          }
+        }
+      }
+    },
+    {
+      "id": "gemini-2.5-pro-preview-tts",
+      "provider": "gemini",
+      "input": 1000000,
+      "cache_read": 125000,
+      "output": 20000000
+    },
+    {
+      "id": "gemini-3-flash-preview",
+      "provider": "gemini",
+      "input": 500000,
+      "cache_read": 50000,
+      "output": 3000000,
+      "tiers": {
+        "flex": {
+          "input": 250000,
+          "cache_read": 50000,
+          "output": 1500000
+        },
+        "priority": {
+          "input": 900000,
+          "cache_read": 90000,
+          "output": 5400000
+        }
+      }
+    },
+    {
+      "id": "gemini-3.1-flash-lite",
+      "provider": "gemini",
+      "input": 250000,
+      "cache_read": 25000,
+      "output": 1500000,
+      "tiers": {
+        "flex": {
+          "input": 125000,
+          "cache_read": 12500,
+          "output": 750000
+        },
+        "priority": {
+          "input": 450000,
+          "cache_read": 45000,
+          "output": 2700000
+        }
+      }
+    },
+    {
+      "id": "gemini-3.1-flash-lite-preview",
+      "provider": "gemini",
+      "input": 250000,
+      "cache_read": 25000,
+      "output": 1500000,
+      "tiers": {
+        "flex": {
+          "input": 125000,
+          "cache_read": 12500,
+          "output": 750000
+        },
+        "priority": {
+          "input": 450000,
+          "cache_read": 45000,
+          "output": 2700000
+        }
+      }
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "provider": "gemini",
+      "input": 2000000,
+      "cache_read": 200000,
+      "output": 12000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 400000,
+        "output": 18000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 200000,
+          "output": 6000000,
+          "long_prompt": {
+            "input": 2000000,
+            "cache_read": 400000,
+            "output": 9000000
+          }
+        },
+        "priority": {
+          "input": 3600000,
+          "cache_read": 360000,
+          "output": 21600000,
+          "long_prompt": {
+            "input": 7200000,
+            "cache_read": 720000,
+            "output": 32400000
+          }
+        }
+      }
+    },
+    {
+      "id": "gemini-3.1-pro-preview-customtools",
+      "provider": "gemini",
+      "input": 2000000,
+      "cache_read": 200000,
+      "output": 12000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 400000,
+        "output": 18000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 200000,
+          "output": 6000000,
+          "long_prompt": {
+            "input": 2000000,
+            "cache_read": 400000,
+            "output": 9000000
+          }
+        },
+        "priority": {
+          "input": 3600000,
+          "cache_read": 360000,
+          "output": 21600000,
+          "long_prompt": {
+            "input": 7200000,
+            "cache_read": 720000,
+            "output": 32400000
+          }
+        }
+      }
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "provider": "gemini",
+      "input": 1500000,
+      "cache_read": 150000,
+      "output": 9000000,
+      "tiers": {
+        "flex": {
+          "input": 750000,
+          "cache_read": 80000,
+          "output": 4500000
+        },
+        "priority": {
+          "input": 2700000,
+          "cache_read": 270000,
+          "output": 16200000
+        }
+      }
+    },
+    {
+      "id": "gemini-3.5-flash-lite",
+      "provider": "gemini",
+      "input": 300000,
+      "cache_read": 30000,
+      "output": 2500000,
+      "tiers": {
+        "flex": {
+          "input": 150000,
+          "cache_read": 20000,
+          "output": 1250000
+        },
+        "priority": {
+          "input": 540000,
+          "cache_read": 50000,
+          "output": 4500000
+        }
+      }
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "provider": "gemini",
+      "input": 750000,
+      "cache_read": 75000,
+      "output": 3750000,
+      "tiers": {
+        "flex": {
+          "input": 375000,
+          "cache_read": 37500,
+          "output": 1875000
+        },
+        "priority": {
+          "input": 1350000,
+          "cache_read": 135000,
+          "output": 6750000
+        }
+      }
+    },
+    {
+      "id": "gemini-3.7-flash",
+      "provider": "gemini",
+      "input": 750000,
+      "cache_read": 75000,
+      "output": 3750000,
+      "tiers": {
+        "flex": {
+          "input": 375000,
+          "cache_read": 37500,
+          "output": 1875000
+        },
+        "priority": {
+          "input": 1350000,
+          "cache_read": 135000,
+          "output": 6750000
+        }
+      }
+    },
+    {
+      "id": "gemini-3.8-flash",
+      "provider": "gemini",
+      "input": 750000,
+      "cache_read": 75000,
+      "output": 3750000,
+      "tiers": {
+        "flex": {
+          "input": 375000,
+          "cache_read": 37500,
+          "output": 1875000
+        },
+        "priority": {
+          "input": 1350000,
+          "cache_read": 135000,
+          "output": 6750000
+        }
+      }
+    },
+    {
+      "id": "gemini-4-argon",
+      "provider": "gemini",
+      "input": 2000000,
+      "cache_read": 100000,
+      "output": 10000000,
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 50000,
+          "output": 5000000
+        },
+        "priority": {
+          "input": 3600000,
+          "cache_read": 180000,
+          "output": 18000000
+        }
+      }
+    },
+    {
+      "id": "gemini-4-carbon",
+      "provider": "gemini",
+      "input": 2000000,
+      "cache_read": 100000,
+      "output": 10000000,
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 50000,
+          "output": 5000000
+        },
+        "priority": {
+          "input": 3600000,
+          "cache_read": 180000,
+          "output": 18000000
+        }
+      }
+    },
+    {
+      "id": "gemini-4-hydrogen",
+      "provider": "gemini",
+      "input": 1500000,
+      "cache_read": 75000,
+      "output": 7500000,
+      "tiers": {
+        "flex": {
+          "input": 750000,
+          "cache_read": 37500,
+          "output": 3750000
+        },
+        "priority": {
+          "input": 2700000,
+          "cache_read": 135000,
+          "output": 13500000
+        }
+      }
+    },
+    {
+      "id": "gemini-4-neon",
+      "provider": "gemini",
+      "input": 3000000,
+      "cache_read": 150000,
+      "output": 15000000,
+      "tiers": {
+        "flex": {
+          "input": 1500000,
+          "cache_read": 75000,
+          "output": 7500000
+        },
+        "priority": {
+          "input": 5400000,
+          "cache_read": 270000,
+          "output": 27000000
+        }
+      }
+    },
+    {
+      "id": "gemini-flash-latest",
+      "provider": "gemini",
+      "input": 750000,
+      "cache_read": 75000,
+      "output": 3750000,
+      "tiers": {
+        "flex": {
+          "input": 375000,
+          "cache_read": 37500,
+          "output": 1875000
+        },
+        "priority": {
+          "input": 1350000,
+          "cache_read": 135000,
+          "output": 6750000
+        }
+      }
+    },
+    {
+      "id": "gemini-flash-lite-latest",
+      "provider": "gemini",
+      "input": 300000,
+      "cache_read": 30000,
+      "output": 2500000,
+      "tiers": {
+        "flex": {
+          "input": 150000,
+          "cache_read": 20000,
+          "output": 1250000
+        },
+        "priority": {
+          "input": 540000,
+          "cache_read": 50000,
+          "output": 4500000
+        }
+      }
+    },
+    {
+      "id": "gemini-gemma-2-27b-it",
+      "provider": "gemini",
+      "input": 350000,
+      "output": 1050000
+    },
+    {
+      "id": "gemini-gemma-2-9b-it",
+      "provider": "gemini",
+      "input": 350000,
+      "output": 1050000
+    },
+    {
+      "id": "gemini-omni-1.1-flash",
+      "provider": "gemini",
+      "input": 1500000,
+      "output": 9000000
+    },
+    {
+      "id": "gemini-omni-1.2-flash",
+      "provider": "gemini",
+      "input": 1500000,
+      "output": 9000000
+    },
+    {
+      "id": "gemini-omni-flash-preview",
+      "provider": "gemini",
+      "input": 1500000,
+      "output": 9000000
+    },
+    {
+      "id": "gemini-pro-latest",
+      "provider": "gemini",
+      "input": 2000000,
+      "cache_read": 200000,
+      "output": 12000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 400000,
+        "output": 18000000
+      },
+      "tiers": {
+        "flex": {
+          "input": 1000000,
+          "cache_read": 200000,
+          "output": 6000000,
+          "long_prompt": {
+            "input": 2000000,
+            "cache_read": 400000,
+            "output": 9000000
+          }
+        },
+        "priority": {
+          "input": 3600000,
+          "cache_read": 360000,
+          "output": 21600000,
+          "long_prompt": {
+            "input": 7200000,
+            "cache_read": 720000,
+            "output": 32400000
+          }
+        }
+      }
+    },
+    {
+      "id": "gemini-robotics-er-2-preview",
+      "provider": "gemini",
+      "input": 1000000,
+      "cache_read": 100000,
+      "output": 5000000
+    },
+    {
+      "id": "gemini-robotics-er-2-streaming-preview",
+      "provider": "gemini",
+      "input": 1000000,
+      "output": 5000000
+    },
+    {
+      "id": "gemma-4-26b-a4b-it",
+      "provider": "gemini",
+      "input": 0,
+      "output": 0
+    },
+    {
+      "id": "gemma-4-31b-it",
+      "provider": "gemini",
+      "input": 0,
+      "output": 0
+    },
+    {
+      "id": "genie-4",
+      "provider": "gemini",
+      "input": 1500000,
+      "output": 9000000
     },
     {
       "id": "gpt-3.5-turbo",
@@ -1834,6 +2387,601 @@
       "input": 5000000,
       "cache_read": 500000,
       "output": 25000000
+    },
+    {
+      "id": "grok-4.20",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-0309",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-0309-non-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-0309-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-beta",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-beta-0309",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-beta-0309-non-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-beta-0309-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-beta-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-beta-latest-non-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-beta-latest-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-beta-non-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-beta-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-experimental-beta-0304",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-experimental-beta-0304-non-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-experimental-beta-0304-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-experimental-beta-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-experimental-beta-non-reasoning-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-experimental-beta-reasoning-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-multi-agent",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-multi-agent-0309",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-multi-agent-beta-0309",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-multi-agent-beta-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-multi-agent-experimental-beta-0304",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-multi-agent-experimental-beta-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-multi-agent-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-non-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-non-reasoning-gv2",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-non-reasoning-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-reasoning",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-reasoning-gv2",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.20-reasoning-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.3",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.3-latest",
+      "provider": "xai",
+      "input": 1250000,
+      "cache_read": 200000,
+      "output": 2500000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2500000,
+        "cache_read": 400000,
+        "output": 5000000
+      }
+    },
+    {
+      "id": "grok-4.5",
+      "provider": "xai",
+      "input": 2000000,
+      "cache_read": 300000,
+      "output": 6000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 600000,
+        "output": 12000000
+      }
+    },
+    {
+      "id": "grok-4.5-latest",
+      "provider": "xai",
+      "input": 2000000,
+      "cache_read": 300000,
+      "output": 6000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 600000,
+        "output": 12000000
+      }
+    },
+    {
+      "id": "grok-4.6",
+      "provider": "xai",
+      "input": 2000000,
+      "cache_read": 500000,
+      "output": 6000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 1000000,
+        "output": 12000000
+      }
+    },
+    {
+      "id": "grok-4.7",
+      "provider": "xai",
+      "input": 2000000,
+      "cache_read": 500000,
+      "output": 6000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 1000000,
+        "output": 12000000
+      }
+    },
+    {
+      "id": "grok-build-0.1",
+      "provider": "xai",
+      "input": 1000000,
+      "cache_read": 200000,
+      "output": 2000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2000000,
+        "cache_read": 400000,
+        "output": 4000000
+      }
+    },
+    {
+      "id": "grok-build-latest",
+      "provider": "xai",
+      "input": 2000000,
+      "cache_read": 300000,
+      "output": 6000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 4000000,
+        "cache_read": 600000,
+        "output": 12000000
+      }
+    },
+    {
+      "id": "grok-code-fast",
+      "provider": "xai",
+      "input": 1000000,
+      "cache_read": 200000,
+      "output": 2000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2000000,
+        "cache_read": 400000,
+        "output": 4000000
+      }
+    },
+    {
+      "id": "grok-code-fast-1",
+      "provider": "xai",
+      "input": 1000000,
+      "cache_read": 200000,
+      "output": 2000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2000000,
+        "cache_read": 400000,
+        "output": 4000000
+      }
+    },
+    {
+      "id": "grok-code-fast-1-0825",
+      "provider": "xai",
+      "input": 1000000,
+      "cache_read": 200000,
+      "output": 2000000,
+      "prompt_threshold": 200000,
+      "long_prompt": {
+        "input": 2000000,
+        "cache_read": 400000,
+        "output": 4000000
+      }
+    },
+    {
+      "id": "lyria-3-clip-preview",
+      "provider": "gemini",
+      "input": 0,
+      "output": 0
+    },
+    {
+      "id": "lyria-3-pro-preview",
+      "provider": "gemini",
+      "input": 0,
+      "output": 0
+    },
+    {
+      "id": "lyria-3.5",
+      "provider": "gemini",
+      "input": 0,
+      "output": 0
+    },
+    {
+      "id": "lyria-3.5-clip-preview",
+      "provider": "gemini",
+      "input": 0,
+      "output": 0
+    },
+    {
+      "id": "lyria-3.5-pro-preview",
+      "provider": "gemini",
+      "input": 0,
+      "output": 0
+    },
+    {
+      "id": "lyria-realtime-exp",
+      "provider": "gemini",
+      "input": 0,
+      "output": 0
     },
     {
       "id": "o1",

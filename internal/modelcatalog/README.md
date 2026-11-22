@@ -12,7 +12,7 @@ authoritative; the client's is an offline preview.
 
 | File | Role | Edited by |
 | --- | --- | --- |
-| `data/litellm.lock.json` | Pins the upstream file: repository, path, full commit, SHA-256, retrieval date, and the providers and modes to keep | A reviewer, when moving the pin |
+| `data/litellm.lock.json` | Pins the upstream file: repository, path, full commit, SHA-256, retrieval date, the providers and modes to keep, which providers publish their own prices under their own prefix, and the models left out on purpose | A reviewer, when moving the pin |
 | `data/litellm_prices.json` | The vendored subset of that file | `make prices` only |
 | `data/overrides.json` | Reviewed additions: prices the snapshot lacks, and labels deliberately left unpriced | A reviewer, with a citation |
 | `data/LICENSE-litellm.txt` | MIT notice for the vendored data | Nobody |
@@ -22,8 +22,12 @@ The upstream file is LiteLLM's `model_prices_and_context_window.json`.
 differs from the pin, and writes a deterministic snapshot. It keeps an entry
 only when it is:
 
-- a bare first-party model ID for a pinned provider and mode, not a prefixed
-  route through another vendor;
+- a first-party model ID for a pinned provider and mode, not a route through
+  another vendor. For most providers that is a bare ID and any prefix marks a
+  route. Google and xAI publish their own prices only as `gemini/<model>` and
+  `xai/<model>`; the pin lists them as `prefixed_providers`, and for those the
+  provider's own prefix is removed and every other form is dropped;
+- not listed in the pin's `excluded_models`;
 - priced per token, with an input or output rate;
 - not an `alias_of` entry. A moving alias such as a `-latest` name would
   reprice history whenever the provider repoints it.
@@ -41,6 +45,31 @@ must match the shape the generator knows: a category, an optional cache
 lifetime, an optional prompt-length threshold, and an optional service tier.
 A field in a new shape, or with a tier nobody has reviewed, stops generation
 rather than being dropped unseen.
+
+A model that prices reasoning output apart from other output stops
+generation as well: reasoning is counted inside output, so one output rate is
+all a bucket can be priced with.
+
+### Providers beyond Anthropic and OpenAI
+
+The agents read through ccusage report models from other providers. The pin
+vendors Google's Gemini API prices (`gemini`) and xAI's (`xai`) from the same
+upstream file, and nothing else was added by hand. What a user of those
+agents sees:
+
+| Model | Estimate |
+| --- | --- |
+| A Gemini or Grok model with one price at every prompt length, such as `gemini-2.5-flash` | Priced at the standard rate |
+| A model priced by prompt length, such as `gemini-2.5-pro` and every current Grok model | Unpriced, `prompt_length_unproven`: a day-level total cannot prove which side of the threshold its requests fell on |
+| A name the provider's price list does not carry, such as Grok Build's `grok-4.5-build` or Copilot's `claude-sonnet-4.5` | Unpriced, `unknown_model`. It is not assumed to be the model its name resembles |
+| Qwen models | Unpriced, `unknown_model`. The upstream file gives Alibaba's prices only as prompt-length tiers this snapshot cannot represent |
+
+Four Gemini models are in `excluded_models` because their price changes at
+128,000 prompt tokens, a length no upload band can prove. An exclusion that
+matches nothing fails generation, so the list cannot go stale unnoticed.
+
+Unpriced tokens still count on the token board. The estimate shows as a
+lower bound with the unpriced share beside it.
 
 ### Moving the pin
 
