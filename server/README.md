@@ -134,6 +134,13 @@ The board response states the coverage threshold and the plausibility limit,
 so a client explains them without copying server policy. Freshness and
 model/price limitations travel with every row.
 
+One limitation is about time rather than price. `day_level_buckets` counts
+the member's buckets in the window that are whole UTC days from a day-level
+source (GitHub Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, or Qwen
+Code). Such a bucket is filed at the start of its UTC day, so which side of
+the board's day boundary its usage fell on is approximate. The count is what
+lets a client say so; the usage itself is ranked like any other.
+
 The global board is the same query over a different set of members: accounts
 whose `global_opt_in` is true. That column is false by default.
 `PUT /v1/account/global-board` changes it and requires an explicit

@@ -195,6 +195,7 @@ func readBoard(ctx context.Context, tx pgx.Tx, scope boardScope, board *leaderbo
 			&row.Limitations.UnknownModelBuckets,
 			&row.Limitations.InferredModelBuckets,
 			&row.Limitations.APIEstimateUnavailableBuckets,
+			&row.Limitations.DayLevelBuckets,
 		); err != nil {
 			rows.Close()
 			return fmt.Errorf("decode leaderboard member: %w", err)
@@ -352,6 +353,7 @@ const memberAggregateSQL = `, usage AS (
 			` + knownTotalSQL + ` AS total_tokens,
 			` + totalCompleteSQL + ` AS total_complete,
 			b.api_estimate_microusd, b.api_estimate_state, b.priced_tokens, b.unpriced_tokens, b.model_resolution,
+			b.interval_seconds,
 			(b.bucket_start < $3::timestamptz AND ($2::timestamptz IS NULL OR b.bucket_start >= $2::timestamptz)) AS in_current,
 			(b.bucket_start < $5::timestamptz AND ($4::timestamptz IS NULL OR b.bucket_start >= $4::timestamptz)) AS in_previous
 		FROM usage_buckets b
@@ -383,7 +385,8 @@ const memberAggregateSQL = `, usage AS (
 		COALESCE(SUM(u.unpriced_tokens) FILTER (WHERE u.in_previous), 0)::text,
 		COUNT(*) FILTER (WHERE u.in_current AND u.model_resolution='unknown'),
 		COUNT(*) FILTER (WHERE u.in_current AND u.model_resolution='inferred'),
-		COUNT(*) FILTER (WHERE u.in_current AND u.api_estimate_microusd IS NULL)
+		COUNT(*) FILTER (WHERE u.in_current AND u.api_estimate_microusd IS NULL),
+		COUNT(*) FILTER (WHERE u.in_current AND u.interval_seconds = 86400)
 	FROM members m
 	LEFT JOIN usage u ON u.user_id = m.user_id
 	GROUP BY m.user_id, m.display_name, m.avatar_url
