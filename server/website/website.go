@@ -90,7 +90,16 @@ func (s Site) Profile(login string) string {
 	return s.base + "/u/?login=" + url.QueryEscape(login)
 }
 
-// Board is the public board page for a group's public slug.
-func (s Site) Board(slug string) string {
-	return s.base + "/b/?slug=" + url.QueryEscape(slug)
+// Board is the public board page for a group's public slug. period and
+// metric select what it opens on; empty values leave the page's own default.
+func (s Site) Board(slug, period, metric string) string {
+	query := url.Values{"slug": []string{slug}}
+	if period != "" {
+		query.Set("period", period)
+	}
+	if metric != "" {
+		query.Set("metric", metric)
+	}
+	// Encode sorts keys; the page reads them by name.
+	return s.base + "/b/?" + query.Encode()
 }

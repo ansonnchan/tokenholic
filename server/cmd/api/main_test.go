@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	serveraccount "github.com/ansonnchan/tokenholic/server/account"
+	servergroup "github.com/ansonnchan/tokenholic/server/group"
+	serverleaderboard "github.com/ansonnchan/tokenholic/server/leaderboard"
 	"github.com/ansonnchan/tokenholic/server/website"
 )
 
@@ -156,5 +160,53 @@ func TestReadableByAllowsOnlyTheConfiguredWebsite(t *testing.T) {
 	open.ServeHTTP(response, request)
 	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "https://pages.example" {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want the website's origin without its path", got)
+	}
+}
+
+type noProfiles struct{}
+
+func (noProfiles) PublicProfile(context.Context, string) (serveraccount.PublicProfile, error) {
+	return serveraccount.PublicProfile{}, serveraccount.ErrProfileNotFound
+}
+
+type noBoards struct{}
+
+func (noBoards) PublicGroup(context.Context, string, serverleaderboard.Period, serverleaderboard.Metric) (serverleaderboard.Board, error) {
+	return serverleaderboard.Board{}, servergroup.ErrNotFound
+}
+
+// Share routes exist only when there is a website to send browsers on to,
+// and never take over the JSON API's own paths.
+func TestWithSharePagesMountsOnlyUnderItsPrefix(t *testing.T) {
+	api := http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusTeapot) })
+	get := func(handler http.Handler, path string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		return response
+	}
+
+	without, err := withSharePages(api, website.Site{}, noProfiles{}, noBoards{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := get(without, "/s/u/someone").Code; code != http.StatusTeapot {
+		t.Fatalf("without a website /s/ = %d, want it left to the API", code)
+	}
+
+	site, err := website.Parse("https://pages.example/tokenholic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	with, err := withSharePages(api, site, noProfiles{}, noBoards{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response := get(with, "/s/u/someone"); response.Code != http.StatusNotFound || !strings.HasPrefix(response.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("share miss = %d %q", response.Code, response.Header().Get("Content-Type"))
+	}
+	for _, path := range []string{"/healthz", "/v1/public/users/someone", "/v2/sync/buckets", "/", "/sx"} {
+		if code := get(with, path).Code; code != http.StatusTeapot {
+			t.Errorf("GET %s = %d, want it routed to the API", path, code)
+		}
 	}
 }
