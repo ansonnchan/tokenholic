@@ -72,6 +72,11 @@ Find this line in the Render log:
 tokenholic api: a request arrived with N X-Forwarded-For entries; TOKENHOLIC_TRUSTED_PROXY_HOPS is 0
 ```
 
+The API writes that line once for each distinct count, so other traffic may
+already have produced it, and a client that sends its own header produces a
+second line with a larger count. If there is more than one, the smallest `N`
+is the proxy chain: a client can add entries but cannot remove a proxy's.
+
 Set `TOKENHOLIC_TRUSTED_PROXY_HOPS` to that `N` on the Render service, let it
 redeploy, send the request again, and confirm the new line shows the same `N`
 beside the new setting. If `N` is 0, leave the variable unset and write that
