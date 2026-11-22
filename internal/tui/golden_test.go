@@ -31,6 +31,8 @@ type screen struct {
 	scanning bool
 	// notice is the fixed header label, as the demo sets it.
 	notice string
+	// autosync is the scheduler behind the claim's hourly-sync offer.
+	autosync func() *fakeAutosync
 }
 
 var screens = []screen{
@@ -82,6 +84,12 @@ var screens = []screen{
 		return &fakeAccount{syncErr: ErrUpgradeRequired}
 	}, keys: []string{"c", "enter"}},
 	{name: "claimed", dashboard: sampleDashboard, remote: sampleRemote, account: func() *fakeAccount { return &fakeAccount{uploaded: 4014} }, keys: []string{"c", "enter"}},
+	{name: "claim_autosync", dashboard: sampleDashboard, remote: sampleRemote, account: func() *fakeAccount { return &fakeAccount{uploaded: 4014} },
+		autosync: func() *fakeAutosync { return &fakeAutosync{} }, keys: []string{"c", "enter"}},
+	{name: "claim_autosync_failed", dashboard: sampleDashboard, remote: sampleRemote, account: func() *fakeAccount { return &fakeAccount{uploaded: 4014} },
+		autosync: func() *fakeAutosync { return &fakeAutosync{enableErr: errors.New("synthetic: no scheduler")} }, keys: []string{"c", "enter", "enter"}},
+	{name: "claimed_autosync", dashboard: sampleDashboard, remote: sampleRemote, account: func() *fakeAccount { return &fakeAccount{uploaded: 4014} },
+		autosync: func() *fakeAutosync { return &fakeAutosync{} }, keys: []string{"c", "enter", "enter"}},
 	{name: "board_claim", dashboard: sampleDashboard, account: signedOut, remote: func() *fakeMultiplayer {
 		return &fakeMultiplayer{loadError: multiplayer.ErrSignedOut}
 	}, keys: []string{"2"}},
@@ -127,6 +135,9 @@ func renderScreen(t *testing.T, screen screen, tokens theme.Theme, width int) []
 	}
 	if screen.account != nil {
 		config.Account = screen.account()
+	}
+	if screen.autosync != nil {
+		config.Autosync = screen.autosync()
 	}
 	if screen.scanning {
 		// Deliver the account and the first load, and stop before the scan

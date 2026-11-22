@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,147 @@ import (
 
 	"github.com/ansonnchan/tokenholic/internal/autosync"
 )
+
+// scheduleSettings are the local values an enabled schedule is written
+// from. `tokenholic autosync enable` and a claim's offer both use them, so
+// the two install the same thing.
+type scheduleSettings struct {
+	home, executable, apiURL, codexHome, ccusagePath string
+	// pinAPIURL is whether the user chose the address themselves.
+	pinAPIURL bool
+	getenv    func(string) string
+}
+
+func (s scheduleSettings) config() autosync.Config {
+	return autosync.Config{
+		Home: s.home, Executable: s.executable, APIURL: s.apiURL, PinAPIURL: s.pinAPIURL,
+		CodexHome: s.codexHome, CCUsagePath: s.ccusagePath, Getenv: s.getenv,
+	}
+}
+
+// scheduleSettingsFrom reads what a schedule needs from this run. It
+// reports false when this run cannot describe one: no executable to copy,
+// no API address, or a CODEX_HOME that is not absolute.
+func scheduleSettingsFrom(home, apiURL string, overridden bool, getenv func(string) string, executable func() (string, error)) (scheduleSettings, bool) {
+	if executable == nil || apiURL == "" {
+		return scheduleSettings{}, false
+	}
+	path, err := executable()
+	if err != nil {
+		return scheduleSettings{}, false
+	}
+	if path, err = filepath.Abs(path); err != nil {
+		return scheduleSettings{}, false
+	}
+	codexHome := strings.TrimSpace(getenv("CODEX_HOME"))
+	if codexHome != "" && !filepath.IsAbs(codexHome) {
+		return scheduleSettings{}, false
+	}
+	// The scheduled copy runs outside the npm install, so it is told where
+	// the pinned ccusage was installed. A location that is not absolute is
+	// dropped rather than refused: it only means no ccusage for the schedule.
+	ccusagePath := strings.TrimSpace(getenv(ccusagePathVariable))
+	if !filepath.IsAbs(ccusagePath) {
+		ccusagePath = ""
+	}
+	return scheduleSettings{
+		home: home, executable: path, apiURL: apiURL, pinAPIURL: overridden,
+		codexHome: codexHome, ccusagePath: ccusagePath, getenv: getenv,
+	}, true
+}
+
+// hourlySync is the offer a claim makes: whether hourly sync can be turned
+// on here, and turning it on.
+type hourlySync struct {
+	manager autosyncManager
+}
+
+// newHourlySync returns nil when this run cannot offer a schedule at all.
+func newHourlySync(settings scheduleSettings, build func(autosync.Config) (autosyncManager, error)) *hourlySync {
+	if build == nil {
+		return nil
+	}
+	manager, err := build(settings.config())
+	if err != nil {
+		return nil
+	}
+	return &hourlySync{manager: manager}
+}
+
+// Available reports whether to offer hourly sync: the scheduler answers and
+// has nothing of ours installed or loaded. Anything else, including a
+// half-installed schedule, is left to `tokenholic autosync`.
+func (h *hourlySync) Available(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, schedulerTimeout)
+	defer cancel()
+	status, err := h.manager.Status(ctx)
+	return err == nil && !status.Installed && !status.Loaded
+}
+
+// Enable installs the schedule and starts it.
+func (h *hourlySync) Enable(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, schedulerTimeout)
+	defer cancel()
+	return h.manager.Enable(ctx)
+}
+
+// offerHourlySync asks, once a terminal claim has uploaded, whether to keep
+// the account current in the background. Enter means yes. It never fails
+// the claim: the sign-in and the upload are already done.
+func offerHourlySync(stdout, stderr io.Writer, deps dependencies) {
+	if deps.homeDir == nil {
+		return
+	}
+	home, err := deps.homeDir()
+	if err != nil {
+		return
+	}
+	apiURL, overridden := deps.apiOrigin()
+	settings, ok := scheduleSettingsFrom(home, apiURL, overridden, deps.getenv, deps.executable)
+	if !ok {
+		return
+	}
+	offer := newHourlySync(settings, deps.autosync)
+	if offer == nil || !offer.Available(context.Background()) {
+		return
+	}
+	fmt.Fprintln(stdout)
+	if deps.terminal == nil || !deps.terminal() || deps.input == nil {
+		// Nobody is there to answer, so nothing is installed.
+		fmt.Fprintln(stdout, "To keep your boards current in the background, run `tokenholic autosync enable`.")
+		return
+	}
+	fmt.Fprintln(stdout, "Keep your boards current? Hourly sync uploads new usage counts in the background,")
+	fmt.Fprintln(stdout, "at login and every hour. It installs a scheduled job for your user and a copy of")
+	fmt.Fprintln(stdout, "tokenholic to run it; `tokenholic autosync disable` removes both.")
+	fmt.Fprint(stdout, "Turn on hourly sync? [Y/n] ")
+	answer, err := bufio.NewReader(deps.input).ReadString('\n')
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	// Input that ended without a line is not an answer.
+	if err != nil && answer == "" {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Not turned on. `tokenholic autosync enable` turns it on later.")
+		return
+	}
+	if answer != "" && answer != "y" && answer != "yes" {
+		fmt.Fprintln(stdout, "Not turned on. `tokenholic autosync enable` turns it on later.")
+		return
+	}
+	if err := offer.Enable(context.Background()); err != nil {
+		if !reportSchedulerProblem(stderr, offer.manager, err) {
+			fmt.Fprintln(stderr, "could not enable autosync; no schedule was activated")
+		}
+		fmt.Fprintln(stderr, "your claim and upload are done; `tokenholic autosync enable` tries again")
+		return
+	}
+	fmt.Fprintln(stdout, enabledText)
+}
+
+// schedulerTimeout bounds one conversation with the system's scheduler.
+const schedulerTimeout = 15 * time.Second
+
+// enabledText is what a successful enable says, wherever it was asked for.
+const enabledText = "Enabled autosync at login and hourly. Re-enable it after upgrading tokenholic."
 
 func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependencies) int {
 	// `run` is what a schedule invokes; it is not offered to users.
@@ -64,15 +206,15 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 		codexHome = ""
 		ccusagePath = ""
 	}
-	manager, err := deps.autosync(autosync.Config{
-		Home: home, Executable: executable, APIURL: apiURL, PinAPIURL: overridden,
-		CodexHome: codexHome, CCUsagePath: ccusagePath, Getenv: deps.getenv,
-	})
+	manager, err := deps.autosync(scheduleSettings{
+		home: home, executable: executable, apiURL: apiURL, pinAPIURL: overridden,
+		codexHome: codexHome, ccusagePath: ccusagePath, getenv: deps.getenv,
+	}.config())
 	if err != nil {
 		fmt.Fprintln(stderr, "autosync configuration is invalid")
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), schedulerTimeout)
 	defer cancel()
 	switch args[0] {
 	case "enable":
@@ -82,7 +224,7 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 			}
 			return 1
 		}
-		fmt.Fprintln(stdout, "Enabled autosync at login and hourly. Re-enable it after upgrading tokenholic.")
+		fmt.Fprintln(stdout, enabledText)
 	case "disable":
 		if err := manager.Disable(ctx); err != nil {
 			if !reportSchedulerProblem(stderr, manager, err) {

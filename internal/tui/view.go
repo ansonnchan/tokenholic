@@ -211,6 +211,12 @@ func (m Model) hints() []widget.Hint {
 	g := m.theme.Glyphs
 	quit := widget.Hint{Key: "q", Label: "quit", Keep: true}
 	switch {
+	case m.claim.stage == claimAutosync:
+		return []widget.Hint{{Key: "enter", Label: "turn on", Keep: true}, {Key: "esc", Label: "not now", Keep: true}, {Key: "ctrl+c", Label: "quit", Keep: true}}
+	case m.claim.stage == claimAutosyncEnabling:
+		return []widget.Hint{{Key: "ctrl+c", Label: "quit", Keep: true}}
+	case m.claim.stage == claimAutosyncFailed:
+		return []widget.Hint{{Key: "enter", Label: "continue", Keep: true}, {Key: "ctrl+c", Label: "quit", Keep: true}}
 	case m.claim.stage != claimClosed:
 		return []widget.Hint{{Key: "esc", Label: "cancel", Keep: true}, {Key: "ctrl+c", Label: "quit", Keep: true}}
 	case m.share.open:

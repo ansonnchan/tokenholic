@@ -62,8 +62,8 @@ which comes with the npm package and can be turned off with
   something you turn on.
 - Costs are estimates at API list prices, never what you spent. An unknown
   value is shown as unknown, never as zero.
-- Sync when you run it, or hourly in the background once you turn it on
-  with `tokenholic autosync enable`.
+- Sync when you run it, or hourly in the background: claiming offers to turn
+  that on, and `tokenholic autosync enable` does it later.
 
 ## Privacy
 

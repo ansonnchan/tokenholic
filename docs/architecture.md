@@ -840,7 +840,11 @@ Autosync writes the address into its schedule only when it was overridden;
 otherwise the scheduled copy uses its own built-in address.
 
 Autosync copies the current native executable to a stable private path only
-after explicit user consent. The operating system's own per-user scheduler
+after explicit user consent: `tokenholic autosync enable`, or a yes to the
+question a claim asks once its first upload is done. Both install the same
+schedule from the same settings. The question is asked only where a person
+can answer it; a claim run without a terminal installs nothing and names the
+command instead. The operating system's own per-user scheduler
 runs it at login and hourly: a launch agent on macOS and a systemd user timer
 on Linux, and a Task Scheduler task on Windows. One manager drives all
 three; a scheduler supplies only its file locations, file contents, and

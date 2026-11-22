@@ -1,0 +1,16 @@
+>_ TOKENHOLIC   [HOME] BOARDS  MODELS  SOURCES  SETTINGS                  scanned 4m ago
+
+╭─ KEEP IT CURRENT ────────────────────────────────────────────────────────────────────╮
+│ Signed in as @you · 4,014 buckets uploaded.                                          │
+│                                                                                      │
+│ Keep your boards current? Hourly sync uploads new usage counts in the background, at │
+│ login and every hour.                                                                │
+│                                                                                      │
+│ INSTALLS  a scheduled job for your user, and a copy of tokenholic to run it          │
+│ UPLOADS   the same counts as just now, and nothing else                              │
+│ UNDO      `tokenholic autosync disable` removes it                                   │
+│                                                                                      │
+│ [ enter  TURN ON HOURLY SYNC ]                                                       │
+│ esc not now                                                                          │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+enter turn on · esc not now · ctrl+c quit

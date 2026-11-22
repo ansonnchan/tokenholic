@@ -47,6 +47,12 @@ tokenholic autosync disable
 tokenholic account delete --confirm DELETE
 ```
 
+After its first upload, `claim` asks whether to turn on hourly sync, here and
+in the terminal interface. Enter means yes; anything else leaves it off, and
+`tokenholic autosync enable` turns it on later. Nothing is asked, and nothing
+is installed, when it is already on, when this system has no scheduler
+tokenholic can use, or when no terminal is attached.
+
 Login requests public GitHub identity only. The command never receives a
 GitHub access token, and the API uses it only in memory to resolve the stable
 numeric GitHub identity before discarding it.

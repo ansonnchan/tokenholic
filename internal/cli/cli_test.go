@@ -958,14 +958,19 @@ func (f *fakeGroupManager) SetGlobalParticipation(_ context.Context, participati
 }
 
 type fakeAutosyncManager struct {
-	status   autosync.Status
-	err      error
-	enabled  bool
-	disabled bool
+	status autosync.Status
+	err    error
+	// enableErr fails only the enable, with the status still answering.
+	enableErr error
+	enabled   bool
+	disabled  bool
 }
 
 func (f *fakeAutosyncManager) Enable(context.Context) error {
 	f.enabled = true
+	if f.enableErr != nil {
+		return f.enableErr
+	}
 	return f.err
 }
 
@@ -1119,5 +1124,121 @@ func TestUploadProgressIsQuietForOneBatchAndCountsForMany(t *testing.T) {
 		"  1,200 of 4,214 uploaded\n"
 	if output.String() != want {
 		t.Fatalf("progress =\n%s\nwant\n%s", output.String(), want)
+	}
+}
+
+// claimDependencies is a signed-out device whose claim succeeds, with the
+// scheduler, the keyboard, and the answer typed at it under test.
+func claimDependencies(manager *fakeAutosyncManager, answer string, terminal bool, configs *[]autosync.Config) dependencies {
+	return dependencies{
+		homeDir:    func() (string, error) { return syntheticHome, nil },
+		executable: func() (string, error) { return syntheticBinary, nil },
+		getenv: func(name string) string {
+			if name == "TOKENHOLIC_API_URL" {
+				return "https://api.example.test"
+			}
+			return ""
+		},
+		account: func(string) (accountManager, error) { return &fakeAccountManager{}, nil },
+		sync: func(_ context.Context, _, _, _ string, _ bool, output io.Writer) error {
+			_, _ = io.WriteString(output, "Synchronized 1 bucket in 1 batch.\n")
+			return nil
+		},
+		autosync: func(config autosync.Config) (autosyncManager, error) {
+			if configs != nil {
+				*configs = append(*configs, config)
+			}
+			return manager, nil
+		},
+		input:    strings.NewReader(answer),
+		terminal: func() bool { return terminal },
+	}
+}
+
+func TestClaimOffersHourlySyncAndEnterMeansYes(t *testing.T) {
+	t.Parallel()
+	for _, answer := range []string{"\n", "y\n", "YES\n"} {
+		manager := &fakeAutosyncManager{}
+		var configs []autosync.Config
+		var stdout, stderr bytes.Buffer
+		code := run([]string{"claim"}, &stdout, &stderr, claimDependencies(manager, answer, true, &configs))
+		if code != 0 || !manager.enabled || stderr.Len() != 0 {
+			t.Fatalf("answer %q: claim = %d, enabled %v, stderr %q", answer, code, manager.enabled, stderr.String())
+		}
+		for _, want := range []string{"Turn on hourly sync? [Y/n]", "`tokenholic autosync disable` removes both", "Enabled autosync at login and hourly"} {
+			if !strings.Contains(stdout.String(), want) {
+				t.Errorf("answer %q: output %q, want %q", answer, stdout.String(), want)
+			}
+		}
+		// The schedule is written from the same values `autosync enable` uses.
+		if len(configs) != 1 || configs[0].Home != syntheticHome || configs[0].Executable != syntheticBinary ||
+			configs[0].APIURL != "https://api.example.test" || !configs[0].PinAPIURL {
+			t.Fatalf("answer %q: schedule configuration = %+v", answer, configs)
+		}
+	}
+}
+
+func TestClaimInstallsNoScheduleWithoutAYes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		manager  *fakeAutosyncManager
+		answer   string
+		terminal bool
+		want     string
+		unwanted string
+	}{
+		{name: "no", manager: &fakeAutosyncManager{}, answer: "n\n", terminal: true, want: "Not turned on", unwanted: "Enabled autosync"},
+		{name: "anything else", manager: &fakeAutosyncManager{}, answer: "maybe\n", terminal: true, want: "Not turned on", unwanted: "Enabled autosync"},
+		{name: "input ended", manager: &fakeAutosyncManager{}, answer: "", terminal: true, want: "Not turned on", unwanted: "Enabled autosync"},
+		{name: "nobody at the keyboard", manager: &fakeAutosyncManager{}, answer: "\n", terminal: false, want: "run `tokenholic autosync enable`", unwanted: "[Y/n]"},
+		{name: "already on", manager: &fakeAutosyncManager{status: autosync.Status{Installed: true, Loaded: true}}, answer: "\n", terminal: true, unwanted: "hourly"},
+		{name: "half installed", manager: &fakeAutosyncManager{status: autosync.Status{Installed: true}}, answer: "\n", terminal: true, unwanted: "hourly"},
+		{name: "no scheduler", manager: &fakeAutosyncManager{err: autosync.ErrSchedulerUnavailable}, answer: "\n", terminal: true, unwanted: "hourly"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var stdout, stderr bytes.Buffer
+			code := run([]string{"claim"}, &stdout, &stderr, claimDependencies(test.manager, test.answer, test.terminal, nil))
+			if code != 0 || test.manager.enabled || stderr.Len() != 0 {
+				t.Fatalf("claim = %d, enabled %v, stderr %q", code, test.manager.enabled, stderr.String())
+			}
+			if test.want != "" && !strings.Contains(stdout.String(), test.want) {
+				t.Errorf("output %q, want %q", stdout.String(), test.want)
+			}
+			if strings.Contains(stdout.String(), test.unwanted) {
+				t.Errorf("output %q, must not contain %q", stdout.String(), test.unwanted)
+			}
+		})
+	}
+}
+
+// A schedule that cannot be installed must not turn a finished claim into a
+// failed one, or show the cause.
+func TestClaimSucceedsWhenTheScheduleCannotBeInstalled(t *testing.T) {
+	t.Parallel()
+	manager := &fakeAutosyncManager{enableErr: errors.New("synthetic: /private/path is not writable")}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"claim"}, &stdout, &stderr, claimDependencies(manager, "\n", true, nil))
+	message := stderr.String()
+	if code != 0 || !manager.enabled || !strings.Contains(message, "no schedule was activated") || !strings.Contains(message, "your claim and upload are done") {
+		t.Fatalf("claim = %d, enabled %v, stderr %q", code, manager.enabled, message)
+	}
+	if strings.Contains(message, "/private/path") || strings.Contains(stdout.String(), "Enabled autosync") {
+		t.Fatalf("stdout %q / stderr %q", stdout.String(), message)
+	}
+}
+
+func TestAFailedFirstSyncIsNotFollowedByTheOffer(t *testing.T) {
+	t.Parallel()
+	manager := &fakeAutosyncManager{}
+	deps := claimDependencies(manager, "\n", true, nil)
+	deps.sync = func(context.Context, string, string, string, bool, io.Writer) error {
+		return errors.New("synthetic: unreachable")
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"claim"}, &stdout, &stderr, deps); code != 1 || manager.enabled || strings.Contains(stdout.String(), "hourly") {
+		t.Fatalf("claim = %d, enabled %v, stdout %q", code, manager.enabled, stdout.String())
 	}
 }

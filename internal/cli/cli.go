@@ -61,6 +61,9 @@ type dependencies struct {
 	preferences func() (string, error)
 	// demo opens the interface on invented data.
 	demo func(context.Context, io.Reader, io.Writer, displayOptions) error
+	// terminal reports whether a person is at the keyboard and screen, so a
+	// question can be asked and answered.
+	terminal func() bool
 }
 
 type accountManager interface {
@@ -129,6 +132,7 @@ func defaultDependencies() dependencies {
 		usage:       loadLocalUsage,
 		preferences: preferences.DefaultPath,
 		demo:        launchDemo,
+		terminal:    standardStreamsAreATerminal,
 		autosync: func(config autosync.Config) (autosyncManager, error) {
 			return autosync.NewManager(config)
 		},
@@ -288,6 +292,7 @@ func runClaim(stdout, stderr io.Writer, deps dependencies) int {
 		fmt.Fprintln(stderr, "Signed in, but the initial sync did not complete; run `tokenholic sync` to retry.")
 		return code
 	}
+	offerHourlySync(stdout, stderr, deps)
 	return 0
 }
 
@@ -409,4 +414,16 @@ func runDoctor(stdout, stderr io.Writer, deps dependencies) int {
 	}
 	fmt.Fprint(stdout, report.Render())
 	return report.ExitCode()
+}
+
+// standardStreamsAreATerminal reports whether both the input and the output
+// are a terminal. A pipe or a file on either side means nobody is answering.
+func standardStreamsAreATerminal() bool {
+	for _, stream := range []*os.File{os.Stdin, os.Stdout} {
+		info, err := stream.Stat()
+		if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+			return false
+		}
+	}
+	return true
 }

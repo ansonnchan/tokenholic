@@ -11,6 +11,7 @@ import (
 	"github.com/ansonnchan/tokenholic/internal/account"
 	"github.com/ansonnchan/tokenholic/internal/adapters"
 	"github.com/ansonnchan/tokenholic/internal/application"
+	"github.com/ansonnchan/tokenholic/internal/autosync"
 	"github.com/ansonnchan/tokenholic/internal/collect"
 	"github.com/ansonnchan/tokenholic/internal/modelcatalog"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
@@ -89,6 +90,17 @@ func launchLocalTUI(ctx context.Context, home, codexHome, apiURL string, input i
 			return clientErr
 		}
 		config.Account = claim
+		// A claim made here can offer hourly sync, installed exactly as
+		// `tokenholic autosync enable` installs it.
+		overridden := strings.TrimSpace(os.Getenv("TOKENHOLIC_API_URL")) != ""
+		if settings, ok := scheduleSettingsFrom(home, apiURL, overridden, os.Getenv, os.Executable); ok {
+			build := func(config autosync.Config) (autosyncManager, error) { return autosync.NewManager(config) }
+			// Assigned only when real: a nil pointer in the interface would
+			// not compare equal to nil.
+			if offer := newHourlySync(settings, build); offer != nil {
+				config.Autosync = offer
+			}
+		}
 	}
 	return tui.Run(ctx, service, input, output, config)
 }

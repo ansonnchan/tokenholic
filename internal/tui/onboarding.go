@@ -30,6 +30,17 @@ type Account interface {
 	Sync(context.Context) (int64, error)
 }
 
+// Autosync turns on hourly background sync. A claim offers it once the first
+// upload is done; the operating system's scheduler stays behind this
+// interface, and nothing is installed unless the user says yes.
+type Autosync interface {
+	// Available reports whether to offer it: this system can schedule a
+	// sync, and none is scheduled already.
+	Available(context.Context) bool
+	// Enable installs the schedule and starts it.
+	Enable(context.Context) error
+}
+
 var (
 	// ErrUpgradeRequired means the server no longer accepts this version's
 	// uploads. Local usage is kept and uploads after an upgrade.
@@ -56,6 +67,13 @@ const (
 	claimFailed
 	// claimSyncFailed is signed in, with the first upload still to do.
 	claimSyncFailed
+	// claimAutosync is claimed and uploaded, asking whether to keep it
+	// current with an hourly sync.
+	claimAutosync
+	claimAutosyncEnabling
+	// claimAutosyncFailed says the schedule could not be installed. The
+	// claim itself is done.
+	claimAutosyncFailed
 )
 
 type claimState struct {
@@ -63,6 +81,8 @@ type claimState struct {
 	challenge account.DeviceStart
 	failure   string
 	note      string
+	// uploaded is what the first upload sent, kept to say so on the way out.
+	uploaded int64
 	// id discards the result of a step the user has cancelled.
 	id     uint64
 	cancel context.CancelFunc
@@ -89,6 +109,13 @@ type claimSynced struct {
 	id       uint64
 	uploaded int64
 	err      error
+	// offer is whether hourly sync can be offered now.
+	offer bool
+}
+
+type claimScheduled struct {
+	id  uint64
+	err error
 }
 
 // shareState is the draft post and its link while the share overlay is open.
@@ -132,6 +159,19 @@ func (m Model) closeClaim() Model {
 // it takes every key: nothing else navigates or quits except ctrl+c.
 func (m Model) updateClaim(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
+	case m.claim.stage == claimAutosyncEnabling:
+		// Installing takes a moment and cannot be stopped halfway.
+		return m, nil
+	case key.Type == tea.KeyEnter && m.claim.stage == claimAutosync:
+		m.claim.stage = claimAutosyncEnabling
+		id := m.claim.id
+		return m, m.withTick(func() tea.Msg {
+			return claimScheduled{id: id, err: m.autosync.Enable(m.ctx)}
+		})
+	case m.claim.stage == claimAutosync && key.Type == tea.KeyEsc,
+		m.claim.stage == claimAutosyncFailed && (key.Type == tea.KeyEsc || key.Type == tea.KeyEnter):
+		// The claim is done either way: saying no only skips the schedule.
+		return m.finishClaim("")
 	case key.Type == tea.KeyEsc:
 		return m.closeClaim(), nil
 	case key.Type == tea.KeyEnter && (m.claim.stage == claimConfirm || m.claim.stage == claimFailed):
@@ -163,8 +203,34 @@ func (m Model) syncClaim() (tea.Model, tea.Cmd) {
 	id := m.claim.id
 	return m, m.withTick(func() tea.Msg {
 		uploaded, err := m.account.Sync(m.ctx)
-		return claimSynced{id: id, uploaded: uploaded, err: err}
+		// Asked here, off the update loop: it queries the scheduler.
+		offer := err == nil && m.autosync != nil && m.autosync.Available(m.ctx)
+		return claimSynced{id: id, uploaded: uploaded, err: err, offer: offer}
 	})
+}
+
+// finishClaim closes a completed claim and goes to the boards the user
+// claimed a spot on, saying what was done.
+func (m Model) finishClaim(also string) (tea.Model, tea.Cmd) {
+	separator := " " + m.theme.Glyphs.Separator + " "
+	done := "Signed in as " + memberLogin(m.login) + separator + uploadedText(m.claim.uploaded)
+	if also != "" {
+		done += separator + also
+	}
+	m = m.closeClaim()
+	m.welcome = false
+	m.section, m.scroll = BoardsSection, 0
+	model, flash := m.flashNow(done)
+	m = model.(Model)
+	var reload tea.Cmd
+	if m.app != nil && !m.loading {
+		// The upload emptied the outbox; show that.
+		m.loading = true
+		m.localRequest++
+		reload = m.loadLocal(m.localRequest)
+	}
+	board, load := m.reloadBoard()
+	return board, tea.Batch(flash, reload, load)
 }
 
 // applyClaim advances the claim on the result of its running step.
@@ -220,21 +286,22 @@ func (m Model) applyClaim(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.claim.stage, m.claim.failure = claimSyncFailed, "Signed in, but the first upload did not finish. Your usage is kept"
 			return m, nil
 		}
-		// Claimed and uploaded: go to the boards the user claimed a spot on.
-		m = m.closeClaim()
-		m.welcome = false
-		m.section, m.scroll = BoardsSection, 0
-		model, flash := m.flashNow("Signed in as " + memberLogin(m.login) + " " + m.theme.Glyphs.Separator + " " + uploadedText(message.uploaded))
-		m = model.(Model)
-		var reload tea.Cmd
-		if m.app != nil && !m.loading {
-			// The upload emptied the outbox; show that.
-			m.loading = true
-			m.localRequest++
-			reload = m.loadLocal(m.localRequest)
+		m.claim.uploaded = message.uploaded
+		if message.offer {
+			m.claim.stage = claimAutosync
+			return m, nil
 		}
-		board, load := m.reloadBoard()
-		return board, tea.Batch(flash, reload, load)
+		return m.finishClaim("")
+	case claimScheduled:
+		if message.id != m.claim.id {
+			return m, nil
+		}
+		if message.err != nil {
+			// The terminal command has room to say what the scheduler needs.
+			m.claim.stage, m.claim.failure = claimAutosyncFailed, "Hourly sync could not be turned on here. Your claim and upload are done; run `tokenholic autosync enable` in a terminal to see what is missing"
+			return m, nil
+		}
+		return m.finishClaim("hourly sync on")
 	default:
 		return m, nil
 	}
@@ -315,8 +382,28 @@ func (m Model) claimView(width int) []string {
 	case claimSyncFailed:
 		lines = append(lines, widget.Notice(t, widget.Warning, m.claim.failure+".", inner)...)
 		keys(widget.Action(t, "enter", "retry the upload"), "esc continue without it")
+	case claimAutosync, claimAutosyncEnabling:
+		say("Signed in as " + memberLogin(m.login) + separator + uploadedText(m.claim.uploaded) + ".")
+		lines = append(lines, "")
+		say("Keep your boards current? Hourly sync uploads new usage counts in the background, at login and every hour.")
+		lines = append(lines, "")
+		field("installs", "a scheduled job for your user, and a copy of tokenholic to run it")
+		field("uploads", "the same counts as just now, and nothing else")
+		field("undo", "`tokenholic autosync disable` removes it")
+		if m.claim.stage == claimAutosyncEnabling {
+			lines = append(lines, "", t.Muted.Render(m.spin()+" Turning on hourly sync"))
+		} else {
+			keys(widget.Action(t, "enter", "turn on hourly sync"), "esc not now")
+		}
+	case claimAutosyncFailed:
+		lines = append(lines, widget.Notice(t, widget.Warning, m.claim.failure+".", inner)...)
+		lines = append(lines, "", widget.Action(t, "enter", "continue"))
 	}
-	return widget.Panel(t, "claim your spot", width, lines)
+	title := "claim your spot"
+	if m.claim.stage >= claimAutosync {
+		title = "keep it current"
+	}
+	return widget.Panel(t, title, width, lines)
 }
 
 // welcomeView is the first launch: the scan, then the headline it found.
