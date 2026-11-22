@@ -1,6 +1,6 @@
 # Architecture
 
-Status: MVP and M6–M10 implemented. The hosted API runs `main`; the website is not published and the 0.2 client is not tagged or on npm (see `docs/release-validation.md`)
+Status: MVP and M6–M11 implemented. The hosted API runs `main`; the website is not published and the 0.2 client is not tagged or on npm (see `docs/release-validation.md`)
 Last updated: November 21, 2026
 
 ## System goals
@@ -79,6 +79,23 @@ Narrow read-only source discovery
     -> per-session cumulative-counter reduction
     -> one SQLite transaction for observations, checkpoints, and adapter health
 ```
+
+Agents with no native adapter take a second, separate path into the same
+transaction:
+
+```text
+Does the agent's record folder exist?          (no: not found; nothing runs)
+    -> pinned ccusage daily report for that agent
+    -> strict contract validation
+    -> one day total per agent, UTC day, and model
+    -> the same SQLite transaction
+```
+
+An agent that is present but cannot be read, because ccusage is turned off,
+absent from this install, not the pinned build, or failed, contributes no
+records: its health says why and what was stored for it stays. The two paths
+share no records, so nothing a day-level agent reports can change Claude or
+Codex usage.
 
 Persistence follows this transaction flow:
 
@@ -160,7 +177,14 @@ It comes with the npm package and is absent from a release archive, where
 `tokenholic doctor` reports the agents that are therefore not counted.
 tokenholic never downloads it. Claude and Codex are never read through it.
 The [runner guide](../internal/adapters/ccusage/README.md) lists what it
-reads.
+reads, what each agent's totals cover, and their limits.
+
+The agents read this way are GitHub Copilot CLI, Gemini CLI, Grok Build CLI,
+OpenCode, and Qwen Code. tokenholic itself only checks whether each agent's
+record folder exists, which is what separates an agent that is not installed
+from one whose usage cannot be read. A scheduled run does not start through
+the npm launcher, so enabling autosync records the ccusage location in the
+schedule.
 
 Claude Desktop discovery is limited to Code sessions and local Agent/Cowork evidence. Ordinary Claude Desktop chat storage is never scanned. Default Codex storage is classified as shared local evidence when CLI and Desktop attribution cannot be proven.
 

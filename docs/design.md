@@ -165,9 +165,13 @@ panel. Below that they stack under it.
   go when the list is narrow; the detail panel always states it. Inferred and
   unknown attributions are named as such.
 - SOURCES shows each adapter's state in words (`detected`, `not found`,
-  `no permission`, `no records`), its record count, and when it was last
-  read, then the period's usage by source and by surface. It never shows a
-  path.
+  `no permission`, `no records`, `unavailable`), its record count, and when
+  it was last read, then the period's usage by source and by surface. It
+  never shows a path.
+- An agent read through ccusage is named `<agent> · by day` in place of a
+  surface, and its count is days of usage. Muted notes under the table say
+  what by-day coverage means and, for each agent that is present but was not
+  read, why it is not counted. Such an agent is never shown with a zero.
 - SETTINGS states what is stored, what never is, what uploading sends, this
   device's timezone, scan and database state, and the display switches.
 - A view taller than the terminal scrolls with `j`/`k` and says how many
@@ -393,6 +397,10 @@ domain's root or under a path.
 - Solid coral marks the primary button and the selected chip. A page has one
   primary action.
 - The landing page's board is a static sample, labelled as sample data.
+- Under the hero, a centered `WORKS WITH` line names the agents counted,
+  with thin dividers, and ends in a muted `+ more via ccusage`. Its label is
+  the one coral label on the page. On a narrow screen the line wraps and the
+  dividers give way to spacing.
 
 ### Board
 

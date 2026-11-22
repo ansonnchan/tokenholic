@@ -149,6 +149,30 @@ Reducing the running total instead would count every replayed history again, onc
 
 Both parsers recover after malformed complete lines and defer an unterminated final line as a partial write. They keep missing token categories nil rather than inventing zeroes.
 
+## Day-level agents
+
+Five agents have no native reader and are read through ccusage: GitHub
+Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, and Qwen Code. For these,
+this package only answers one question: is the agent's record folder here?
+`DayLevelRoots` lists the folders and `AgentRoot.Status` reports `detected`
+or `not found` without opening or listing anything inside. That is what lets
+tokenholic say an agent is not installed, and skip running ccusage for it.
+
+| Agent | Folder | Follows |
+| --- | --- | --- |
+| GitHub Copilot CLI | `~/.copilot/session-state` or `~/.copilot/otel` | `COPILOT_HOME` |
+| Gemini CLI | `~/.gemini/tmp` | |
+| Grok Build CLI | `~/.grok/sessions` | `GROK_HOME` |
+| OpenCode | `~/.local/share/opencode` | `XDG_DATA_HOME` |
+| Qwen Code | `~/.qwen/projects` | |
+
+The layout is the same on every system, under the user's home directory.
+These are the folders the pinned ccusage release reads for each agent
+(<https://github.com/ccusage/ccusage/tree/v20.0.51/docs/guide>, retrieved
+2026-11-21), so "found" and "ccusage will read it" mean the same thing. The
+three variables are the ones the agents themselves document; ccusage's own
+`*_DATA_DIR` variables are not honored.
+
 ## Pinned ccusage runner
 
 Agents without a native reader are read by running one pinned release of

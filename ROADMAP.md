@@ -119,6 +119,12 @@ tokenholic share --period today|week|30d|all
 - Linux and Windows builds, discovery paths, and autosync schedulers.
 - API rate limiting and an advisory plausibility flag.
 
+### Added by M11
+
+- GitHub Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, and Qwen Code,
+  read as one total per UTC day and model through a pinned, digest-checked
+  ccusage that comes with the npm package and can be turned off.
+
 ### Explicitly excluded
 
 - Ordinary Claude Desktop chat, claude.ai, ChatGPT chat, or mobile chat usage.
@@ -151,11 +157,11 @@ A newly supported coding client requires a source adapter or a validated ccusage
 | Claude Desktop Code/Agent/Cowork | P0 | Desktop local-agent session discovery plus Claude-compatible JSONL | Keep the desktop surface distinct from CLI; deduplicate shared records |
 | Codex CLI | P0 | Codex rollout JSONL through a pinned parser | Respect cumulative counters and active `turn_context` model |
 | Codex Desktop | P0 | Codex local session/rollout storage | Verify whether it shares or duplicates CLI roots |
-| Gemini CLI | M11 | Pinned ccusage | Day-level rows; no cache-write lifetimes |
-| OpenCode | M11 | Pinned ccusage | Day-level rows; no cache-write lifetimes |
-| GitHub Copilot CLI | M11 | Pinned ccusage | Day-level rows; no cache-write lifetimes |
-| Grok Build CLI | M11 | Pinned ccusage | Do not claim generic Grok chat support |
-| Qwen Code | M11 | Pinned ccusage | Day-level rows; no cache-write lifetimes |
+| Gemini CLI | M11, built | Pinned ccusage | Day-level rows; no cache writes recorded |
+| OpenCode | M11, built | Pinned ccusage | Day-level rows; no cache-write lifetimes |
+| GitHub Copilot CLI | M11, built | Pinned ccusage | Day-level rows; no cache-write lifetimes |
+| Grok Build CLI | M11, built | Pinned ccusage | Do not claim generic Grok chat support |
+| Qwen Code | M11, built | Pinned ccusage | Day-level rows; no cache writes recorded |
 | Cursor | Research | Unknown | Ship only if model and token evidence is reliable |
 
 ## Target architecture
@@ -937,7 +943,7 @@ Constraints that shape this milestone:
     the day's midpoint was considered and left out: it needs every window
     query, local and on the server, to treat day buckets specially.
 
-- [ ] **TKH-112: Enable the first agents** (`feat/ccusage-agents`)
+- [x] **TKH-112: Enable the first agents** (`feat/ccusage-agents`)
   - Gemini CLI, OpenCode, GitHub Copilot CLI, Grok Build CLI, and Qwen Code.
   - Each ships a sanitized contract fixture, hand-computed totals, capability
     declarations, and documented coverage limits.
@@ -945,11 +951,29 @@ Constraints that shape this milestone:
   - Acceptance: each agent's fixture matches its totals; a machine without
     an agent shows it as not found; the TUI SOURCES view lists coverage.
   - Depends on: TKH-111.
+  - Built: a scan looks for each agent's record folder, runs the pinned
+    report only for agents that are present, and stores day totals. An agent
+    that is present but cannot be read is `unavailable` or `error` with its
+    reason, and keeps what was stored. `tokenholic doctor` and SOURCES show
+    the same states; a board row says how many of its buckets are by day.
+  - Built, not performed: no agent was run against real records. None of
+    the five was installed where this was built, so every fixture is the
+    pinned release's output for invented records in the shapes its own
+    parsers describe. The first real run should end in a new sanitized
+    fixture, and should check Qwen's cached-token counting in particular
+    (see the coverage table in `internal/adapters/ccusage/README.md`).
+  - A scheduled run reads these agents only while the ccusage location
+    recorded when autosync was enabled still exists.
 
 M11 exit criteria:
 
 - A user of any listed agent sees its tokens on the board with day-level
   coverage labelled and no change to Claude or Codex totals.
+
+Met in code and tests. Both halves are held by tests: every fixture's
+hand-computed totals reach local storage and the upload once, and the native
+observations, buckets, upload bytes, and totals are identical with the new
+reader present, absent, failing, and reporting.
 
 ## Extensions after MVP
 
@@ -1018,5 +1042,7 @@ publish the website and tell the API its address, run the two-account
 journey and the Windows run, then tag and publish. The free demo
 environment's end-to-end validation (TKH-043) is part of that run.
 
-Long-tail agents through ccusage follow in M11, after the release. A measured
-private beta remains optional.
+Long-tail agents through ccusage, M11, are built ahead of the tag at the
+owner's choice: GitHub Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, and
+Qwen Code are read as daily totals through one pinned ccusage release. They
+have not met real records yet. A measured private beta remains optional.
