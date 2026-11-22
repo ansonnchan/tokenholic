@@ -1,5 +1,5 @@
-//go:build !darwin && !linux
+//go:build !darwin && !linux && !windows
 
 package autosync
 
-func platformScheduler(Config) scheduler { return unsupported{} }
+func platformScheduler(Config) (scheduler, error) { return unsupported{}, nil }

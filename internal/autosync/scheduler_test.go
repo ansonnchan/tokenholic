@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf16"
 )
 
 func syntheticJob(root string) job {
@@ -236,5 +238,131 @@ func TestSystemdHonorsXDGBaseDirectories(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func decodeTask(t *testing.T, contents []byte) string {
+	t.Helper()
+	if len(contents) < 2 || len(contents)%2 != 0 || contents[0] != 0xFF || contents[1] != 0xFE {
+		t.Fatalf("task file is not little-endian UTF-16 with a byte-order mark")
+	}
+	units := make([]uint16, 0, len(contents)/2-1)
+	for index := 2; index < len(contents); index += 2 {
+		units = append(units, uint16(contents[index])|uint16(contents[index+1])<<8)
+	}
+	return string(utf16.Decode(units))
+}
+
+func TestTaskSchedulerDefinitions(t *testing.T) {
+	root := t.TempDir()
+	scheduler := taskScheduler{
+		name: taskName, root: root, userID: "S-1-5-21-1-2-3-1001",
+		now: func() time.Time { return time.Date(2026, 11, 21, 20, 30, 15, 0, time.UTC) },
+	}
+	paths := scheduler.layout()
+	directory := filepath.Join(root, "tokenholic", "autosync")
+	if paths.binary != filepath.Join(directory, "tokenholic.exe") || paths.logs != directory ||
+		filepath.Dir(paths.definitions[0]) != directory || filepath.Dir(paths.definitions[1]) != directory {
+		t.Fatalf("layout = %#v, want everything in one directory", paths)
+	}
+	work := syntheticJob(root)
+	work.installation = paths.installation
+	definitions, err := scheduler.definitions(work)
+	if err != nil || len(definitions) != 2 {
+		t.Fatalf("definitions = %d, %v", len(definitions), err)
+	}
+
+	// The job file carries what Task Scheduler cannot: environment and logs.
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.definitions[0], definitions[0].contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := LoadScheduledJob(paths.definitions[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Stdout != paths.stdout || settings.Stderr != paths.stderr ||
+		settings.Environment["TOKENHOLIC_API_URL"] != "https://api.example.test" || settings.Environment["NO_COLOR"] != "1" {
+		t.Fatalf("job file = %#v", settings)
+	}
+
+	task := decodeTask(t, definitions[1].contents)
+	for _, want := range []string{
+		`<?xml version="1.0" encoding="UTF-16"?>`,
+		"<UserId>S-1-5-21-1-2-3-1001</UserId>",
+		"<LogonType>InteractiveToken</LogonType>", "<RunLevel>LeastPrivilege</RunLevel>",
+		"<LogonTrigger>", "<Interval>PT60M</Interval>", "<StartBoundary>2026-11-21T20:30:15</StartBoundary>",
+		"<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>",
+		"<Command>" + paths.binary + "</Command>",
+		"<Arguments>autosync run &quot;" + paths.definitions[0] + "&quot;</Arguments>",
+	} {
+		if !strings.Contains(task, want) {
+			t.Errorf("task does not contain %q:\n%s", want, task)
+		}
+	}
+	// A task that runs as the signed-in user stores no password.
+	for _, forbidden := range []string{"Password", "<LogonType>Password", "S4U"} {
+		if strings.Contains(task, forbidden) {
+			t.Errorf("task mentions %q", forbidden)
+		}
+	}
+	decoder := xml.NewDecoder(strings.NewReader(task))
+	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) { return input, nil }
+	for {
+		if _, err := decoder.Token(); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatalf("task XML = %v", err)
+		}
+	}
+}
+
+func TestTaskSchedulerRefusesPathsItCannotQuote(t *testing.T) {
+	scheduler := taskScheduler{name: taskName, root: `/synthetic/a"b`, userID: "S-1-5-21-1-2-3-1001", now: time.Now}
+	work := syntheticJob("/synthetic")
+	work.installation = scheduler.layout().installation
+	if _, err := scheduler.definitions(work); err == nil {
+		t.Fatal("definitions accepted a path with a quote")
+	}
+}
+
+func TestScheduledJobFilesAreAnAllowlist(t *testing.T) {
+	directory := t.TempDir()
+	log := filepath.Join(directory, "autosync.log")
+	absolute, err := filepath.Abs(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted := strings.ReplaceAll(absolute, `\`, `\\`)
+	for _, test := range []struct {
+		name     string
+		contents string
+		valid    bool
+	}{
+		{"complete", `{"environment":{"TOKENHOLIC_API_URL":"https://api.example.test","CODEX_HOME":"/synthetic","NO_COLOR":"1"},"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, true},
+		{"no environment", `{"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, true},
+		{"another variable", `{"environment":{"PATH":"/synthetic"},"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, false},
+		{"a credential-shaped variable", `{"environment":{"TOKENHOLIC_CREDENTIAL":"synthetic"},"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, false},
+		{"relative log", `{"stdout":"autosync.log","stderr":"` + quoted + `"}`, false},
+		{"missing logs", `{"environment":{}}`, false},
+		{"not JSON", `environment`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(directory, strings.ReplaceAll(test.name, " ", "-")+".json")
+			if err := os.WriteFile(path, []byte(test.contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadScheduledJob(path); (err == nil) != test.valid {
+				t.Fatalf("LoadScheduledJob() = %v, want valid=%t", err, test.valid)
+			}
+		})
+	}
+	if _, err := LoadScheduledJob("job.json"); err == nil {
+		t.Fatal("LoadScheduledJob() accepted a relative path")
+	}
+	if _, err := LoadScheduledJob(filepath.Join(directory, "missing.json")); err == nil {
+		t.Fatal("LoadScheduledJob() accepted a missing file")
 	}
 }

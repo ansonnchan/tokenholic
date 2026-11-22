@@ -9,6 +9,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/ansonnchan/tokenholic/internal/privatefs"
 )
 
 // fakeTools stands in for launchctl and systemctl. It keeps one fact, whether
@@ -39,6 +42,14 @@ func (f *fakeTools) run(_ context.Context, name string, arguments ...string) ([]
 		if !f.loaded {
 			return []byte("inactive\n"), 3, nil
 		}
+	case name == "schtasks" && has("/Query"):
+		if !f.loaded {
+			return nil, 1, nil
+		}
+	case name == "schtasks" && has("/Create"):
+		f.loaded = true
+	case name == "schtasks" && has("/Delete"):
+		f.loaded = false
 	}
 	return nil, 0, nil
 }
@@ -66,11 +77,15 @@ func schedulers(home string, tools *fakeTools) map[string]scheduler {
 	return map[string]scheduler{
 		"launchd": launchd{home: home, uid: 501, run: tools.run},
 		"systemd": newSystemd(home, func(string) string { return "" }, tools.run),
+		"task scheduler": taskScheduler{
+			name: taskName, root: filepath.Join(home, "AppData", "Local"), userID: "S-1-5-21-1-2-3-1001",
+			now: func() time.Time { return time.Date(2026, 11, 21, 20, 30, 0, 0, time.UTC) }, run: tools.run,
+		},
 	}
 }
 
 func TestManagerInstallsInspectsAndRemovesSchedule(t *testing.T) {
-	for _, name := range []string{"launchd", "systemd"} {
+	for _, name := range []string{"launchd", "systemd", "task scheduler"} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
 			tools := &fakeTools{}
@@ -99,8 +114,8 @@ func TestManagerInstallsInspectsAndRemovesSchedule(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if info, err := os.Stat(definition); err != nil || info.Mode().Perm() != 0o600 {
-					t.Fatalf("definition mode = %v, %v", info, err)
+				if private, err := privatefs.IsPrivate(definition); err != nil || !private {
+					t.Fatalf("definition is not private: %t, %v", private, err)
 				}
 				// Autosync stores no credentials, on any scheduler.
 				for _, forbidden := range []string{"credential", "Bearer", "token="} {
@@ -109,14 +124,9 @@ func TestManagerInstallsInspectsAndRemovesSchedule(t *testing.T) {
 					}
 				}
 			}
-			for _, log := range []string{paths.stdout, paths.stderr} {
-				if info, err := os.Stat(log); err != nil || info.Mode().Perm() != 0o600 {
-					t.Fatalf("log mode = %v, %v", info, err)
-				}
-			}
-			for _, directory := range []string{filepath.Dir(paths.binary), paths.logs} {
-				if info, err := os.Stat(directory); err != nil || info.Mode().Perm() != 0o700 {
-					t.Fatalf("private directory mode = %v, %v", info, err)
+			for _, private := range []string{paths.stdout, paths.stderr, filepath.Dir(paths.binary), paths.logs} {
+				if ok, err := privatefs.IsPrivate(private); err != nil || !ok {
+					t.Fatalf("%s is not private: %t, %v", filepath.Base(private), ok, err)
 				}
 			}
 			if status, err := manager.Status(t.Context()); err != nil || !status.Installed || !status.Loaded {
@@ -177,6 +187,18 @@ func TestSchedulerCommands(t *testing.T) {
 				{"systemctl", "--user", "disable", "--now", systemdTimer},
 				{"systemctl", "--user", "daemon-reload"},
 				{"systemctl", "--user", "reset-failed", systemdService, systemdTimer},
+			},
+		},
+		{
+			scheduler: "task scheduler",
+			enable: [][]string{
+				{"schtasks", "/Query", "/TN", taskName},
+				{"schtasks", "/Create", "/TN", taskName, "/XML"},
+				{"schtasks", "/Run", "/TN", taskName},
+			},
+			disable: [][]string{
+				{"schtasks", "/End", "/TN", taskName},
+				{"schtasks", "/Delete", "/TN", taskName, "/F"},
 			},
 		},
 	} {
@@ -291,6 +313,26 @@ func TestUnreachableSchedulerInstallsNothingButStillCleansUp(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMissingSchedulerToolIsReportedOnEverySystem(t *testing.T) {
+	home := t.TempDir()
+	for _, name := range []string{"launchd", "systemd", "task scheduler"} {
+		tools := &fakeTools{failure: func() ([]byte, int, error) { return nil, -1, exec.ErrNotFound }}
+		manager, err := NewManager(Config{
+			Home: home, Executable: syntheticExecutable(t), APIURL: "https://api.example.test",
+			scheduler: schedulers(home, tools)[name],
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := manager.Enable(t.Context()); !errors.Is(err, ErrSchedulerUnavailable) {
+			t.Errorf("%s: Enable() = %v, want the scheduler reported unavailable", name, err)
+		}
+		if manager.Requirement() == "" {
+			t.Errorf("%s: no requirement to show", name)
+		}
 	}
 }
 

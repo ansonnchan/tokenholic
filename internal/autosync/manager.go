@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ansonnchan/tokenholic/internal/privatefs"
 	usageSync "github.com/ansonnchan/tokenholic/internal/sync"
 )
 
@@ -59,7 +60,10 @@ func NewManager(config Config) (*Manager, error) {
 	}
 	scheduler := config.scheduler
 	if scheduler == nil {
-		scheduler = platformScheduler(config)
+		var err error
+		if scheduler, err = platformScheduler(config); err != nil {
+			return nil, fmt.Errorf("prepare the system scheduler: %w", err)
+		}
 	}
 	return &Manager{
 		executable: config.Executable, apiURL: strings.TrimSpace(config.APIURL),
@@ -101,22 +105,15 @@ func (m *Manager) Enable(ctx context.Context) error {
 		}
 	}
 	for _, directory := range []string{filepath.Dir(paths.binary), paths.logs} {
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return fmt.Errorf("create autosync private directory: %w", err)
-		}
-		if err := os.Chmod(directory, 0o700); err != nil {
-			return fmt.Errorf("secure autosync private directory: %w", err)
+		if err := privatefs.MkdirAll(directory); err != nil {
+			return fmt.Errorf("prepare autosync directory: %w", err)
 		}
 	}
 	// The scheduler would create the logs itself, readable by anyone the
 	// directory lets in; creating them first keeps them owner-only.
 	for _, log := range []string{paths.stdout, paths.stderr} {
-		file, err := os.OpenFile(log, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-		if err != nil {
-			return fmt.Errorf("create autosync log: %w", err)
-		}
-		if err := file.Close(); err != nil {
-			return fmt.Errorf("create autosync log: %w", err)
+		if err := privatefs.Touch(log); err != nil {
+			return fmt.Errorf("prepare autosync log: %w", err)
 		}
 	}
 	if err := copyExecutable(m.executable, paths.binary); err != nil {
@@ -126,7 +123,7 @@ func (m *Manager) Enable(ctx context.Context) error {
 		if err := os.MkdirAll(filepath.Dir(definition.path), 0o755); err != nil {
 			return fmt.Errorf("create scheduler directory: %w", err)
 		}
-		if err := writeAtomic(definition.path, definition.contents, 0o600); err != nil {
+		if err := writeAtomic(definition.path, definition.contents); err != nil {
 			return fmt.Errorf("write autosync schedule: %w", err)
 		}
 	}
@@ -228,7 +225,7 @@ func regularFile(path string, executable bool) (bool, error) {
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return false, nil
 	}
-	return !executable || info.Mode().Perm()&0o111 != 0, nil
+	return !executable || runnable(info), nil
 }
 
 func copyExecutable(source, destination string) error {
@@ -242,7 +239,7 @@ func copyExecutable(source, destination string) error {
 	}
 	defer input.Close()
 	info, err := input.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+	if err != nil || !info.Mode().IsRegular() || !runnable(info) {
 		return errors.New("current executable is not a regular executable file")
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(destination), ".tokenholic-*")
@@ -272,17 +269,14 @@ func copyExecutable(source, destination string) error {
 	return nil
 }
 
-func writeAtomic(destination string, contents []byte, mode os.FileMode) error {
+// writeAtomic replaces destination with a private file holding contents.
+func writeAtomic(destination string, contents []byte) error {
 	temporary, err := os.CreateTemp(filepath.Dir(destination), ".autosync-*")
 	if err != nil {
 		return err
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(mode); err != nil {
-		_ = temporary.Close()
-		return err
-	}
 	if _, err := temporary.Write(contents); err != nil {
 		_ = temporary.Close()
 		return err
@@ -292,6 +286,9 @@ func writeAtomic(destination string, contents []byte, mode os.FileMode) error {
 		return err
 	}
 	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := privatefs.RestrictFile(temporaryPath); err != nil {
 		return err
 	}
 	return os.Rename(temporaryPath, destination)
