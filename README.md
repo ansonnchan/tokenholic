@@ -1,10 +1,12 @@
 <div align="center">
 
+<img src="web/assets/favicon.svg" alt="" width="72" />
+
 # tokenholic
 
 ### How many tokens did your coding agents burn?
 
-A terminal leaderboard for AI coding-agent usage. tokenholic reads the usage
+A terminal leaderboard for your AI coding-agent usage. tokenholic reads the usage
 records your agents already keep on your machine, totals them in your
 terminal, and ranks you against the friends you invite.
 
@@ -35,7 +37,7 @@ install (`npm install --global @tokenholic/cli`) the command is `tokenholic`:
 tokenholic                 # local dashboard, with the option to claim
 tokenholic show-data       # print the exact payload before anything is sent
 tokenholic claim           # sign in with GitHub, then upload
-tokenholic group create "Night shift"
+tokenholic group create "EXAMPLE_GROUP_NAME"
 ```
 
 Runs on macOS, Linux, and Windows. Every command is in the
@@ -45,7 +47,7 @@ Runs on macOS, Linux, and Windows. Every command is in the
 
 `Claude Code` · `Codex` · `Gemini CLI` · `OpenCode` · `Copilot CLI` · `Grok Build CLI` · `Qwen Code`
 
-Claude and Codex are read natively, per request. The other five are read as
+Claude and Codex are read natively. The other five are read as
 daily totals through a pinned [ccusage](https://github.com/ccusage/ccusage),
 which comes with the npm package and can be turned off with
 `tokenholic ccusage off`.
