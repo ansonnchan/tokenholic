@@ -162,7 +162,7 @@ func TestUnsupportedParserVersionIsAnIssue(t *testing.T) {
 
 func TestUnsupportedPlatformIsNamed(t *testing.T) {
 	t.Parallel()
-	for goos, supported := range map[string]bool{"darwin": true, "linux": true, "plan9": false} {
+	for goos, supported := range map[string]bool{"darwin": true, "linux": true, "windows": true, "plan9": false} {
 		report := Report{GOOS: goos, GOARCH: "amd64"}
 		output := report.Render()
 		if strings.Contains(output, "not supported") == supported || (report.ExitCode() == 0) != supported {

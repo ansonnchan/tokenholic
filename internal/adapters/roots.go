@@ -29,7 +29,7 @@ func (e Environment) lookup(name string) string {
 // Ordinary desktop chat storage is intentionally absent.
 func MacRoots(home, codexHome string) []RootSpec {
 	roots := []RootSpec{claudeCLIRoot(filepath.Join(home, ".claude"), false)}
-	roots = append(roots, claudeDesktopRoots(filepath.Join(home, "Library", "Application Support", "Claude"))...)
+	roots = append(roots, claudeDesktopRoots(filepath.Join(home, "Library", "Application Support", "Claude"), false)...)
 	// The default Codex home is shared by CLI and Desktop in current installs.
 	return append(roots, codexHomes(home, codexHome, RootCodexDesktop, normalize.SurfaceDesktop)...)
 }
@@ -50,10 +50,36 @@ func LinuxRoots(home, codexHome, configHome string) []RootSpec {
 		claudeCLIRoot(filepath.Join(home, ".claude"), false),
 		claudeCLIRoot(filepath.Join(configHome, "claude"), true),
 	}
-	roots = append(roots, claudeDesktopRoots(filepath.Join(configHome, "Claude"))...)
+	roots = append(roots, claudeDesktopRoots(filepath.Join(configHome, "Claude"), false)...)
 	// Nothing first-party says the Linux desktop app writes to ~/.codex, so a
 	// default home beside a custom CODEX_HOME stays unattributed.
 	return append(roots, codexHomes(home, codexHome, RootCodexShared, normalize.SurfaceSharedLocal)...)
+}
+
+// WindowsRoots returns the coding-agent evidence roots supported on Windows.
+// appData and localAppData are %APPDATA% and %LOCALAPPDATA%; anything but an
+// absolute path selects the default location under the user profile.
+//
+// Claude Code and Codex use the user profile as their home directory.
+// Claude Desktop keeps its data folder in one of two places depending on how
+// it was installed, and both are read: the second is optional, so a normal
+// install does not report a missing folder it never had.
+//
+// A Codex CLI running inside WSL keeps its records in the Linux home, which
+// is not read from Windows; run tokenholic inside WSL for those.
+func WindowsRoots(home, codexHome, appData, localAppData string) []RootSpec {
+	if !filepath.IsAbs(appData) {
+		appData = filepath.Join(home, "AppData", "Roaming")
+	}
+	if !filepath.IsAbs(localAppData) {
+		localAppData = filepath.Join(home, "AppData", "Local")
+	}
+	roots := []RootSpec{claudeCLIRoot(filepath.Join(home, ".claude"), false)}
+	roots = append(roots, claudeDesktopRoots(filepath.Join(appData, "Claude"), false)...)
+	packaged := filepath.Join(localAppData, "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude")
+	roots = append(roots, claudeDesktopRoots(packaged, true)...)
+	// The Codex app and the native CLI share the default home on Windows.
+	return append(roots, codexHomes(home, codexHome, RootCodexDesktop, normalize.SurfaceDesktop)...)
 }
 
 // claudeCLIRoot is the transcript directory inside one Claude Code
@@ -69,25 +95,27 @@ func claudeCLIRoot(configDirectory string, optional bool) RootSpec {
 // claudeDesktopRoots lists the coding evidence inside one Claude Desktop
 // data folder: Code session records and the local Agent and Cowork
 // subtrees. Nothing else in the folder is opened, and chat storage never is.
-func claudeDesktopRoots(dataFolder string) []RootSpec {
+// optional marks a second place the folder can be on the same system.
+func claudeDesktopRoots(dataFolder string, optional bool) []RootSpec {
 	sessions := filepath.Join(dataFolder, "local-agent-mode-sessions")
 	return []RootSpec{
 		{
 			Kind: RootClaudeDesktopCode, Source: normalize.SourceClaude, Surface: normalize.SurfaceDesktopCode,
 			Path: filepath.Join(dataFolder, "claude-code-sessions"), Format: "claude-desktop-code", Extensions: []string{".json", ".jsonl"},
-			Capabilities: claudeCapabilities(),
+			Capabilities: claudeCapabilities(), Optional: optional,
 		},
 		{
 			Kind: RootClaudeDesktopAgent, Source: normalize.SourceClaude, Surface: normalize.SurfaceDesktopAgent,
 			Path: sessions, Format: "claude-local-agent-jsonl", Extensions: []string{".jsonl"},
 			Match: func(relative string) bool { return hasPathSegment(relative, "rpm") }, Capabilities: claudeCapabilities(),
+			Optional: optional,
 		},
 		{
 			Kind: RootClaudeDesktopCowork, Source: normalize.SourceClaude, Surface: normalize.SurfaceDesktopCowork,
 			Path: sessions, Format: "claude-cowork-audit-jsonl", Extensions: []string{".jsonl"},
 			Match: func(relative string) bool {
 				return filepath.Base(relative) == "audit.jsonl" && !hasPathSegment(relative, "rpm")
-			}, Capabilities: claudeCapabilities(),
+			}, Capabilities: claudeCapabilities(), Optional: optional,
 		},
 	}
 }

@@ -22,12 +22,16 @@ func TestPlatformRootLayouts(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	custom := filepath.Join(t.TempDir(), "custom")
 	at := func(base string, parts ...string) string { return filepath.Join(append([]string{base}, parts...)...) }
-	claudeDesktop := func(dataFolder string) []wantRoot {
+	claudeDesktopAt := func(dataFolder string, optional bool) []wantRoot {
 		return []wantRoot{
-			{RootClaudeDesktopCode, normalize.SurfaceDesktopCode, at(dataFolder, "claude-code-sessions"), false},
-			{RootClaudeDesktopAgent, normalize.SurfaceDesktopAgent, at(dataFolder, "local-agent-mode-sessions"), false},
-			{RootClaudeDesktopCowork, normalize.SurfaceDesktopCowork, at(dataFolder, "local-agent-mode-sessions"), false},
+			{RootClaudeDesktopCode, normalize.SurfaceDesktopCode, at(dataFolder, "claude-code-sessions"), optional},
+			{RootClaudeDesktopAgent, normalize.SurfaceDesktopAgent, at(dataFolder, "local-agent-mode-sessions"), optional},
+			{RootClaudeDesktopCowork, normalize.SurfaceDesktopCowork, at(dataFolder, "local-agent-mode-sessions"), optional},
 		}
+	}
+	claudeDesktop := func(dataFolder string) []wantRoot { return claudeDesktopAt(dataFolder, false) }
+	packaged := func(localAppData string) []wantRoot {
+		return claudeDesktopAt(at(localAppData, "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude"), true)
 	}
 	codex := func(kind RootKind, surface normalize.Surface, codexHome string) []wantRoot {
 		return []wantRoot{
@@ -92,6 +96,32 @@ func TestPlatformRootLayouts(t *testing.T) {
 			want: join([]wantRoot{claudeCLI, {RootClaudeCLI, normalize.SurfaceCLI, at(home, ".config", "claude", "projects"), true}},
 				claudeDesktop(at(home, ".config", "Claude")),
 				codex(RootCodexCLI, normalize.SurfaceCLI, custom), sharedCodex),
+		},
+		{
+			name:  "Windows defaults",
+			roots: WindowsRoots(home, "", "", ""),
+			want: join([]wantRoot{claudeCLI}, claudeDesktop(at(home, "AppData", "Roaming", "Claude")),
+				packaged(at(home, "AppData", "Local")), sharedCodex),
+		},
+		{
+			name:  "Windows with redirected application data",
+			roots: WindowsRoots(home, "", at(custom, "Roaming"), at(custom, "Local")),
+			want: join([]wantRoot{claudeCLI}, claudeDesktop(at(custom, "Roaming", "Claude")),
+				packaged(at(custom, "Local")), sharedCodex),
+		},
+		{
+			name:  "Windows ignores relative application data variables",
+			roots: WindowsRoots(home, "", "Roaming", "Local"),
+			want: join([]wantRoot{claudeCLI}, claudeDesktop(at(home, "AppData", "Roaming", "Claude")),
+				packaged(at(home, "AppData", "Local")), sharedCodex),
+		},
+		{
+			// The Codex app shares the default home with the native CLI.
+			name:  "Windows with a separate CODEX_HOME",
+			roots: WindowsRoots(home, custom, "", ""),
+			want: join([]wantRoot{claudeCLI}, claudeDesktop(at(home, "AppData", "Roaming", "Claude")),
+				packaged(at(home, "AppData", "Local")),
+				codex(RootCodexCLI, normalize.SurfaceCLI, custom), codex(RootCodexDesktop, normalize.SurfaceDesktop, at(home, ".codex"))),
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -186,6 +216,59 @@ func TestMissingLinuxSourcesAreReportedNotFound(t *testing.T) {
 	}
 }
 
+func TestWindowsRootsDiscoverBothClaudeDesktopInstalls(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	roaming := filepath.Join(home, "AppData", "Roaming", "Claude")
+	packaged := filepath.Join(home, "AppData", "Local", "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude")
+	discover := func() []Finding {
+		return (Discoverer{Roots: WindowsRoots(home, "", "", "")}).Discover(context.Background())
+	}
+	count := func(findings []Finding, kind RootKind, status normalize.HealthStatus) int {
+		total := 0
+		for _, finding := range findings {
+			if finding.Kind == kind && finding.Status == status {
+				total++
+			}
+		}
+		return total
+	}
+
+	// Nothing installed: each source answers once, as not found.
+	findings := discover()
+	if len(findings) != 5 || count(findings, RootClaudeDesktopCowork, normalize.HealthNotFound) != 1 {
+		t.Fatalf("empty profile findings = %d", len(findings))
+	}
+
+	writeSyntheticFile(t, filepath.Join(home, ".claude", "projects", "synthetic", "session.jsonl"))
+	writeSyntheticFile(t, filepath.Join(home, ".codex", "sessions", "2026", "01", "02", "rollout-synthetic.jsonl"))
+	writeSyntheticFile(t, filepath.Join(roaming, "local-agent-mode-sessions", "synthetic", "local_synthetic", "audit.jsonl"))
+	writeSyntheticFile(t, filepath.Join(packaged, "local-agent-mode-sessions", "synthetic", "local_synthetic", "audit.jsonl"))
+	writeSyntheticFile(t, filepath.Join(packaged, "claude-code-sessions", "synthetic", "session.json"))
+	// Chat storage beside them is never a candidate.
+	chat := filepath.Join(packaged, "conversations", "ordinary-chat.jsonl")
+	writeSyntheticFile(t, chat)
+
+	findings = discover()
+	if got := count(findings, RootClaudeDesktopCowork, normalize.HealthDetected); got != 2 {
+		t.Errorf("Cowork roots detected = %d, want both installs", got)
+	}
+	if got := count(findings, RootClaudeDesktopCode, normalize.HealthDetected); got != 1 {
+		t.Errorf("Code roots detected = %d, want the packaged install", got)
+	}
+	if count(findings, RootClaudeCLI, normalize.HealthDetected) != 1 || count(findings, RootCodexShared, normalize.HealthDetected) != 1 {
+		t.Errorf("Claude Code or Codex was not detected under the user profile")
+	}
+	for _, finding := range findings {
+		for _, candidate := range finding.Candidates {
+			if candidate.Path == chat {
+				t.Errorf("%s discovered ordinary desktop chat", finding.Kind)
+			}
+		}
+	}
+}
+
 func TestDefaultRootsMatchThePlatform(t *testing.T) {
 	t.Parallel()
 
@@ -203,6 +286,8 @@ func TestDefaultRootsMatchThePlatform(t *testing.T) {
 		want = MacRoots(home, "")
 	case "linux":
 		want = LinuxRoots(home, "", custom)
+	case "windows":
+		want = WindowsRoots(home, "", "", "")
 	}
 	if len(roots) != len(want) {
 		t.Fatalf("DefaultRoots() = %d roots, want %d", len(roots), len(want))
