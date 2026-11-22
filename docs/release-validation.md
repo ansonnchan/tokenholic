@@ -245,6 +245,17 @@ on two Macs. Steps 5 to 7 were left for later.
   the verified ccusage, and `demo` ran and quit cleanly. The fix itself was
   not exercised by that check: it needs a signed-in machine with more than
   one batch waiting.
+- **0.4.0, the same day.** `v0.4.0` adds the question a claim asks about
+  hourly sync, in the terminal command and the terminal interface, and
+  changes nothing in the API or in what a schedule installs. The release
+  workflow passed every job. Checked on macOS arm64 from a clean install with
+  an empty home: `--version` printed `0.4.0`, `doctor` showed the built-in
+  address and the verified ccusage, `autosync status` answered, and `demo`
+  ran and quit cleanly without writing a file. Not exercised: a real claim
+  that answers yes. On a fresh account, check that `tokenholic claim` asks,
+  that Enter prints the enabled line, and that `tokenholic autosync status`
+  then reports it installed and loaded; and once in the terminal interface,
+  that the board's confirmation ends in `hourly sync on`.
 - **The website's publish workflow can fail on a GitHub artifact error.** On
   one merge the deploy step found no artifact right after uploading it, and
   re-running the same run then found two. Starting a fresh run from the
