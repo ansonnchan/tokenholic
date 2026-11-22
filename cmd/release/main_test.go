@@ -16,7 +16,7 @@ import (
 
 func TestWriteArchiveIsDeterministic(t *testing.T) {
 	entries := []archiveEntry{
-		{name: binaryName, mode: 0o755, data: []byte("synthetic-binary")},
+		{name: "tokenholic", mode: 0o755, data: []byte("synthetic-binary")},
 		{name: lockName, mode: 0o644, data: []byte("synthetic-lock")},
 	}
 	first := filepath.Join(t.TempDir(), "first.tar.gz")
@@ -94,9 +94,19 @@ func TestTargetsNameEveryShippedPlatform(t *testing.T) {
 	want := []string{
 		"tokenholic_1.2.3_darwin_arm64.tar.gz", "tokenholic_1.2.3_darwin_x64.tar.gz",
 		"tokenholic_1.2.3_linux_arm64.tar.gz", "tokenholic_1.2.3_linux_x64.tar.gz",
+		"tokenholic_1.2.3_windows_arm64.tar.gz", "tokenholic_1.2.3_windows_x64.tar.gz",
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("archives = %q, want %q", names, want)
+	}
+	for _, target := range targets {
+		wantBinary := "tokenholic"
+		if target.goOS == "windows" {
+			wantBinary = "tokenholic.exe"
+		}
+		if target.binaryName() != wantBinary {
+			t.Errorf("%s binary = %q, want %q", target, target.binaryName(), wantBinary)
+		}
 	}
 }
 
