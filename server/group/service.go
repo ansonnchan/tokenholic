@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -91,7 +90,7 @@ type Detail struct {
 
 // Invite is the one-time plaintext result of creating an invitation. Link is
 // the same code as a URL to the website's invite page, present only when the
-// server knows the website's origin. The code sits in the URL fragment, which
+// server knows the website's address. The code sits in the URL fragment, which
 // browsers never send to a server.
 type Invite struct {
 	Code      string    `json:"code"`
@@ -154,20 +153,16 @@ type Service struct {
 	authenticator Authenticator
 	repository    Repository
 	now           func() time.Time
-	// webOrigin is the website's origin for invite links; empty disables them.
-	webOrigin string
+	// inviteLink builds the website address for an invite code; nil means
+	// invitations carry no link.
+	inviteLink func(code string) string
 }
 
-// SetWebOrigin enables invite links that point at the website. The origin
-// must be an HTTPS origin with no path, query, or fragment.
-func (s *Service) SetWebOrigin(origin string) error {
-	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
-		strings.Trim(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return errors.New("website origin must be an HTTPS origin without a path")
-	}
-	s.webOrigin = "https://" + parsed.Host
-	return nil
+// SetInviteLinks makes each new invitation carry a link built by link, which
+// receives the plaintext code. The API passes the website's invite page.
+// Without it invitations carry the code only.
+func (s *Service) SetInviteLinks(link func(code string) string) {
+	s.inviteLink = link
 }
 
 // NewService constructs the private-group application boundary.
@@ -257,8 +252,8 @@ func (s *Service) Invite(ctx context.Context, credential, groupID string, lifeti
 		return Invite{}, err
 	}
 	invite := Invite{Code: code, ExpiresAt: expiresAt, MaxUses: maxUses}
-	if s.webOrigin != "" {
-		invite.Link = s.webOrigin + "/invite/#" + code
+	if s.inviteLink != nil {
+		invite.Link = s.inviteLink(code)
 	}
 	return invite, nil
 }

@@ -177,16 +177,9 @@ func TestServiceInviteLinksAndPreview(t *testing.T) {
 	}
 	invite, err := signedIn.Invite(t.Context(), "credential", testGroupID, time.Hour, 1)
 	if err != nil || invite.Link != "" {
-		t.Fatalf("invite without a website origin = %#v, %v; want no link", invite, err)
+		t.Fatalf("invite without a website = %#v, %v; want no link", invite, err)
 	}
-	for _, origin := range []string{"http://tokenholic.example", "https://tokenholic.example/app", "https://user@tokenholic.example", "https://tokenholic.example?x=1", "tokenholic.example", ""} {
-		if err := signedIn.SetWebOrigin(origin); err == nil {
-			t.Fatalf("SetWebOrigin(%q) error = nil", origin)
-		}
-	}
-	if err := signedIn.SetWebOrigin("https://tokenholic.example/"); err != nil {
-		t.Fatal(err)
-	}
+	signedIn.SetInviteLinks(func(code string) string { return "https://tokenholic.example/invite/#" + code })
 	invite, err = signedIn.Invite(t.Context(), "credential", testGroupID, time.Hour, 1)
 	if err != nil || invite.Link != "https://tokenholic.example/invite/#"+invite.Code {
 		t.Fatalf("invite link = %q for code %q, %v", invite.Link, invite.Code, err)

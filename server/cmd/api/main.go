@@ -24,6 +24,7 @@ import (
 	serverpricing "github.com/ansonnchan/tokenholic/server/pricing"
 	"github.com/ansonnchan/tokenholic/server/ratelimit"
 	serversync "github.com/ansonnchan/tokenholic/server/sync"
+	"github.com/ansonnchan/tokenholic/server/website"
 )
 
 func main() {
@@ -113,12 +114,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// Invite links point at the website. Without its origin the API still
+	// Invite links point at the website. Without its address the API still
 	// returns invite codes, just no links.
-	if origin := strings.TrimSpace(os.Getenv("TOKENHOLIC_WEB_ORIGIN")); origin != "" {
-		if err := groups.SetWebOrigin(origin); err != nil {
-			return fmt.Errorf("TOKENHOLIC_WEB_ORIGIN: %w", err)
-		}
+	site, err := webSite(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if site.Configured() {
+		groups.SetInviteLinks(site.Invite)
 	}
 	leaderboardRepository, err := postgres.NewLeaderboardRepository(pool)
 	if err != nil {
@@ -136,12 +139,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	served, err := readableBy(site, limited)
+	if err != nil {
+		return err
+	}
 	address, err := listenAddress(os.Getenv)
 	if err != nil {
 		return err
 	}
 	server := &http.Server{
-		Addr: address, Handler: limited,
+		Addr: address, Handler: served,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
 		WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 	}
@@ -200,6 +207,32 @@ func rateLimited(handler http.Handler, getenv func(string) string) (http.Handler
 		*limiter.target = created
 	}
 	return httpapi.RateLimited(handler, limits)
+}
+
+// webSite reads TOKENHOLIC_WEB_ORIGIN, the HTTPS address the static website
+// is served from. Unset means there is no website: invitations carry no link
+// and no browser origin may read the public routes. A value that is not a
+// plain HTTPS address stops startup rather than opening the wrong origin.
+func webSite(getenv func(string) string) (website.Site, error) {
+	address := strings.TrimSpace(getenv("TOKENHOLIC_WEB_ORIGIN"))
+	if address == "" {
+		return website.Site{}, nil
+	}
+	site, err := website.Parse(address)
+	if err != nil {
+		return website.Site{}, fmt.Errorf("TOKENHOLIC_WEB_ORIGIN: %w", err)
+	}
+	return site, nil
+}
+
+// readableBy lets the website's pages read the public routes from a browser.
+// It wraps the rate limiter so a refused request is readable too. With no
+// website configured the API answers no cross-origin page at all.
+func readableBy(site website.Site, handler http.Handler) (http.Handler, error) {
+	if !site.Configured() {
+		return handler, nil
+	}
+	return httpapi.AllowWebOrigin(handler, site.Origin())
 }
 
 // trustedProxyHops reads how many reverse proxies in front of the API append

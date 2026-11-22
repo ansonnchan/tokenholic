@@ -102,9 +102,7 @@ func TestPostgresProfilesPublicVisibilityAndGroupLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := groups.SetWebOrigin("https://tokenholic.example"); err != nil {
-		t.Fatal(err)
-	}
+	groups.SetInviteLinks(func(code string) string { return "https://tokenholic.example/invite/#" + code })
 	leaderboardRepository, err := NewLeaderboardRepository(pool)
 	if err != nil {
 		t.Fatal(err)
