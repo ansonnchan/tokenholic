@@ -190,6 +190,13 @@ on two Macs. Steps 5 to 7 were left for later.
   the site, a claim from the TUI and from the terminal against real GitHub,
   an invite joined from the second account, and both machines showing the
   same two rows and totals.
+- **Worked, sharing:** with one profile made public, its share page served
+  the Open Graph tags and sent a browser on to the website's profile page;
+  the card was a 1200 by 630 PNG; and a link-preview checker fetched the
+  address and showed the large image card. The second account, still
+  private, answered not found on the profile, the share page, and the card,
+  exactly like a login that does not exist.
+- **Set:** `TOKENHOLIC_TRUSTED_PROXY_HOPS` is `3` on the service.
 - **A first upload can run out of time.** `tokenholic sync` gives itself five
   minutes, and the free API took about twelve seconds for each batch of 100
   buckets, so a machine with a long history reported "could not synchronize
@@ -197,9 +204,9 @@ on two Macs. Steps 5 to 7 were left for later.
   nothing was lost or counted twice. It needs either a message that says the
   upload is continuing, more time for a first sync, or a faster batch on the
   server. Not fixed yet.
-- **Not yet checked:** public profile and group pages with a real account,
-  the share card in a link-preview checker, autosync over an hour, revoking
-  a device, and deleting an account.
+- **Not yet checked:** a public group's board page, a card for an account
+  that has usage (the public one had none, so its card showed dashes),
+  autosync over an hour, revoking a device, and deleting an account.
 
 ## Windows
 
