@@ -6,6 +6,16 @@ directly without invoking a shell. Unsupported platforms and incomplete native
 packages fail with an actionable message instead of falling back to a different
 binary.
 
+The launcher package also pins ccusage, the third-party program tokenholic
+runs for agents it has no reader of its own for: six optional platform
+packages at one exact version, of which npm installs the one for the current
+system. The launcher finds that executable and passes its location to the
+native program in `TOKENHOLIC_CCUSAGE_PATH`; it never runs ccusage itself.
+The native program runs the file only when its digest matches the pin
+compiled into it. `ccusage.lock.json` at the repository root is the pin, and
+`scripts/platforms.test.mjs` fails when the manifest, the lockfile, or the
+launcher's table disagrees with it.
+
 When a user explicitly enables autosync, the native application copies itself
 out of the package-runner cache before installing the schedule. npm package
 installation never enables background work automatically.
@@ -14,7 +24,8 @@ The native package directories intentionally do not contain committed
 binaries. During a tagged release, `scripts/prepare-npm-release.mjs` verifies
 the GitHub artifact checksums, extracts the matching release archives, copies
 only the native binary and pinned parser contract, and assigns one exact version
-to every package. The native packages publish before the umbrella package so
+to every tokenholic package. The ccusage packages keep the exact version they
+were reviewed at, and preparation refuses a range. The native packages publish before the umbrella package so
 an install can never resolve a new launcher before its binaries. The Linux
 binaries are statically linked, so one package serves glibc and musl systems
 and no `libc` field is needed. The Windows packages are named `win32`, as

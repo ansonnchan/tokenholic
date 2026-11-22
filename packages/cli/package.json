@@ -16,6 +16,12 @@
     "node": ">=20"
   },
   "optionalDependencies": {
+    "@ccusage/ccusage-darwin-arm64": "20.0.51",
+    "@ccusage/ccusage-darwin-x64": "20.0.51",
+    "@ccusage/ccusage-linux-arm64": "20.0.51",
+    "@ccusage/ccusage-linux-x64": "20.0.51",
+    "@ccusage/ccusage-win32-arm64": "20.0.51",
+    "@ccusage/ccusage-win32-x64": "20.0.51",
     "@tokenholic/darwin-arm64": "workspace:*",
     "@tokenholic/darwin-x64": "workspace:*",
     "@tokenholic/linux-arm64": "workspace:*",

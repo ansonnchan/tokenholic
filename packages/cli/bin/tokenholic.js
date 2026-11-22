@@ -14,6 +14,22 @@ const packageByTarget = Object.freeze({
   "win32-x64": "@tokenholic/win32-x64",
 });
 
+// The pinned ccusage build for each platform. tokenholic runs it to count
+// agents it has no reader of its own for. The version is fixed in
+// package.json and the executable's digest is compiled into tokenholic,
+// which refuses to run any other file.
+const ccusageByTarget = Object.freeze({
+  "darwin-arm64": "@ccusage/ccusage-darwin-arm64",
+  "darwin-x64": "@ccusage/ccusage-darwin-x64",
+  "linux-arm64": "@ccusage/ccusage-linux-arm64",
+  "linux-x64": "@ccusage/ccusage-linux-x64",
+  "win32-arm64": "@ccusage/ccusage-win32-arm64",
+  "win32-x64": "@ccusage/ccusage-win32-x64",
+});
+
+// The variable that tells tokenholic where that executable was installed.
+const ccusagePathVariable = "TOKENHOLIC_CCUSAGE_PATH";
+
 function targetPackage(platform, arch) {
   const packageName = packageByTarget[`${platform}-${arch}`];
   if (!packageName) {
@@ -43,6 +59,36 @@ function resolveExecutable(platform, arch, resolver = require.resolve) {
   return executable;
 }
 
+// resolveCcusage returns where the pinned ccusage executable was installed,
+// or undefined when it was not. Its absence is not an error here: tokenholic
+// reports the agents it then cannot count.
+function resolveCcusage(platform, arch, resolver = require.resolve) {
+  const packageName = ccusageByTarget[`${platform}-${arch}`];
+  if (!packageName) {
+    return undefined;
+  }
+  try {
+    const manifest = resolver(`${packageName}/package.json`);
+    const executable = path.join(path.dirname(manifest), "bin", platform === "win32" ? "ccusage.exe" : "ccusage");
+    if (platform !== "win32" && (fs.statSync(executable).mode & 0o111) === 0) {
+      // Some installers drop the mode bits the package was published with.
+      fs.chmodSync(executable, 0o755);
+    }
+    return fs.existsSync(executable) ? executable : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// childEnvironment is the caller's environment plus the ccusage location.
+// A location the caller already set is left alone.
+function childEnvironment(environment, ccusage) {
+  if (!ccusage || environment[ccusagePathVariable]) {
+    return environment;
+  }
+  return { ...environment, [ccusagePathVariable]: ccusage };
+}
+
 function run(argv, options = {}) {
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
@@ -51,7 +97,7 @@ function run(argv, options = {}) {
   try {
     const executable = resolveExecutable(platform, arch, options.resolve);
     const result = spawn(executable, argv, {
-      env: process.env,
+      env: childEnvironment(options.env ?? process.env, resolveCcusage(platform, arch, options.resolve)),
       stdio: "inherit",
       shell: false,
     });
@@ -73,4 +119,13 @@ if (require.main === module) {
   process.exitCode = run(process.argv.slice(2));
 }
 
-module.exports = { packageByTarget, resolveExecutable, run, targetPackage };
+module.exports = {
+  ccusageByTarget,
+  ccusagePathVariable,
+  childEnvironment,
+  packageByTarget,
+  resolveCcusage,
+  resolveExecutable,
+  run,
+  targetPackage,
+};

@@ -6,7 +6,14 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
-const { resolveExecutable, run, targetPackage } = require("./tokenholic.js");
+const {
+  ccusagePathVariable,
+  childEnvironment,
+  resolveCcusage,
+  resolveExecutable,
+  run,
+  targetPackage,
+} = require("./tokenholic.js");
 
 test("selects each supported platform package", () => {
   assert.equal(targetPackage("darwin", "arm64"), "@tokenholic/darwin-arm64");
@@ -64,4 +71,76 @@ test("reports unsupported targets without spawning", () => {
   });
   assert.equal(status, 1);
   assert.match(message, /does not support freebsd\/x64/);
+});
+
+function syntheticCcusage(t, binary, mode = 0o755) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tokenholic-ccusage-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "bin"));
+  fs.writeFileSync(path.join(root, "bin", binary), "synthetic", { mode });
+  return root;
+}
+
+test("finds the pinned ccusage executable beside its manifest", (t) => {
+  const root = syntheticCcusage(t, "ccusage");
+  const requested = [];
+  const resolve = (id) => {
+    requested.push(id);
+    return path.join(root, "package.json");
+  };
+  assert.equal(resolveCcusage("linux", "arm64", resolve), path.join(root, "bin", "ccusage"));
+  assert.deepEqual(requested, ["@ccusage/ccusage-linux-arm64/package.json"]);
+  // Windows looks for the name Windows can run, which this package lacks.
+  assert.equal(resolveCcusage("win32", "x64", resolve), undefined);
+});
+
+test("restores the mode bits an installer dropped", { skip: process.platform === "win32" }, (t) => {
+  const root = syntheticCcusage(t, "ccusage", 0o644);
+  const executable = resolveCcusage("darwin", "arm64", () => path.join(root, "package.json"));
+  assert.equal(executable, path.join(root, "bin", "ccusage"));
+  assert.notEqual(fs.statSync(executable).mode & 0o111, 0);
+});
+
+test("a missing ccusage package is not an error", () => {
+  const missing = () => {
+    throw new Error("synthetic resolution failure");
+  };
+  assert.equal(resolveCcusage("darwin", "arm64", missing), undefined);
+  assert.equal(resolveCcusage("freebsd", "x64", () => assert.fail("no package exists to resolve")), undefined);
+});
+
+test("adds the ccusage location without disturbing the environment", () => {
+  const environment = { HOME: "/synthetic/home" };
+  assert.deepEqual(childEnvironment(environment, "/synthetic/ccusage"), {
+    HOME: "/synthetic/home",
+    [ccusagePathVariable]: "/synthetic/ccusage",
+  });
+  assert.deepEqual(environment, { HOME: "/synthetic/home" });
+  // Nothing found: the environment passes through untouched.
+  assert.equal(childEnvironment(environment, undefined), environment);
+  // A location the caller set wins.
+  const chosen = { [ccusagePathVariable]: "/synthetic/chosen" };
+  assert.equal(childEnvironment(chosen, "/synthetic/ccusage"), chosen);
+});
+
+test("starts tokenholic with the ccusage location it resolved", (t) => {
+  const root = syntheticCcusage(t, "ccusage");
+  const calls = [];
+  const status = run(["doctor"], {
+    platform: "darwin",
+    arch: "arm64",
+    env: { HOME: "/synthetic/home" },
+    resolve: (id) =>
+      id.startsWith("@ccusage/") ? path.join(root, "package.json") : path.join(__dirname, "fixture", "package.json"),
+    spawn: (executable, args, options) => {
+      calls.push({ executable, args, options });
+      return { status: 0 };
+    },
+  });
+  assert.equal(status, 0);
+  assert.deepEqual(calls[0].options.env, {
+    HOME: "/synthetic/home",
+    [ccusagePathVariable]: path.join(root, "bin", "ccusage"),
+  });
+  assert.equal(calls[0].options.shell, false);
 });

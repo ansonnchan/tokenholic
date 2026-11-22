@@ -5,9 +5,12 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-import { archiveName as platformArchive, binaryName, packageDirectory, platforms } from "./platforms.mjs";
+import { archiveName as platformArchive, binaryName, ccusagePackageName, packageDirectory, platforms } from "./platforms.mjs";
 
 const semanticVersion = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+// A dependency version that names one release: digits and dots only.
+const exactVersion = /^[0-9]+\.[0-9]+\.[0-9]+$/;
 
 export function parseChecksums(contents) {
   const checksums = new Map();
@@ -72,14 +75,22 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
 
     const umbrellaPath = path.join(workspace, "packages", "cli", "package.json");
     const umbrella = JSON.parse(await readFile(umbrellaPath, "utf8"));
-    const expected = platforms.map((platform) => `@tokenholic/${packageDirectory(platform)}`).sort();
-    if (Object.keys(umbrella.optionalDependencies ?? {}).sort().join("\n") !== expected.join("\n")) {
+    const native = platforms.map((platform) => `@tokenholic/${packageDirectory(platform)}`);
+    const pinned = platforms.map(ccusagePackageName);
+    const dependencies = umbrella.optionalDependencies ?? {};
+    if (Object.keys(dependencies).sort().join("\n") !== [...native, ...pinned].sort().join("\n")) {
       // A launcher that cannot install one of its binaries must not publish.
-      throw new Error("@tokenholic/cli must depend on exactly the supported platform packages");
+      throw new Error("@tokenholic/cli must depend on exactly the supported platform packages and the pinned ccusage packages");
+    }
+    for (const name of pinned) {
+      // ccusage is third-party code: one exact release, never a range.
+      if (!exactVersion.test(dependencies[name])) {
+        throw new Error(`${name} must be pinned to one exact version`);
+      }
     }
     umbrella.version = version;
     umbrella.optionalDependencies = Object.fromEntries(
-      Object.keys(umbrella.optionalDependencies).sort().map((name) => [name, version]),
+      Object.keys(dependencies).sort().map((name) => [name, native.includes(name) ? version : dependencies[name]]),
     );
     await writeManifest(umbrellaPath, umbrella);
   } finally {
