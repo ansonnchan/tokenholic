@@ -31,6 +31,10 @@ No end user sets anything. These are the operator's settings, each set once:
 development and for trying a second deployment; a released client does not
 need it.
 
+`TOKENHOLIC_CCUSAGE_PATH` is not in it either. The npm launcher sets it for
+the native program, to say where the pinned ccusage executable was installed.
+Nobody sets it by hand.
+
 ## The 0.2 release, in order
 
 The order matters: the server must speak the new protocol before clients that

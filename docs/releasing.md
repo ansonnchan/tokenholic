@@ -10,9 +10,13 @@ packaging it: its format and CPU, and for Linux that it is statically linked,
 so the same file runs on glibc and musl systems.
 
 Each archive contains the native `tokenholic` executable (`tokenholic.exe` on
-Windows) and `ccusage.lock.json`. The lock file is the pinned external-parser contract; the
-application never downloads or replaces the optional ccusage executable at
-runtime. Keeping the contract beside the binary makes the parser requirement
+Windows) and `ccusage.lock.json`. The lock file is the pinned external-parser
+contract: the one ccusage release tokenholic runs, its arguments, and the
+digest of its executable for every platform. The build refuses a lock that
+differs from the contract compiled into the binary. An archive carries no
+ccusage executable and the application never downloads one; the npm launcher
+package installs the pinned one, and the binary runs it only when its digest
+matches. Keeping the contract beside the binary makes that requirement
 auditable without expanding the release's trust boundary.
 
 Every release build also carries the hosted API address, the `hostedAPI`

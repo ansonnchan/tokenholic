@@ -149,10 +149,18 @@ The implemented adapters parse supported Claude and Codex JSONL natively. They r
 
 Codex reports each request's usage beside the session's running total. The adapter emits the request usage and identifies it by session, turn, and running total, never by timestamp or file. A forked or resumed rollout replays its parent's history under new timestamps; those copies map to their originals' identities and are deduplicated across files, with the earliest copy supplying the time. Only rollouts without per-request usage are reduced from running totals.
 
-The retained ccusage compatibility contract pins version 20.0.51 and its
-offline daily JSON commands. Release tooling validates the manifest, diagnostics
-can probe an installed version, and CI validates synthetic report fixtures.
-Native collection does not invoke or download ccusage.
+Agents with no native adapter are read through one pinned release of ccusage,
+a third-party program. `internal/adapters/ccusage` runs its executable
+directly, with an argument array and no shell, only after the file's SHA-256
+matches the digest compiled into tokenholic, and with a time limit, an
+allowlisted environment, and no network. Its output is validated strictly
+against the pinned contract, and its own cost figures are ignored. Running it
+is on by default and is the user's to turn off with `tokenholic ccusage off`.
+It comes with the npm package and is absent from a release archive, where
+`tokenholic doctor` reports the agents that are therefore not counted.
+tokenholic never downloads it. Claude and Codex are never read through it.
+The [runner guide](../internal/adapters/ccusage/README.md) lists what it
+reads.
 
 Claude Desktop discovery is limited to Code sessions and local Agent/Cowork evidence. Ordinary Claude Desktop chat storage is never scanned. Default Codex storage is classified as shared local evidence when CLI and Desktop attribution cannot be proven.
 
@@ -757,8 +765,11 @@ Go binary without CGO for every target, verifies each file's format and CPU: Mac
 musl systems), normalizes archive metadata, and publishes checksummed native
 artifacts. The build machine can execute only its own target, so a runner for
 each other system runs its archive before anything is published. Each
-native archive includes the pinned ccusage contract but never downloads or
-bundles an unverified parser executable. Platform packages consume these
+native archive includes the pinned ccusage contract and no ccusage
+executable. The npm launcher package pins the six ccusage platform packages
+at one exact version; npm installs the one for the current system, the
+launcher passes its location to the native program, and the program runs it
+only when its digest matches the compiled pin. Platform packages consume these
 artifacts, and the umbrella npm package is published only after every platform
 package exists. One list in `scripts/platforms.mjs` names the shipped
 platforms; tests hold the launcher, the manifests, and the release tool to it.
@@ -804,7 +815,7 @@ platform's files.
 
 M0 established these local rules:
 
-- ccusage remains a pinned compatibility contract, not an active collection path, until M11 uses it for agents without a native adapter. Claude and Codex stay native.
+- ccusage is run, at one pinned and digest-checked release, only for agents without a native adapter. Claude and Codex stay native.
 - Claude Desktop coding roots are discovered narrowly and parsed through native compatible-record adapters.
 - Default Codex CLI and Desktop evidence is represented once as `shared_local`; a distinct `CODEX_HOME` permits separate CLI and Desktop roots.
 - Cross-root deduplication happens before cumulative snapshots become deltas.
