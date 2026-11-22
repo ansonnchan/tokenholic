@@ -370,6 +370,91 @@ func TestMissingSchedulerToolIsReportedOnEverySystem(t *testing.T) {
 	}
 }
 
+// Windows refuses to delete or replace a program that is still exiting. The
+// manager waits briefly instead of failing, and gives up after a bound.
+func TestBusyFilesAreRetriedBriefly(t *testing.T) {
+	newManager := func(t *testing.T) *Manager {
+		t.Helper()
+		home := t.TempDir()
+		manager, err := NewManager(Config{
+			Home: home, Executable: syntheticExecutable(t), APIURL: "https://api.example.test",
+			scheduler: schedulers(home, &fakeTools{})["task scheduler"],
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manager.wait = time.Millisecond
+		return manager
+	}
+	busy := func(times int, calls *int, operation func() error) error {
+		*calls++
+		if *calls <= times {
+			return &os.PathError{Op: "remove", Path: "synthetic", Err: os.ErrPermission}
+		}
+		return operation()
+	}
+
+	t.Run("a brief refusal is waited out", func(t *testing.T) {
+		manager := newManager(t)
+		var renames, removals int
+		manager.rename = func(from, to string) error {
+			return busy(2, &renames, func() error { return os.Rename(from, to) })
+		}
+		if err := manager.Enable(t.Context()); err != nil {
+			t.Fatalf("Enable() = %v", err)
+		}
+		binary := manager.scheduler.layout().binary
+		manager.remove = func(path string) error {
+			if path != binary {
+				return os.Remove(path)
+			}
+			return busy(3, &removals, func() error { return os.Remove(path) })
+		}
+		if err := manager.Disable(t.Context()); err != nil {
+			t.Fatalf("Disable() = %v", err)
+		}
+		if renames != 3 || removals != 4 {
+			t.Fatalf("renames = %d, removals = %d", renames, removals)
+		}
+		if _, err := os.Lstat(binary); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the executable remains: %v", err)
+		}
+	})
+
+	t.Run("a lasting refusal is reported", func(t *testing.T) {
+		manager := newManager(t)
+		if err := manager.Enable(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		attempts := 0
+		manager.remove = func(string) error {
+			attempts++
+			return &os.PathError{Op: "remove", Path: "synthetic", Err: os.ErrPermission}
+		}
+		if err := manager.Disable(t.Context()); !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("Disable() = %v, want the refusal", err)
+		}
+		if attempts != busyAttempts {
+			t.Fatalf("attempts = %d, want the bound of %d", attempts, busyAttempts)
+		}
+	})
+
+	t.Run("other failures are not retried", func(t *testing.T) {
+		manager := newManager(t)
+		if err := manager.Enable(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		attempts := 0
+		manager.remove = func(string) error {
+			attempts++
+			return errors.New("synthetic: device error")
+		}
+		if err := manager.Disable(t.Context()); err == nil || attempts != 1 {
+			t.Fatalf("Disable() = %v after %d attempts", err, attempts)
+		}
+	})
+}
+
 func TestManagerRecognizesAndRemovesLegacyInstallation(t *testing.T) {
 	home := t.TempDir()
 	tools := &fakeTools{loaded: true}

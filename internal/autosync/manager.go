@@ -18,6 +18,10 @@ import (
 const (
 	applicationDirectory = "tokenholic"
 	interval             = time.Hour
+	// busyAttempts and busyWait bound how long a file that is still in use
+	// is waited for: about three seconds.
+	busyAttempts = 30
+	busyWait     = 100 * time.Millisecond
 )
 
 // Config supplies the local values written into the schedule.
@@ -52,6 +56,11 @@ type Manager struct {
 	executable, apiURL, codexHome string
 	pinAPIURL                     bool
 	scheduler                     scheduler
+	// remove, rename, and wait are the file operations a busy executable can
+	// refuse; tests replace them.
+	remove func(string) error
+	rename func(string, string) error
+	wait   time.Duration
 }
 
 // NewManager validates paths and binds the platform scheduler.
@@ -75,6 +84,7 @@ func NewManager(config Config) (*Manager, error) {
 	return &Manager{
 		executable: config.Executable, apiURL: strings.TrimSpace(config.APIURL),
 		pinAPIURL: config.PinAPIURL, codexHome: config.CodexHome, scheduler: scheduler,
+		remove: os.Remove, rename: os.Rename, wait: busyWait,
 	}, nil
 }
 
@@ -123,7 +133,7 @@ func (m *Manager) Enable(ctx context.Context) error {
 			return fmt.Errorf("prepare autosync log: %w", err)
 		}
 	}
-	if err := copyExecutable(m.executable, paths.binary); err != nil {
+	if err := m.copyExecutable(ctx, paths.binary); err != nil {
 		return err
 	}
 	for _, definition := range definitions {
@@ -157,14 +167,14 @@ func (m *Manager) Disable(ctx context.Context) error {
 	}
 	paths := m.scheduler.layout()
 	for _, definition := range paths.definitions {
-		if err := os.Remove(definition); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove autosync-owned file: %w", err)
+		if err := m.removeOwned(ctx, definition); err != nil {
+			return err
 		}
 	}
 	for _, installed := range append([]installation{paths.installation}, paths.legacy...) {
 		for _, path := range []string{installed.binary, installed.stdout, installed.stderr} {
-			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("remove autosync-owned file: %w", err)
+			if err := m.removeOwned(ctx, path); err != nil {
+				return err
 			}
 		}
 		// Directories go only when autosync left them empty; the application
@@ -224,6 +234,38 @@ func (m *Manager) job(installed installation) job {
 	return job{installation: installed, environment: environment}
 }
 
+// whileBusy runs a file operation, retrying for a short time while it is
+// refused for lack of permission. Windows refuses to delete or replace a
+// program that is running, and a job that was just told to stop takes a
+// moment to go; the same goes for the log files it holds open. Elsewhere a
+// running program can be removed, so the wait is only ever paid for a real
+// permission problem.
+func (m *Manager) whileBusy(ctx context.Context, operation func() error) error {
+	var err error
+	for attempt := 0; attempt < busyAttempts; attempt++ {
+		if err = operation(); err == nil || !errors.Is(err, os.ErrPermission) {
+			return err
+		}
+		timer := time.NewTimer(m.wait)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		}
+	}
+	return err
+}
+
+// removeOwned deletes one autosync-owned file; a file already gone is fine.
+func (m *Manager) removeOwned(ctx context.Context, path string) error {
+	err := m.whileBusy(ctx, func() error { return m.remove(path) })
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove autosync-owned file: %w", err)
+	}
+	return nil
+}
+
 func regularFile(path string, executable bool) (bool, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -238,8 +280,8 @@ func regularFile(path string, executable bool) (bool, error) {
 	return !executable || runnable(info), nil
 }
 
-func copyExecutable(source, destination string) error {
-	resolved, err := filepath.EvalSymlinks(source)
+func (m *Manager) copyExecutable(ctx context.Context, destination string) error {
+	resolved, err := filepath.EvalSymlinks(m.executable)
 	if err != nil {
 		return fmt.Errorf("resolve current executable: %w", err)
 	}
@@ -273,7 +315,8 @@ func copyExecutable(source, destination string) error {
 	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close stable executable: %w", err)
 	}
-	if err := os.Rename(temporaryPath, destination); err != nil {
+	// The copy being replaced may still be finishing a run.
+	if err := m.whileBusy(ctx, func() error { return m.rename(temporaryPath, destination) }); err != nil {
 		return fmt.Errorf("install stable executable: %w", err)
 	}
 	return nil
