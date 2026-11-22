@@ -142,6 +142,7 @@ func TestWritePaintedPreviews(t *testing.T) {
 		height int
 	}{
 		{name: "home", dashboard: sampleDashboard, height: 26},
+		{name: "board", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2"}, height: 24},
 		{name: "settings", dashboard: sampleDashboard, keys: []string{"5"}, height: 44},
 		{name: "sources_agents", dashboard: agentsDashboard, keys: []string{"4"}, height: 40},
 		{name: "sources_agents_unread", dashboard: agentsUnreadDashboard, keys: []string{"4"}, height: 40},
