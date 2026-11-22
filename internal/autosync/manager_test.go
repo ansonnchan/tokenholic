@@ -91,7 +91,8 @@ func TestManagerInstallsInspectsAndRemovesSchedule(t *testing.T) {
 			tools := &fakeTools{}
 			manager, err := NewManager(Config{
 				Home: home, Executable: syntheticExecutable(t), APIURL: "https://api.example.test",
-				CodexHome: filepath.Join(home, "codex"), scheduler: schedulers(home, tools)[name],
+				CodexHome: filepath.Join(home, "codex"), CCUsagePath: filepath.Join(home, "synthetic-ccusage"),
+				scheduler: schedulers(home, tools)[name],
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -109,11 +110,13 @@ func TestManagerInstallsInspectsAndRemovesSchedule(t *testing.T) {
 			if !strings.HasPrefix(paths.binary, home) || !strings.HasPrefix(paths.logs, home) {
 				t.Fatalf("layout escapes the home directory: %#v", paths)
 			}
+			var scheduled strings.Builder
 			for _, definition := range paths.definitions {
 				contents, err := os.ReadFile(definition)
 				if err != nil {
 					t.Fatal(err)
 				}
+				scheduled.Write(contents)
 				if private, err := privatefs.IsPrivate(definition); err != nil || !private {
 					t.Fatalf("definition is not private: %t, %v", private, err)
 				}
@@ -123,6 +126,11 @@ func TestManagerInstallsInspectsAndRemovesSchedule(t *testing.T) {
 						t.Fatalf("definition mentions %q: %s", forbidden, contents)
 					}
 				}
+			}
+			// A scheduled run does not start through the npm launcher, so
+			// the schedule itself says where the pinned ccusage is.
+			if !strings.Contains(scheduled.String(), CCUsagePathVariable) || !strings.Contains(scheduled.String(), "synthetic-ccusage") {
+				t.Fatalf("the schedule does not carry the ccusage location: %s", scheduled.String())
 			}
 			for _, private := range []string{paths.stdout, paths.stderr, filepath.Dir(paths.binary), paths.logs} {
 				if ok, err := privatefs.IsPrivate(private); err != nil || !ok {
@@ -291,6 +299,7 @@ func TestManagerRejectsRelativePaths(t *testing.T) {
 		{Home: "relative", Executable: "/synthetic/tokenholic"},
 		{Home: t.TempDir(), Executable: "tokenholic"},
 		{Home: t.TempDir(), Executable: syntheticExecutable(t), CodexHome: "codex"},
+		{Home: t.TempDir(), Executable: syntheticExecutable(t), CCUsagePath: "ccusage"},
 	} {
 		if _, err := NewManager(config); err == nil {
 			t.Fatalf("NewManager(%#v) succeeded", config)
