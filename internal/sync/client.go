@@ -22,6 +22,9 @@ import (
 const (
 	maxSyncResponseBytes = 1 << 20
 	baseRetryDelay       = 200 * time.Millisecond
+	// maxRetryDelay caps how long a server can make one pass wait. A pass
+	// has no overall deadline, so nothing else would.
+	maxRetryDelay = time.Minute
 )
 
 // ErrUpgradeRequired means the server no longer accepts this client's upload
@@ -34,14 +37,30 @@ type Outbox interface {
 	AcknowledgeOutbox(context.Context, []store.OutboxAcknowledgement) (int64, error)
 }
 
-// Summary reports one synchronization or dry-run pass.
+// Summary reports one synchronization or dry-run pass. A pass that stops on
+// an error still reports what it acknowledged before stopping.
 type Summary struct {
 	Batches      int
 	Buckets      int
 	Acknowledged int64
+	// Pending is how many buckets were waiting when the pass began.
+	Pending int
 }
 
-// Client uploads bounded batches and retries transient failure once.
+// Progress reports an upload pass: once before the first request, with
+// Batch zero, and once after each acknowledged batch.
+type Progress struct {
+	Batch, Batches int
+	// Acknowledged counts the buckets the server has accepted so far, out
+	// of the Pending that were waiting when the pass began.
+	Acknowledged int64
+	Pending      int
+}
+
+// Client uploads bounded batches and retries transient failure once. A pass
+// has no deadline of its own: every request is bounded and retried at most
+// once, so a pass either acknowledges another batch or stops, and a long
+// history is uploaded in one run however slow each batch is.
 type Client struct {
 	baseURL    *url.URL
 	httpClient *http.Client
@@ -71,12 +90,14 @@ func NewClient(baseURL string, httpClient *http.Client) (*Client, error) {
 }
 
 // Run uploads pending revisions and acknowledges the exact revisions accepted
-// by the server.
-func (c *Client) Run(ctx context.Context, outbox Outbox, credential string) (Summary, error) {
+// by the server. Each batch is committed locally as it is acknowledged, so a
+// pass that stops partway loses nothing and the next one continues from
+// there. progress, when not nil, is told how far the pass has got.
+func (c *Client) Run(ctx context.Context, outbox Outbox, credential string, progress func(Progress)) (Summary, error) {
 	if outbox == nil || credential == "" {
 		return Summary{}, errors.New("synchronize usage: outbox and credential are required")
 	}
-	return runBatches(ctx, outbox, nil, func(body []byte) (BatchResponse, error) {
+	return runBatches(ctx, outbox, nil, progress, func(body []byte) (BatchResponse, error) {
 		return c.sendWithRetry(ctx, credential, body)
 	})
 }
@@ -87,15 +108,22 @@ func DryRun(ctx context.Context, outbox Outbox, output io.Writer) (Summary, erro
 	if outbox == nil || output == nil {
 		return Summary{}, errors.New("show usage data: outbox and output are required")
 	}
-	return runBatches(ctx, outbox, output, nil)
+	return runBatches(ctx, outbox, output, nil, nil)
 }
 
-func runBatches(ctx context.Context, outbox Outbox, output io.Writer, send func([]byte) (BatchResponse, error)) (Summary, error) {
+func runBatches(ctx context.Context, outbox Outbox, output io.Writer, progress func(Progress), send func([]byte) (BatchResponse, error)) (Summary, error) {
 	records, err := outbox.PendingOutbox(ctx)
 	if err != nil {
 		return Summary{}, err
 	}
-	var summary Summary
+	summary := Summary{Pending: len(records)}
+	batches := (len(records) + MaxBatchBuckets - 1) / MaxBatchBuckets
+	report := func() {
+		if progress != nil && send != nil {
+			progress(Progress{Batch: summary.Batches, Batches: batches, Acknowledged: summary.Acknowledged, Pending: summary.Pending})
+		}
+	}
+	report()
 	for offset := 0; offset < len(records); offset += MaxBatchBuckets {
 		end := offset + MaxBatchBuckets
 		if end > len(records) {
@@ -103,29 +131,34 @@ func runBatches(ctx context.Context, outbox Outbox, output io.Writer, send func(
 		}
 		batch, body, err := BuildBatch(records[offset:end])
 		if err != nil {
-			return Summary{}, err
+			return summary, err
 		}
-		summary.Batches++
-		summary.Buckets += len(batch.Buckets)
 		if send == nil {
 			if _, err := output.Write(append(body, '\n')); err != nil {
-				return Summary{}, fmt.Errorf("write sync dry run: %w", err)
+				return summary, fmt.Errorf("write sync dry run: %w", err)
 			}
+			summary.Batches++
+			summary.Buckets += len(batch.Buckets)
 			continue
 		}
 		response, err := send(body)
 		if err != nil {
-			return Summary{}, err
+			return summary, err
 		}
 		acknowledgements, err := validateAcknowledgements(batch, response)
 		if err != nil {
-			return Summary{}, err
+			return summary, err
 		}
 		count, err := outbox.AcknowledgeOutbox(ctx, acknowledgements)
 		if err != nil {
-			return Summary{}, err
+			return summary, err
 		}
+		// Counted only once the batch is committed locally, so a pass that
+		// stops reports exactly what the next one will not send again.
+		summary.Batches++
+		summary.Buckets += len(batch.Buckets)
 		summary.Acknowledged += count
+		report()
 	}
 	return summary, nil
 }
@@ -145,6 +178,7 @@ func (c *Client) sendWithRetry(ctx context.Context, credential string, body []by
 		if retryAfter <= 0 {
 			retryAfter = baseRetryDelay + c.jitter(baseRetryDelay/2)
 		}
+		retryAfter = min(retryAfter, maxRetryDelay)
 		if err := c.sleep(ctx, retryAfter); err != nil {
 			return BatchResponse{}, fmt.Errorf("wait to retry synchronization: %w", err)
 		}

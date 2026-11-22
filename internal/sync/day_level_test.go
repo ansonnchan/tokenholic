@@ -211,7 +211,7 @@ func TestDayLevelBucketsUploadExactlyWhatShowDataPrints(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := len(uploaded)
-		if _, err := client.Run(t.Context(), database, "device-credential"); err != nil {
+		if _, err := client.Run(t.Context(), database, "device-credential", nil); err != nil {
 			t.Fatal(err)
 		}
 		sent := strings.Join(uploaded[before:], "\n")

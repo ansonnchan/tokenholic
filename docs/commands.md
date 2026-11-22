@@ -59,6 +59,13 @@ with `go build` carries no address and does need it; `tokenholic doctor` says
 which case applies. The free demo API may take about a minute to wake after
 inactivity.
 
+A first `sync` of a long history uploads many batches and can take several
+minutes on the free API. It prints how far it has got, and it has no time
+limit of its own: it runs for as long as batches keep being accepted.
+Stopping it, or losing the connection, is safe. What was uploaded is kept,
+the command says how many buckets that was, and the next `tokenholic sync`
+sends only the rest.
+
 `account delete` permanently deletes the hosted account and its uploaded
 totals. Local usage is not touched.
 
