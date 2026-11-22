@@ -2,6 +2,7 @@
   "name": "@tokenholic/linux-arm64",
   "version": "0.0.0-development",
   "description": "tokenholic native binary for Linux arm64",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ansonnchan/tokenholic.git"

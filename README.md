@@ -13,6 +13,7 @@ terminal, and ranks you against the friends you invite.
 [![npm](https://img.shields.io/npm/v/@tokenholic/cli?color=d9805f&label=%40tokenholic%2Fcli)](https://www.npmjs.com/package/@tokenholic/cli)
 [![ci](https://img.shields.io/github/actions/workflow/status/ansonnchan/tokenholic/ci.yml?branch=main&color=d9805f&label=ci)](https://github.com/ansonnchan/tokenholic/actions/workflows/ci.yml)
 [![issues welcome](https://img.shields.io/badge/issues-welcome-d9805f)](CONTRIBUTING.md)
+[![license: MIT](https://img.shields.io/badge/license-MIT-d9805f)](LICENSE)
 
 [**Website → ansonnchan.github.io/tokenholic**](https://ansonnchan.github.io/tokenholic/) &nbsp;·&nbsp; [Quickstart](#quickstart) &nbsp;·&nbsp; [How it works](#how-it-works) &nbsp;·&nbsp; [Privacy](#privacy)
 
@@ -88,3 +89,7 @@ is token counts by category, the model ID, which agent, and a UTC time bucket.
 Found a bug, or want an agent or feature added? Open an
 [issue](https://github.com/ansonnchan/tokenholic/issues). See
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE).

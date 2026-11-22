@@ -2,6 +2,7 @@
   "name": "@tokenholic/darwin-x64",
   "version": "0.0.0-development",
   "description": "tokenholic native binary for macOS x64",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ansonnchan/tokenholic.git"

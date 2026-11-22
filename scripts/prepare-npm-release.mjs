@@ -34,6 +34,14 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
   if (checksums.size !== platforms.length) {
     throw new Error("SHA256SUMS must contain exactly the supported platform archives");
   }
+  // Every package carries the license text; npm packs a LICENSE file whatever
+  // the manifest's "files" says. A release without it must not publish.
+  let license;
+  try {
+    license = await readFile(path.join(workspace, "LICENSE"));
+  } catch {
+    throw new Error("the workspace has no LICENSE to ship in the npm packages");
+  }
   const temporary = await mkdtemp(path.join(tmpdir(), "tokenholic-npm-"));
   try {
     for (const platform of platforms) {
@@ -70,6 +78,7 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
       await copyFile(path.join(extracted, binary), path.join(binaryDirectory, binary));
       await chmod(path.join(binaryDirectory, binary), 0o755);
       await copyFile(path.join(extracted, "ccusage.lock.json"), path.join(packageRoot, "ccusage.lock.json"));
+      await writeFile(path.join(packageRoot, "LICENSE"), license);
       await setPackageVersion(path.join(packageRoot, "package.json"), version);
     }
 
@@ -93,6 +102,7 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
       Object.keys(dependencies).sort().map((name) => [name, native.includes(name) ? version : dependencies[name]]),
     );
     await writeManifest(umbrellaPath, umbrella);
+    await writeFile(path.join(workspace, "packages", "cli", "LICENSE"), license);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

@@ -23,7 +23,8 @@ installation never enables background work automatically.
 The native package directories intentionally do not contain committed
 binaries. During a tagged release, `scripts/prepare-npm-release.mjs` verifies
 the GitHub artifact checksums, extracts the matching release archives, copies
-only the native binary and pinned parser contract, and assigns one exact version
+only the native binary and pinned parser contract, adds the repository's
+`LICENSE` to every package, and assigns one exact version
 to every tokenholic package. The ccusage packages keep the exact version they
 were reviewed at, and preparation refuses a range. The native packages publish before the umbrella package so
 an install can never resolve a new launcher before its binaries. The Linux
