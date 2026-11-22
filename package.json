@@ -3,8 +3,8 @@
   "private": true,
   "packageManager": "pnpm@10.30.3",
   "scripts": {
-    "check": "node --check scripts/prepare-npm-release.mjs && node --check scripts/publish-npm-release.mjs && node --check scripts/check-platform-package.mjs && pnpm -r --if-present check",
-    "test": "node --test scripts/*.test.mjs && pnpm -r --if-present test",
+    "check": "node --check scripts/prepare-npm-release.mjs && node --check scripts/publish-npm-release.mjs && node --check scripts/check-platform-package.mjs && node --check scripts/assemble-website.mjs && pnpm -r --if-present check",
+    "test": "node --test scripts/*.test.mjs web/tests/*.test.mjs && pnpm -r --if-present test",
     "npm:prepare": "node scripts/prepare-npm-release.mjs",
     "npm:publish": "node scripts/publish-npm-release.mjs"
   }

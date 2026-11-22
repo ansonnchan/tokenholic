@@ -1,0 +1,32 @@
+/*
+ * Design tokens. The role colors are the dark column of the palette table in
+ * docs/design.md, whose source is internal/tui/theme; a test in that package
+ * fails if a value here drifts from it or drops below WCAG AA contrast. The
+ * site is dark-only, so there is no light column.
+ */
+:root {
+  /* Web-only surfaces: deep navy with slightly lighter panels. */
+  --bg: #0B1120;
+  --panel: #111A2E;
+  --text: #E8EAF0;
+
+  /* Shared with the TUI. */
+  --accent: #D9805F;
+  --on-accent: #1B1210;
+  --muted: #8D929B;
+  --border: #50555E;
+  --current-row: #33231D;
+  --gold: #D9B45B;
+  --silver: #BCC2CB;
+  --bronze: #C08253;
+  --up: #62B8A5;
+  --down: #E36A62;
+  --warning: #D9A64E;
+  --error: #D95C53;
+
+  --font-display: "Silkscreen", "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius: 6px;
+  --gutter: 24px;
+}
