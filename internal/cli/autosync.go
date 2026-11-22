@@ -43,6 +43,13 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 	}
 	apiURL, overridden := deps.apiOrigin()
 	codexHome := strings.TrimSpace(deps.getenv("CODEX_HOME"))
+	// The scheduled copy runs outside the npm install, so it is told where
+	// the pinned ccusage was installed. A location that is not absolute is
+	// dropped rather than refused: it only means no ccusage for the schedule.
+	ccusagePath := strings.TrimSpace(deps.getenv(ccusagePathVariable))
+	if !filepath.IsAbs(ccusagePath) {
+		ccusagePath = ""
+	}
 	if args[0] == "enable" {
 		if apiURL == "" {
 			fmt.Fprintln(stderr, noAPIAddress)
@@ -55,10 +62,11 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 	} else {
 		apiURL = ""
 		codexHome = ""
+		ccusagePath = ""
 	}
 	manager, err := deps.autosync(autosync.Config{
 		Home: home, Executable: executable, APIURL: apiURL, PinAPIURL: overridden,
-		CodexHome: codexHome, Getenv: deps.getenv,
+		CodexHome: codexHome, CCUsagePath: ccusagePath, Getenv: deps.getenv,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "autosync configuration is invalid")

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ansonnchan/tokenholic/internal/adapters/ccusage"
+	"github.com/ansonnchan/tokenholic/internal/autosync"
 	"github.com/ansonnchan/tokenholic/internal/doctor"
 	"github.com/ansonnchan/tokenholic/internal/preferences"
 )
@@ -149,6 +150,42 @@ func TestDoctorIsGivenTheRunnerTheLauncherNamed(t *testing.T) {
 			}
 			if !strings.Contains(stdout.String(), ccusage.AgentGemini.Label()) {
 				t.Fatalf("doctor does not name the agents left uncounted: %q", stdout.String())
+			}
+		})
+	}
+}
+
+// A scheduled run does not start through the npm launcher, so enabling
+// autosync hands the schedule the ccusage location the launcher reported.
+func TestAutosyncCarriesTheCCUsageLocation(t *testing.T) {
+	t.Parallel()
+	location := filepath.Join(syntheticHome, "node_modules", "ccusage")
+	for name, test := range map[string]struct {
+		value string
+		args  []string
+		want  string
+	}{
+		"enable with a location":    {value: location, args: []string{"autosync", "enable"}, want: location},
+		"enable without one":        {args: []string{"autosync", "enable"}},
+		"a relative location":       {value: "ccusage", args: []string{"autosync", "enable"}},
+		"disable carries no detail": {value: location, args: []string{"autosync", "disable"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			deps, _ := ccusageDependencies(t, map[string]string{ccusagePathVariable: test.value})
+			deps.defaultAPIURL = "https://api.example.test"
+			deps.executable = func() (string, error) { return filepath.Join(syntheticHome, "tokenholic"), nil }
+			called := false
+			deps.autosync = func(config autosync.Config) (autosyncManager, error) {
+				called = true
+				if config.CCUsagePath != test.want {
+					t.Errorf("schedule was given the ccusage location %q, want %q", config.CCUsagePath, test.want)
+				}
+				return &fakeAutosyncManager{}, nil
+			}
+			var stdout, stderr bytes.Buffer
+			if code := run(test.args, &stdout, &stderr, deps); code != 0 || !called {
+				t.Fatalf("%v = %d/%q, manager built: %t", test.args, code, stderr.String(), called)
 			}
 		})
 	}

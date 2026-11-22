@@ -380,8 +380,8 @@ func runDoctor(stdout, stderr io.Writer, deps dependencies) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), deps.timeout)
 	defer cancel()
-	runner, off := deps.ccusageRunner()
-	report := deps.diagnose(ctx, home, codexHome, doctor.CCUsageProbe{Runner: runner, Off: off})
+	reader := dayLevelReader(home, deps.getenv, deps.preferences)
+	report := deps.diagnose(ctx, home, codexHome, doctor.CCUsageProbe{Roots: reader.Roots, Runner: reader.Runner, Off: reader.Off})
 	switch apiURL, overridden := deps.apiOrigin(); {
 	case overridden:
 		report.API = doctor.APIOverridden

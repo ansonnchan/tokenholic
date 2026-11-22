@@ -5,7 +5,10 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ansonnchan/tokenholic/internal/adapters"
 	"github.com/ansonnchan/tokenholic/internal/adapters/ccusage"
+	"github.com/ansonnchan/tokenholic/internal/autosync"
+	"github.com/ansonnchan/tokenholic/internal/collect"
 	"github.com/ansonnchan/tokenholic/internal/preferences"
 )
 
@@ -13,17 +16,21 @@ import (
 // sets it from the package it installed; nobody has to set it by hand. A
 // path given here is still held to the pinned digest before anything runs,
 // so it cannot be used to make tokenholic run another program.
-const ccusagePathVariable = "TOKENHOLIC_CCUSAGE_PATH"
+const ccusagePathVariable = autosync.CCUsagePathVariable
 
 // ccusageRunner returns the pinned runner for this process and whether the
 // user turned ccusage off. Preferences that cannot be read count as off:
 // when the saved choice is unknown, third-party code does not run.
 func (d dependencies) ccusageRunner() (ccusage.Runner, bool) {
-	runner := ccusage.Runner{Path: strings.TrimSpace(d.getenv(ccusagePathVariable)), Getenv: d.getenv}
-	if d.preferences == nil {
+	return ccusageRunnerFrom(d.getenv, d.preferences)
+}
+
+func ccusageRunnerFrom(getenv func(string) string, preferencesPath func() (string, error)) (ccusage.Runner, bool) {
+	runner := ccusage.Runner{Path: strings.TrimSpace(getenv(ccusagePathVariable)), Getenv: getenv}
+	if preferencesPath == nil {
 		return runner, false
 	}
-	path, err := d.preferences()
+	path, err := preferencesPath()
 	if err != nil {
 		return runner, true
 	}
@@ -32,6 +39,17 @@ func (d dependencies) ccusageRunner() (ccusage.Runner, bool) {
 		return runner, true
 	}
 	return runner, saved.CCUsageOff()
+}
+
+// dayLevelReader is the reader for agents without a native adapter: where
+// each keeps its records, the pinned runner, and the user's saved choice.
+// Collection and doctor are both given this one, so they cannot disagree.
+func dayLevelReader(home string, getenv func(string) string, preferencesPath func() (string, error)) collect.DayLevel {
+	runner, off := ccusageRunnerFrom(getenv, preferencesPath)
+	return collect.DayLevel{
+		Roots:  adapters.DayLevelRoots(adapters.Environment{Home: home, Getenv: getenv}),
+		Runner: runner, Off: off,
+	}
 }
 
 func ccusageAgents() string {
