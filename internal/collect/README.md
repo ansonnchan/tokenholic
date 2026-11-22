@@ -23,6 +23,25 @@ candidate files
 
 Deduplication must happen before cumulative reduction. Reducing two overlapping copies first would turn the same snapshot stream into separate deltas and inflate totals.
 
+## Day-level agents
+
+Agents with no native adapter are read by `DayLevel`, after the native
+sources and inside the same scan transaction. It shares nothing with the path
+above: no candidate files, no deduplication, no counter reduction. For each
+agent it checks whether the record folder exists, runs the pinned ccusage
+report only if it does, and returns the agent's health and day totals.
+
+A day total is not deduplicated because it has nothing to collapse with: its
+identity is the agent, the day, and the model, and storage replaces a
+differing value in place. An agent that could not be read returns no
+observations, which leaves what was stored untouched while its health says
+why. Each agent is read on its own, so one failure degrades one source.
+
+Because the batches are built separately, nothing a day-level agent reports
+can reach a Claude or Codex record. A test scans the native fixtures with the
+reader present, absent, failing, refused, and reporting, and requires the
+native observations, buckets, upload bytes, and totals to be identical.
+
 ## Duplicate conflicts
 
 The source plus stable source-record identifier forms the duplicate key. Exact duplicates collapse silently.
