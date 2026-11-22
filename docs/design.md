@@ -1,6 +1,6 @@
 # Design direction
 
-Status: TUI revamp built (M8); website pages built (M9), share cards planned
+Status: TUI revamp built (M8); website and share cards built (M9)
 Last updated: November 21, 2026
 
 ## Intent
@@ -294,6 +294,12 @@ browser, where the user reviews and posts it, and `y` copies it. Because a
 wrapped link in a panel cannot be selected cleanly, the link is printed again
 after the TUI exits. tokenholic sends nothing itself.
 
+`tokenholic share` prints the same draft and link without opening the TUI,
+for the last 30 days or a `--period`. When the account's profile is public
+and the server serves share pages, the post also carries the profile's share
+page, so it unfurls with a card; otherwise the post is text only and the
+command says why in one line. The link is always the last line of output.
+
 ### Primary actions
 
 Primary actions are coral chips that include their key: `[ c  CLAIM YOUR
@@ -433,10 +439,51 @@ shown whole.
 - The only motion is the loading caret, which stops under
   `prefers-reduced-motion`.
 
+### Sharing from the site
+
+A public profile and a public board each carry one quiet `SHARE ON X`
+button. It is a plain link to X's compose page with a draft the visitor
+reviews and sends; the site posts nothing. The draft is in the third person,
+because the visitor may not be the owner, names the estimate as an estimate,
+and is not offered when there is no token total to state. The link attached
+to the draft is the API's share page, so the post unfurls with a card.
+
 ### Share cards
 
-Share cards (1200×630 PNG) use the same palette: wordmark, scope, the
-headline value with `EST`, rank, and period.
+A share link (`/s/u/<login>` or `/s/b/<slug>` on the API) answers a crawler
+with Open Graph tags and a 1200×630 PNG card, and sends a browser on to the
+matching website page. Cards use the website's palette and typefaces.
+
+```text
+>_ TOKENHOLIC                                        PUBLIC PROFILE
+╭─ @DANA ─────────────────────────────────────────────────────────╮
+│ LAST 30 DAYS - - - - - - - - - - - - - - - - - - - - - - - - -  │
+│ TOKENS          $ EST                PRICED                     │
+│ ≥4.26B          ≥$1,180.42           92.3%                      │
+│ All-time  ≥21.9B tokens · ≥$6,204.18 est                        │
+╰─────────────────────────────────────────────────────────────────╯
+$ npx @tokenholic/cli        EST = API LIST PRICES, NEVER SPENDING · SELF-REPORTED
+```
+
+- Every card: the wordmark with its coral caret, what the card is, a titled
+  panel, the install command, and small print that calls an estimate an
+  estimate.
+- A profile card headlines the last 30 days, as the terminal's share action
+  does: tokens, `$ EST`, and the priced share, with all-time on one line
+  under them.
+- A board card shows the period and metric, the first three rows as the
+  server ranked them with gold, silver, and bronze rank numbers, and how many
+  public members the board lists. It opens on `THIS WEEK` and `$ EST`, and a
+  link can name another period or metric.
+- A board whose ranks are hidden shows `—` for each rank and says when ranks
+  appear. A profile with no usage in the period shows `—` in each tile and
+  says so. No card ever shows an unknown value as zero.
+- Headline values shrink to fit, a long login or group name is cut with an
+  ellipsis, and nothing is drawn outside the panel. A title the pixel face
+  cannot spell is set in the monospace instead.
+- Cards carry no avatar: the API does not fetch images from other hosts.
+- The share page itself is a few lines of text with the card and a link, in
+  case a browser does not follow the redirect.
 
 ## Accessibility
 

@@ -158,14 +158,20 @@ the workflow file alone publishes nothing.
 4. On Render, set `TOKENHOLIC_WEB_ORIGIN` to the address the site is served
    from: `https://<owner>.github.io/<repository>` for a project site, or the
    bare origin for a user site or custom domain. The API then lets pages
-   from that origin, and no other, read its public routes, and new
-   invitations carry a link to the invite page.
+   from that origin, and no other, read its public routes, serves share
+   pages and cards under `/s/`, and adds a link to each new invitation.
 
 Check it with a browser: the landing page loads without the API; a profile
 or board address shows `WAKING THE API` while the service starts and then
 either the page or the not-found panel. A page that stays unreachable while
 `/healthz` answers usually means step 4 names a different origin from the
 one in the address bar.
+
+To check sharing, make a profile public, run `tokenholic share`, and open
+the printed `Card:` address: a browser should land on the website's profile
+page, and the address plus `/card.png` should show the card. Paste the
+address into a link-preview checker to confirm the large image appears; wake
+the API first, because a crawler does not wait for a cold start.
 
 The site keeps no data and needs no migration. To take it down, disable Pages
 and unset `TOKENHOLIC_WEB_ORIGIN`.

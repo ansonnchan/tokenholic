@@ -1,6 +1,6 @@
 # tokenholic roadmap
 
-Status: MVP complete; product-parity revamp in progress (M6 to M8 complete except one blocked item, M9 website pages built, share cards and M10–M11 planned)
+Status: MVP complete; product-parity revamp in progress (M6 to M9 built except one blocked item, nothing from M6 on deployed; M10–M11 planned)
 Last updated: November 21, 2026
 
 ## Product definition
@@ -81,10 +81,11 @@ tokenholic group delete --confirm <name> <name>  # Owner deletes a group
 tokenholic group transfer <name> <login> # Owner transfers ownership
 ```
 
-### Planned commands (M9)
+### Sharing command (M9)
 
 ```text
 tokenholic share                   # Print an x.com/intent/post share link
+tokenholic share --period today|week|30d|all
 ```
 
 ## Scope decisions
@@ -778,11 +779,19 @@ Goal: make tokenholic discoverable and shareable without a browser dashboard.
     highlight a member instead.
   - Depends on: TKH-073, TKH-080 (shared visual tokens).
 
-- [ ] **TKH-091: Render share pages and cards** (`feat/share-cards`)
+- [x] **TKH-091: Render share pages and cards** (`feat/share-cards`)
   - The API renders 1200×630 PNG cards and small share pages with Open Graph
     tags that redirect browsers to the website.
   - Acceptance: image dimensions and content tests pass; a card validator shows
     the large image when the API is awake.
+  - Built: `/s/u/{login}` and `/s/b/{slug}` with their `card.png`, the
+    `tokenholic share` command, and share links on the website's profile and
+    board pages. Image and content tests pass.
+  - Not yet checked against a live card validator: that needs the API
+    deployed with `TOKENHOLIC_WEB_ORIGIN` set, and belongs with release
+    validation (TKH-102).
+  - Share routes exist only when the API knows the website's address, since
+    a share page sends browsers there.
   - Depends on: TKH-090.
 
 ### M10 — Platforms and release
@@ -805,7 +814,7 @@ Goal: make tokenholic discoverable and shareable without a browser dashboard.
     `TOKENHOLIC_TRUSTED_PROXY_HOPS` to match, so per-address rate limits key
     on the real client.
   - Publish the website and set `TOKENHOLIC_WEB_ORIGIN` on the API, following
-    `docs/deployment.md`.
+    `docs/deployment.md`, then confirm a shared link unfurls with its card.
   - Depends on: TKH-091, TKH-101.
 
 M6–M10 exit criteria:
@@ -934,11 +943,13 @@ complete, and so is M7, leaderboards, profiles, and integrity, except for
 Codex compaction usage (TKH-075), which waits on real records to build a
 fixture from. M8, the TUI revamp, is complete: the design system, the
 personal views, the board view, and in-TUI onboarding, claim, and sharing.
-In M9 the website's pages and the API's origin allowlist are built; nothing
-is published yet. The remaining parity revamp continues in order: share
-pages and cards, then Linux, Windows, and a validated release, which must
-also give builds a default API address before a new user can claim without
-configuration, publish the website, and tell the API its address. The
+M9, the website and sharing, is built: the static pages, the API's origin
+allowlist, share pages and PNG cards, and `tokenholic share`. None of it is
+published yet. The remaining parity revamp continues in order: Linux,
+Windows, and a validated release, which must also give builds a default API
+address before a new user can claim without configuration, publish the
+website, tell the API its address, and check a shared link against a card
+validator. The
 free demo environment's end-to-end
 validation (TKH-043) folds into TKH-102. Long-tail agents through ccusage
 follow in M11, after the release. A measured private beta remains optional.
