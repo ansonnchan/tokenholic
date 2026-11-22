@@ -223,6 +223,8 @@ func runSynchronization(dryRun bool, stdout, stderr io.Writer, deps dependencies
 		}
 		if dryRun {
 			fmt.Fprintln(stderr, "could not show usage data; local pending data was preserved")
+		} else if reportVaultProblem(stderr, err) {
+			fmt.Fprintln(stderr, "nothing was uploaded; local pending data was preserved")
 		} else {
 			fmt.Fprintln(stderr, "could not synchronize usage; local pending data was preserved")
 		}
@@ -249,7 +251,9 @@ func runLogin(stdout, stderr io.Writer, deps dependencies) int {
 		return 1
 	}
 	if err := manager.Login(context.Background(), version, stdout); err != nil {
-		fmt.Fprintln(stderr, "could not sign in; check the API configuration and try again")
+		if !reportVaultProblem(stderr, err) {
+			fmt.Fprintln(stderr, "could not sign in; check the API configuration and try again")
+		}
 		return 1
 	}
 	return 0
@@ -263,11 +267,23 @@ func runLogout(stdout, stderr io.Writer, deps dependencies) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := manager.Logout(ctx); err != nil {
+		reportVaultProblem(stderr, err)
 		fmt.Fprintln(stderr, "could not sign out; the device remains authorized")
 		return 1
 	}
 	fmt.Fprintln(stdout, "Signed out and revoked this device.")
 	return 0
+}
+
+// reportVaultProblem explains a credential store that cannot be used. The
+// text is fixed per operating system and names no path or secret. It reports
+// whether it wrote anything.
+func reportVaultProblem(stderr io.Writer, err error) bool {
+	if !errors.Is(err, account.ErrVaultUnavailable) {
+		return false
+	}
+	fmt.Fprintln(stderr, account.VaultHelp())
+	return true
 }
 
 func configuredAccountManager(stderr io.Writer, deps dependencies) (accountManager, bool) {

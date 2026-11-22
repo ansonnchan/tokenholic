@@ -169,3 +169,55 @@ func (s *memoryStore) Load() (Session, error) {
 }
 func (s *memoryStore) Save(session Session) error { s.session = session; return nil }
 func (s *memoryStore) Delete() error              { s.deleted = true; s.session = Session{}; return nil }
+
+// brokenStore is a credential store that cannot be reached, as on a Linux
+// machine with no Secret Service.
+type brokenStore struct{ saves int }
+
+func (*brokenStore) Load() (Session, error) {
+	return Session{}, unavailable(errors.New("synthetic: no such interface"))
+}
+func (s *brokenStore) Save(Session) error { s.saves++; return unavailable(errors.New("synthetic")) }
+func (*brokenStore) Delete() error        { return unavailable(errors.New("synthetic")) }
+
+type countingClient struct {
+	fakeClient
+	starts int
+}
+
+func (c *countingClient) Start(ctx context.Context, version string) (DeviceStart, error) {
+	c.starts++
+	return c.fakeClient.Start(ctx, version)
+}
+
+func TestLoginStopsBeforeGitHubWhenTheCredentialStoreIsUnavailable(t *testing.T) {
+	client := &countingClient{}
+	store := &brokenStore{}
+	manager, err := NewManager(client, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	err = manager.Login(t.Context(), "test", &output)
+	if !errors.Is(err, ErrVaultUnavailable) {
+		t.Fatalf("Login() = %v, want the credential store reported unavailable", err)
+	}
+	// No device is authorized that nothing could then remember, and nothing
+	// is written anywhere else instead.
+	if client.starts != 0 || store.saves != 0 || output.Len() != 0 {
+		t.Fatalf("starts = %d, saves = %d, output = %q", client.starts, store.saves, output.String())
+	}
+	if help := VaultHelp(); help == "" || strings.Contains(help, "\n") {
+		t.Fatalf("VaultHelp() = %q", help)
+	}
+}
+
+func TestVaultFailuresAreDistinctFromAMissingSession(t *testing.T) {
+	if errors.Is(ErrNoSession, ErrVaultUnavailable) {
+		t.Fatal("a missing session must not read as an unavailable store")
+	}
+	wrapped := unavailable(errors.New("synthetic cause"))
+	if !errors.Is(wrapped, ErrVaultUnavailable) || !strings.Contains(wrapped.Error(), "synthetic cause") {
+		t.Fatalf("unavailable() = %v", wrapped)
+	}
+}
