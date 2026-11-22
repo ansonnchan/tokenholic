@@ -49,9 +49,31 @@ adding a public route:
 The integration suite compares complete responses for private and nonexistent
 records on every public route. Profiles and group visibility are private by
 default and change only through an authenticated request that names `public`
-or `private` exactly. `TOKENHOLIC_WEB_ORIGIN`, when set to the website's HTTPS
-origin, adds a link to each new invitation; the code sits in the link's
-fragment and is never sent to a web server.
+or `private` exactly.
+
+`TOKENHOLIC_WEB_ORIGIN` is the HTTPS address the static website is served
+from, such as `https://example.github.io/tokenholic`. It is optional and does
+two things:
+
+- **Origin allowlist.** `httpapi.AllowWebOrigin` answers a public-route
+  request whose `Origin` header is exactly the site's origin (scheme and
+  host, without the path) with `Access-Control-Allow-Origin` naming it and
+  `Vary: Origin`. Every other origin gets no such header, so a browser
+  withholds the response from that page. Nothing but `/v1/public/` is ever
+  readable cross-origin, credentials are never allowed, and there is no
+  wildcard. Unset, no browser origin can read the API at all. The public
+  routes are plain GETs without custom headers, which browsers send without a
+  preflight, so `OPTIONS` is not answered.
+- **Links.** Each new invitation carries a link to the site's invite page.
+  The code sits in the link's fragment and is never sent to the server
+  hosting the site. `website` builds every link into the site and keeps the
+  address's path, because a GitHub Pages project site lives under one.
+
+The allowlist's headers depend only on the request's path prefix and
+`Origin`, never on the record, so a private record still answers exactly as a
+missing one from any origin; a test compares complete responses. It wraps the
+rate limiter, so a `429` and its `Retry-After` are readable by the page. A
+value that is not a plain HTTPS address stops startup.
 
 `leaderboard` defines timezone-relative periods, the two ranking metrics, cost
 coverage, trends, and competition ties. Its PostgreSQL repository authorizes

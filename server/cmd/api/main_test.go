@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/ansonnchan/tokenholic/server/website"
 )
 
 func TestListenAddress(t *testing.T) {
@@ -106,5 +108,53 @@ func TestRateLimitedAppliesTheConfiguredLimits(t *testing.T) {
 	}
 	if _, err := rateLimited(http.NotFoundHandler(), func(string) string { return "many" }); err == nil {
 		t.Fatal("rateLimited() accepted an invalid proxy setting")
+	}
+}
+
+func TestWebSiteConfiguration(t *testing.T) {
+	site, err := webSite(func(string) string { return "" })
+	if err != nil || site.Configured() {
+		t.Fatalf("webSite(unset) = %+v, %v; want no site", site, err)
+	}
+	site, err = webSite(func(string) string { return " https://pages.example/tokenholic/ " })
+	if err != nil || site.Origin() != "https://pages.example" || site.Invite("code") != "https://pages.example/tokenholic/invite/#code" {
+		t.Fatalf("webSite(project page) = %+v, %v", site, err)
+	}
+	for _, value := range []string{"http://pages.example", "pages.example", "*", "https://pages.example/?x=1"} {
+		if _, err := webSite(func(string) string { return value }); err == nil || !strings.Contains(err.Error(), "TOKENHOLIC_WEB_ORIGIN") {
+			t.Errorf("webSite(%q) error = %v, want one naming the variable", value, err)
+		}
+	}
+}
+
+// Only the configured website may read public routes from a browser, and
+// with no website nothing may.
+func TestReadableByAllowsOnlyTheConfiguredWebsite(t *testing.T) {
+	next := http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusNoContent) })
+	request := httptest.NewRequest(http.MethodGet, "/v1/public/users/someone", nil)
+	request.Header.Set("Origin", "https://pages.example")
+
+	closed, err := readableBy(website.Site{}, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	closed.ServeHTTP(response, request)
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("without a website the API allowed origin %q", got)
+	}
+
+	site, err := website.Parse("https://pages.example/tokenholic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open, err := readableBy(site, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	open.ServeHTTP(response, request)
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "https://pages.example" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want the website's origin without its path", got)
 	}
 }
