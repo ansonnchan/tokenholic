@@ -316,7 +316,7 @@ func healthStyle(t theme.Theme, status normalize.HealthStatus) *lipgloss.Style {
 	switch {
 	case status == normalize.HealthDetected:
 		return &t.Up
-	case status == normalize.HealthNotFound:
+	case status == normalize.HealthNotFound, status == normalize.HealthUnavailable:
 		return &t.Muted
 	case status == normalize.HealthError || status == normalize.HealthPermissionDenied:
 		return &t.Failure

@@ -563,6 +563,11 @@ func selectedLines(t theme.Theme, board *multiplayer.Board, row multiplayer.Row,
 	if count := row.Limitations.APIEstimateUnavailableBuckets; count > 0 {
 		limits = append(limits, strconv.FormatInt(count, 10)+" without an estimate")
 	}
+	if count := row.Limitations.DayLevelBuckets; count > 0 {
+		// A day-level total is filed at the start of its UTC day, so which
+		// side of this board's day boundary it fell on is not known.
+		limits = append(limits, strconv.FormatInt(count, 10)+" by day, where the day boundary is approximate")
+	}
 	if len(limits) > 0 {
 		say(t.Muted, "Usage buckets: "+strings.Join(limits, ", ")+".")
 	}

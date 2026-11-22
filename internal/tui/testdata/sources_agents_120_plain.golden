@@ -1,0 +1,25 @@
+>_ TOKENHOLIC    HOME  BOARDS  MODELS [SOURCES] SETTINGS                                    scanned 4m ago · 3 to upload
+
+╭─ LOCAL SOURCES ──────────────────────────────────────────╮ ╭─ USAGE BY SOURCE ───────────────────────────────────────╮
+│ SOURCE               STATUS           RECORDS  LAST READ │ │  TODAY  THIS WEEK [30 DAYS] ALL-TIME                    │
+│ Claude · CLI         detected          13,916     4m ago │ │                                                         │
+│ Claude · Desktop C…  detected             212     4m ago │ │ SOURCE                       TOKENS        $ EST  SHARE │
+│ Claude · Desktop C…  not found              —      never │ │ Claude                        2.92B      $820.40  64.9% │
+│ Codex · CLI and De…  detected           4,014     4m ago │ │ Codex                        ≥1.34B     ≥$360.02  29.9% │
+│ Copilot CLI · by d…  not found              —      never │ │ Gemini CLI                    ≥218M      ≥$15.25   4.8% │
+│ Gemini CLI · by day  detected         41 days     4m ago │ │ Qwen Code                    ≥12.6M       ≥$2.05   0.2% │
+│ Grok Build · by day  not found              —      never │ │                                                         │
+│ OpenCode · by day    error                  —      never │ │ SURFACE                      TOKENS        $ EST  SHARE │
+│ Qwen Code · by day   detected          6 days     4m ago │ │ CLI                           2.51B      $701.15  55.7% │
+│                                                          │ │ Desktop Code                   410M      $119.25   9.1% │
+│ By day: one total per UTC day, read through ccusage. Day │ │ CLI and Desktop              ≥1.34B     ≥$360.02  29.9% │
+│ boundaries are approximate, and prices that depend on a  │ ╰─────────────────────────────────────────────────────────╯
+│ request's size are not estimated.                        │
+│                                                          │
+│ OpenCode not counted: ccusage answered in a form         │
+│ tokenholic does not accept.                              │
+│                                                          │
+│ Run `tokenholic doctor` for path-redacted detail on any  │
+│ source.                                                  │
+╰──────────────────────────────────────────────────────────╯
+1–5 views · p period · j/k scroll · r refresh · ? help · q quit

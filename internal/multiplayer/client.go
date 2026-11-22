@@ -102,11 +102,15 @@ type ModelUsage struct {
 	TotalTokens Value  `json:"total_tokens"`
 }
 
-// Limitations exposes incomplete model and estimate coverage.
+// Limitations exposes incomplete model and estimate coverage, and usage
+// whose time is known only to the day.
 type Limitations struct {
 	UnknownModelBuckets           int64 `json:"unknown_model_buckets"`
 	InferredModelBuckets          int64 `json:"inferred_model_buckets"`
 	APIEstimateUnavailableBuckets int64 `json:"api_estimate_unavailable_buckets"`
+	// DayLevelBuckets counts whole-UTC-day totals in the window. Their place
+	// against the board's day boundary is approximate.
+	DayLevelBuckets int64 `json:"day_level_buckets"`
 }
 
 // Coverage says how much of a member's usage in the window has a price.

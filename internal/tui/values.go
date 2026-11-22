@@ -169,10 +169,24 @@ func sourceName(source string) string {
 		return "Claude"
 	case normalize.SourceCodex:
 		return "Codex"
+	case normalize.SourceCopilot:
+		return "Copilot CLI"
+	case normalize.SourceGemini:
+		return "Gemini CLI"
+	case normalize.SourceGrok:
+		return "Grok Build"
+	case normalize.SourceOpenCode:
+		return "OpenCode"
+	case normalize.SourceQwen:
+		return "Qwen Code"
 	default:
 		return source
 	}
 }
+
+// byDay is how a day-level source's coverage is named beside it: its usage
+// is known as one total per UTC day, not per request.
+const byDay = "by day"
 
 func surfaceName(surface string) string {
 	switch normalize.Surface(surface) {
@@ -208,6 +222,8 @@ func healthText(status normalize.HealthStatus) string {
 		return "no records"
 	case normalize.HealthError:
 		return "error"
+	case normalize.HealthUnavailable:
+		return "unavailable"
 	default:
 		return string(status)
 	}

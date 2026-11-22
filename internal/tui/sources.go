@@ -1,7 +1,12 @@
 package tui
 
 import (
+	"strings"
+
+	"github.com/ansonnchan/tokenholic/internal/collect"
+	"github.com/ansonnchan/tokenholic/internal/normalize"
 	"github.com/ansonnchan/tokenholic/internal/numfmt"
+	"github.com/ansonnchan/tokenholic/internal/store"
 	"github.com/ansonnchan/tokenholic/internal/tui/widget"
 )
 
@@ -44,22 +49,88 @@ func (m Model) sourceHealthLines(width int) []string {
 	}
 	table := widget.Table{Flush: true, Columns: columns}
 	for _, record := range health {
-		name := sourceName(string(record.Health.Source)) + " " + g.Separator + " " + surfaceName(string(record.Health.Surface))
+		surface := surfaceName(string(record.Health.Surface))
+		if record.Health.Source.DayLevel() {
+			// Every day-level agent is a terminal program, so its surface
+			// says nothing; how coarsely it is read does.
+			surface = byDay
+		}
+		name := sourceName(string(record.Health.Source)) + " " + g.Separator + " " + surface
 		cells := []widget.Cell{{Text: name}, {Text: healthText(record.Health.Status), Style: healthStyle(t, record.Health.Status)}}
 		if full {
 			records := widget.Cell{Text: g.Unavailable, Style: &t.Muted}
 			if record.Health.RecordCount != nil {
 				records = widget.Cell{Text: numfmt.Exact(*record.Health.RecordCount)}
+				if record.Health.Source.DayLevel() {
+					// What was read is days of usage, not record files.
+					records.Text = plural(int(*record.Health.RecordCount), "day", "days")
+				}
 			}
 			cells = append(cells, records, widget.Cell{Text: age(record.LastSuccessAt, m.dashboard.GeneratedAt), Style: &t.Muted})
 		}
 		table.Rows = append(table.Rows, widget.Row{Cells: cells})
 	}
-	lines := append(table.Render(t, width), "")
-	for _, line := range widget.Wrap("Run `tokenholic doctor` for path-redacted detail on any source.", width) {
-		lines = append(lines, t.Muted.Render(line))
+	lines := table.Render(t, width)
+	for _, note := range append(dayLevelNotes(health), "Run `tokenholic doctor` for path-redacted detail on any source.") {
+		lines = append(lines, "")
+		for _, line := range widget.Wrap(note, width) {
+			lines = append(lines, t.Muted.Render(line))
+		}
 	}
 	return lines
+}
+
+// dayLevelNotes explains the day-level rows: what "by day" covers, and for
+// each agent that is here but could not be read, why. An agent that is not
+// found needs no note, and one that cannot be read is never shown as zero.
+func dayLevelNotes(health []store.StoredAdapterHealth) []string {
+	var read bool
+	reasons := make(map[string][]string)
+	var order []string
+	for _, record := range health {
+		if !record.Health.Source.DayLevel() {
+			continue
+		}
+		switch record.Health.Status {
+		case normalize.HealthDetected:
+			read = true
+		case normalize.HealthUnavailable, normalize.HealthError:
+			reason := "ccusage could not read it."
+			if len(record.Health.Warnings) > 0 {
+				reason = dayLevelReason(record.Health.Warnings[0].Code)
+			}
+			if _, seen := reasons[reason]; !seen {
+				order = append(order, reason)
+			}
+			reasons[reason] = append(reasons[reason], sourceName(string(record.Health.Source)))
+		}
+	}
+	var notes []string
+	if read {
+		notes = append(notes, "By day: one total per UTC day, read through ccusage. Day boundaries are approximate, and prices that depend on a request's size are not estimated.")
+	}
+	for _, reason := range order {
+		notes = append(notes, strings.Join(reasons[reason], ", ")+" not counted: "+reason)
+	}
+	return notes
+}
+
+// dayLevelReason says in words why ccusage did not read an agent.
+func dayLevelReason(code string) string {
+	switch code {
+	case collect.WarningCCUsageOff:
+		return "ccusage is turned off. Run `tokenholic ccusage on`."
+	case collect.WarningCCUsageNotInstalled:
+		return "this install has no ccusage. It comes with the npm package."
+	case collect.WarningCCUsageUnpinned:
+		return "the ccusage here is not the pinned build, so it was not run."
+	case collect.WarningCCUsageMalformed:
+		return "ccusage answered in a form tokenholic does not accept."
+	case collect.WarningCCUsageTimeout:
+		return "ccusage did not finish in time."
+	default:
+		return "ccusage could not read it."
+	}
 }
 
 // sourceUsageLines is the period's usage by source and then by surface.

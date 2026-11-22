@@ -1,0 +1,32 @@
+>_ TOKENHOLIC    HOME  BOARDS  MODELS [SOURCES] SETTINGS                  scanned 4m ago
+
+╭─ LOCAL SOURCES ──────────────────────────────────────────────────────────────────────╮
+│ SOURCE                                           STATUS           RECORDS  LAST READ │
+│ Claude · CLI                                     detected          13,916     4m ago │
+│ Claude · Desktop Code                            detected             212     4m ago │
+│ Claude · Desktop Cowork                          not found              —      never │
+│ Codex · CLI and Desktop                          detected           4,014     4m ago │
+│ Copilot CLI · by day                             not found              —      never │
+│ Gemini CLI · by day                              unavailable            —      never │
+│ Grok Build · by day                              not found              —      never │
+│ OpenCode · by day                                not found              —      never │
+│ Qwen Code · by day                               unavailable            —      never │
+│                                                                                      │
+│ Gemini CLI, Qwen Code not counted: this install has no ccusage. It comes with the    │
+│ npm package.                                                                         │
+│                                                                                      │
+│ Run `tokenholic doctor` for path-redacted detail on any source.                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+╭─ USAGE BY SOURCE ────────────────────────────────────────────────────────────────────╮
+│  TODAY  THIS WEEK [30 DAYS] ALL-TIME                                                 │
+│                                                                                      │
+│ SOURCE                                                    TOKENS        $ EST  SHARE │
+│ Claude                                                     2.92B      $820.40  68.4% │
+│ Codex                                                     ≥1.34B     ≥$360.02  31.5% │
+│                                                                                      │
+│ SURFACE                                                   TOKENS        $ EST  SHARE │
+│ CLI                                                        2.51B      $701.15  58.8% │
+│ Desktop Code                                                410M      $119.25   9.6% │
+│ CLI and Desktop                                           ≥1.34B     ≥$360.02  31.5% │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+1–5 views · p period · j/k scroll · r refresh · ? help · q quit
