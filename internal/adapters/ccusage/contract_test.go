@@ -120,16 +120,8 @@ func TestContractRejectsInvalidReports(t *testing.T) {
 	}
 }
 
-func TestVersionAndLockMatchPinnedContract(t *testing.T) {
+func TestLockMatchesCompiledContract(t *testing.T) {
 	t.Parallel()
-	for _, version := range []string{PinnedVersion, "v" + PinnedVersion, "ccusage " + PinnedVersion, "ccusage v" + PinnedVersion} {
-		if err := ValidateVersion([]byte(version)); err != nil {
-			t.Fatalf("ValidateVersion(%q) = %v", version, err)
-		}
-	}
-	if err := ValidateVersion([]byte("99.0.0")); err == nil {
-		t.Fatal("unsupported version was accepted")
-	}
 	data, err := os.ReadFile(filepath.Join("..", "..", "..", "ccusage.lock.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -137,9 +129,47 @@ func TestVersionAndLockMatchPinnedContract(t *testing.T) {
 	if err := ValidateLock(data); err != nil {
 		t.Fatal(err)
 	}
-	duplicate := bytes.Replace(data, []byte(`"tool": "ccusage"`), []byte(`"tool": "ccusage", "tool": "ccusage"`), 1)
-	if err := ValidateLock(duplicate); err == nil {
-		t.Fatal("lock manifest with a duplicate key was accepted")
+	tests := []struct {
+		name     string
+		old, new string
+	}{
+		{name: "duplicate key", old: `"tool": "ccusage"`, new: `"tool": "ccusage", "tool": "ccusage"`},
+		{name: "another version", old: `"version": "20.0.51"`, new: `"version": "20.0.52"`},
+		{name: "a floating version", old: `"version": "20.0.51"`, new: `"version": "^20.0.51"`},
+		{name: "an added argument", old: `"--offline", `, new: `"--offline", "--since", "20260101", `},
+		{name: "a dropped offline flag", old: `"--offline", `, new: ``},
+		{name: "a native agent", old: `"agents": ["copilot"`, new: `"agents": ["claude", "copilot"`},
+		{name: "another executable digest", old: `"sha256": "81a9af33`, new: `"sha256": "00a9af33`},
+		{name: "a missing npm integrity", old: `"integrity": "sha512-Z8dP`, new: `"integrity": "sha1-Z8dP`},
+		{name: "another package", old: `"package": "@ccusage/ccusage-linux-x64"`, new: `"package": "ccusage"`},
+		{name: "an unknown field", old: `"tool": "ccusage"`, new: `"tool": "ccusage", "note": "x"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			changed := bytes.Replace(data, []byte(test.old), []byte(test.new), 1)
+			if bytes.Equal(changed, data) {
+				t.Fatal("the lock no longer contains the text this case edits")
+			}
+			if err := ValidateLock(changed); err == nil {
+				t.Fatal("a lock that differs from the compiled contract was accepted")
+			}
+		})
+	}
+}
+
+func TestEveryPlatformHasAPinnedDigest(t *testing.T) {
+	t.Parallel()
+	for _, platform := range [][2]string{
+		{"darwin", "arm64"}, {"darwin", "amd64"}, {"linux", "arm64"}, {"linux", "amd64"},
+		{"windows", "arm64"}, {"windows", "amd64"},
+	} {
+		if digest, found := PinnedDigest(platform[0], platform[1]); !found || len(digest) != 64 {
+			t.Errorf("PinnedDigest(%s, %s) = %q, %t", platform[0], platform[1], digest, found)
+		}
+	}
+	if _, found := PinnedDigest("freebsd", "amd64"); found {
+		t.Error("a platform ccusage does not ship has a digest")
 	}
 }
 

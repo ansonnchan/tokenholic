@@ -25,6 +25,28 @@ const fileName = "preferences.json"
 type Preferences struct {
 	// Theme is "dark" or "light". Anything else reads as the default.
 	Theme string `json:"theme,omitempty"`
+	// CCUsage is "off" when the user chose not to have tokenholic run the
+	// pinned ccusage. Anything else, including nothing, leaves it on.
+	CCUsage string `json:"ccusage,omitempty"`
+}
+
+// ccusageOff is the saved value that turns ccusage off.
+const ccusageOff = "off"
+
+// CCUsageOff reports whether the user turned ccusage off.
+func (p Preferences) CCUsageOff() bool {
+	return p.CCUsage == ccusageOff
+}
+
+// SetCCUsage records the choice. On is the default and is stored as nothing,
+// so a file that never mentions ccusage and one that turned it back on are
+// the same.
+func (p *Preferences) SetCCUsage(on bool) {
+	if on {
+		p.CCUsage = ""
+		return
+	}
+	p.CCUsage = ccusageOff
 }
 
 // DefaultPath is the preferences file beside the default usage database.

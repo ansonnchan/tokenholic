@@ -2,7 +2,7 @@ package doctor
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,7 +36,7 @@ func TestReportRendersAllSurfacesWithoutPaths(t *testing.T) {
 		})
 	}
 	findings[len(findings)-1].SharedRoot = true
-	report := Report{GOOS: "darwin", GOARCH: "arm64", Parser: ParserStatus{Found: true, Compatible: true}, Findings: findings}
+	report := Report{GOOS: "darwin", GOARCH: "arm64", Parser: ParserStatus{State: RunnerReady}, Findings: findings}
 	output := report.Render()
 	for _, expected := range []string{"Claude Code CLI", "Claude Desktop Code", "Claude Desktop Agent", "Claude Desktop Cowork", "Codex CLI", "Codex Desktop", "Codex CLI/Desktop shared"} {
 		if !strings.Contains(output, expected) {
@@ -74,7 +74,7 @@ func TestDiagnoseDiscoversSyntheticHome(t *testing.T) {
 		}
 	}
 	discovery := adapters.Discoverer{Roots: adapters.MacRoots(home, "")}
-	report := Diagnose(context.Background(), discovery, fakeParser{status: ParserStatus{Found: true, Compatible: true}}, nil)
+	report := Diagnose(context.Background(), discovery, fakeParser{status: ParserStatus{State: RunnerReady}}, nil)
 	if len(report.Findings) != 5 {
 		t.Fatalf("findings = %d, want 5", len(report.Findings))
 	}
@@ -118,45 +118,82 @@ func TestReportExplainsWhenNoSupportedSourceIsAvailable(t *testing.T) {
 	}
 }
 
-func TestCCUsageProbeValidatesPinnedVersion(t *testing.T) {
-	t.Parallel()
-
-	probe := CCUsageProbe{
-		LookPath: func(string) (string, error) { return "synthetic-ccusage", nil },
-		Run: func(context.Context, string, ...string) ([]byte, error) {
-			return []byte("ccusage " + ccusage.PinnedVersion), nil
-		},
-	}
-	if status := probe.Check(context.Background()); !status.Found || !status.Compatible {
-		t.Fatalf("Check() = %#v", status)
-	}
-	probe.Run = func(context.Context, string, ...string) ([]byte, error) { return nil, errors.New("synthetic failure") }
-	if status := probe.Check(context.Background()); !status.Found || status.Compatible || status.Issue != "execution_failed" {
-		t.Fatalf("failed Check() = %#v", status)
-	}
+type fakeRunner struct {
+	verify  error
+	results map[ccusage.Agent]error
+	days    int
+	ran     []ccusage.Agent
 }
 
-func TestCCUsageProbeReportsTimeout(t *testing.T) {
-	t.Parallel()
+func (f *fakeRunner) Verify() error { return f.verify }
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	probe := CCUsageProbe{
-		LookPath: func(string) (string, error) { return "synthetic-ccusage", nil },
-		Run:      func(context.Context, string, ...string) ([]byte, error) { return nil, context.DeadlineExceeded },
+func (f *fakeRunner) Daily(_ context.Context, agent ccusage.Agent) (ccusage.Report, error) {
+	f.ran = append(f.ran, agent)
+	if err := f.results[agent]; err != nil {
+		return ccusage.Report{}, err
 	}
-	status := probe.Check(ctx)
-	if status.Issue != "timeout" {
-		t.Fatalf("Check() = %#v", status)
-	}
+	return ccusage.Report{Days: make([]ccusage.Day, f.days)}, nil
 }
 
-func TestUnsupportedParserVersionIsAnIssue(t *testing.T) {
+func TestCCUsageProbeReportsTheRunner(t *testing.T) {
 	t.Parallel()
-
-	report := Report{GOOS: "darwin", GOARCH: "arm64", Parser: ParserStatus{Found: true}}
-	if report.ExitCode() != 1 {
-		t.Fatalf("ExitCode() = %d, want 1", report.ExitCode())
+	tests := []struct {
+		name     string
+		probe    CCUsageProbe
+		state    RunnerState
+		runs     int
+		exitCode int
+		want     []string
+	}{
+		{name: "turned off", probe: CCUsageProbe{Off: true, Runner: &fakeRunner{}}, state: RunnerOff,
+			want: []string{"ccusage: turned off", "tokenholic ccusage on", "Gemini CLI"}},
+		{name: "no runner in this install", probe: CCUsageProbe{}, state: RunnerUnavailable,
+			want: []string{"ccusage: not available in this install", "not counted: GitHub Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, Qwen Code", "npm install -g @tokenholic/cli"}},
+		{name: "runner missing on disk", probe: CCUsageProbe{Runner: &fakeRunner{verify: ccusage.ErrUnavailable}}, state: RunnerUnavailable,
+			want: []string{"ccusage: not available in this install"}},
+		{name: "an unpinned executable", probe: CCUsageProbe{Runner: &fakeRunner{verify: ccusage.ErrUnpinned}}, state: RunnerUnpinned, exitCode: 1,
+			want: []string{"ccusage: refused", "not the pinned " + ccusage.PinnedVersion + " build and was not run"}},
+		{name: "every report valid", probe: CCUsageProbe{Runner: &fakeRunner{days: 3}}, state: RunnerReady, runs: 5,
+			want: []string{"ccusage: ready (pinned " + ccusage.PinnedVersion + ", executable verified)", "report valid (3 days of usage)"}},
+		{name: "no usage is not an issue", probe: CCUsageProbe{Runner: &fakeRunner{}}, state: RunnerReady, runs: 5,
+			want: []string{"report valid (no usage found)"}},
+		{name: "one agent degrades alone", probe: CCUsageProbe{Runner: &fakeRunner{days: 1, results: map[ccusage.Agent]error{
+			ccusage.AgentGemini:   fmt.Errorf("%w: /synthetic/private/location", ccusage.ErrMalformed),
+			ccusage.AgentGrok:     ccusage.ErrTimeout,
+			ccusage.AgentOpenCode: ccusage.ErrFailed,
+		}}}, state: RunnerReady, runs: 5, exitCode: 1,
+			want: []string{
+				"Gemini CLI                    malformed output; this agent is not counted",
+				"Grok Build CLI                timed out; this agent is not counted",
+				"OpenCode                      could not run; this agent is not counted",
+				"GitHub Copilot CLI            report valid (1 days of usage)",
+				"Qwen Code                     report valid (1 days of usage)",
+			}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			status := test.probe.Check(context.Background())
+			if status.State != test.state {
+				t.Fatalf("Check() state = %q, want %q", status.State, test.state)
+			}
+			if runner, ok := test.probe.Runner.(*fakeRunner); ok && len(runner.ran) != test.runs {
+				t.Fatalf("reports run = %d, want %d", len(runner.ran), test.runs)
+			}
+			report := Report{GOOS: "darwin", GOARCH: "arm64", Parser: status}
+			output := report.Render()
+			for _, want := range test.want {
+				if !strings.Contains(output, want) {
+					t.Errorf("report is missing %q:\n%s", want, output)
+				}
+			}
+			if strings.Contains(output, "/synthetic/private") {
+				t.Fatalf("report repeats ccusage output:\n%s", output)
+			}
+			if report.ExitCode() != test.exitCode {
+				t.Fatalf("ExitCode() = %d, want %d", report.ExitCode(), test.exitCode)
+			}
+		})
 	}
 }
 

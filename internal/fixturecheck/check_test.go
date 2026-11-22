@@ -32,6 +32,8 @@ func TestCheckDirRejectsPrivateMaterial(t *testing.T) {
 		{name: "session instructions beside the session identifier", data: `{"session_id":"synthetic","base_instructions":"synthetic"}`},
 		{name: "working directory beside the service tier", data: `{"thread_settings":{"service_tier":"synthetic","cwd":"synthetic"}}`},
 		{name: "workspace settings beside the service tier", data: `{"thread_settings":{"service_tier":"synthetic","approval_policy":"synthetic"}}`},
+		{name: "project location beside the message count", data: `{"messageCount":1,"projectPath":"synthetic"}`},
+		{name: "session activity beside the message count", data: `{"messageCount":1,"lastActivity":"synthetic"}`},
 		{name: "home path", data: `{"value":"/Users/example/work"}`},
 		{name: "root path", data: `{"value":"/root/work"}`},
 		{name: "tilde path", data: `{"value":"~/work"}`},

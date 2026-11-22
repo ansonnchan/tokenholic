@@ -1,0 +1,68 @@
+{
+  "daily": [
+    {
+      "cacheCreationTokens": 200,
+      "cacheReadTokens": 100,
+      "date": "2026-01-02",
+      "inputTokens": 1100,
+      "messageCount": 5,
+      "modelBreakdowns": [
+        {
+          "cacheCreationTokens": 200,
+          "cacheReadTokens": 100,
+          "inputTokens": 700,
+          "missingPricing": true,
+          "modelName": "claude-synthetic-4.6",
+          "outputTokens": 500
+        },
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 0,
+          "inputTokens": 400,
+          "missingPricing": true,
+          "modelName": "gpt-synthetic-5",
+          "outputTokens": 80
+        }
+      ],
+      "modelsUsed": [
+        "claude-synthetic-4.6",
+        "gpt-synthetic-5"
+      ],
+      "outputTokens": 580,
+      "totalTokens": 1980
+    },
+    {
+      "cacheCreationTokens": 50,
+      "cacheReadTokens": 50,
+      "date": "2026-01-03",
+      "inputTokens": 400,
+      "messageCount": 2,
+      "modelBreakdowns": [
+        {
+          "cacheCreationTokens": 50,
+          "cacheReadTokens": 50,
+          "inputTokens": 400,
+          "missingPricing": true,
+          "modelName": "claude-synthetic-4.6",
+          "outputTokens": 200
+        }
+      ],
+      "modelsUsed": [
+        "claude-synthetic-4.6"
+      ],
+      "outputTokens": 200,
+      "totalTokens": 700
+    }
+  ],
+  "totals": {
+    "cacheCreationTokens": 250,
+    "cacheReadTokens": 150,
+    "inputTokens": 1500,
+    "outputTokens": 780,
+    "totalTokens": 2680,
+    "unpricedModels": [
+      "claude-synthetic-4.6",
+      "gpt-synthetic-5"
+    ]
+  }
+}

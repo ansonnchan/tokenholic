@@ -3,46 +3,97 @@ package doctor
 import (
 	"context"
 	"errors"
-	"os/exec"
 
 	"github.com/ansonnchan/tokenholic/internal/adapters/ccusage"
 )
 
-// CCUsageProbe checks whether the pinned optional parser can execute locally.
+// RunnerState says whether the pinned ccusage can be run at all.
+type RunnerState string
+
+const (
+	// RunnerReady means the executable is the pinned release.
+	RunnerReady RunnerState = "ready"
+	// RunnerOff means the user turned ccusage off. Nothing was read or run.
+	RunnerOff RunnerState = "off"
+	// RunnerUnavailable means no ccusage executable came with this install.
+	RunnerUnavailable RunnerState = "unavailable"
+	// RunnerUnpinned means an executable exists but is not the pinned
+	// release, so it was not run.
+	RunnerUnpinned RunnerState = "unpinned"
+)
+
+// AgentState is the outcome of one agent's pinned report.
+type AgentState string
+
+const (
+	// AgentValid means the report satisfied the pinned contract.
+	AgentValid AgentState = "valid"
+	// AgentMalformed means ccusage answered with something the contract
+	// does not describe.
+	AgentMalformed AgentState = "malformed"
+	// AgentTimedOut means the report did not finish within its time limit.
+	AgentTimedOut AgentState = "timed_out"
+	// AgentFailed means ccusage could not be started or exited with an error.
+	AgentFailed AgentState = "failed"
+)
+
+// AgentReport is one agent's result. It holds a count, never report content.
+type AgentReport struct {
+	Agent ccusage.Agent
+	State AgentState
+	// Days is how many daily rows a valid report held.
+	Days int
+}
+
+// ParserStatus is the health of the pinned ccusage runner and of each
+// agent's report. It retains no ccusage output.
+type ParserStatus struct {
+	State  RunnerState
+	Agents []AgentReport
+}
+
+// AgentRunner runs one agent's pinned daily report.
+type AgentRunner interface {
+	Verify() error
+	Daily(context.Context, ccusage.Agent) (ccusage.Report, error)
+}
+
+// CCUsageProbe checks the pinned runner and every agent's report.
 type CCUsageProbe struct {
-	LookPath func(string) (string, error)
-	Run      func(context.Context, string, ...string) ([]byte, error)
+	Runner AgentRunner
+	// Off is the user's choice not to run ccusage.
+	Off bool
 }
 
-// Check runs only the version command and reduces failures to safe issue codes.
+// Check verifies the executable, then runs each agent's report on its own so
+// one failing agent does not hide the others.
 func (p CCUsageProbe) Check(ctx context.Context) ParserStatus {
-	lookPath := p.LookPath
-	if lookPath == nil {
-		lookPath = exec.LookPath
+	if p.Off {
+		return ParserStatus{State: RunnerOff}
 	}
-	binary, err := lookPath("ccusage")
-	if err != nil {
-		return ParserStatus{}
+	if p.Runner == nil {
+		return ParserStatus{State: RunnerUnavailable}
 	}
-	run := p.Run
-	if run == nil {
-		run = runCommand
-	}
-	output, err := run(ctx, binary, "--version")
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return ParserStatus{Found: true, Issue: "timeout"}
+	if err := p.Runner.Verify(); err != nil {
+		if errors.Is(err, ccusage.ErrUnavailable) {
+			return ParserStatus{State: RunnerUnavailable}
 		}
-		return ParserStatus{Found: true, Issue: "execution_failed"}
+		return ParserStatus{State: RunnerUnpinned}
 	}
-	return ParserStatus{Found: true, Compatible: ccusage.ValidateVersion(output) == nil}
-}
-
-func runCommand(ctx context.Context, binary string, args ...string) ([]byte, error) {
-	command := exec.CommandContext(ctx, binary, args...)
-	output, err := command.Output()
-	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return nil, ctx.Err()
+	status := ParserStatus{State: RunnerReady}
+	for _, agent := range ccusage.Agents() {
+		report, err := p.Runner.Daily(ctx, agent)
+		result := AgentReport{Agent: agent, State: AgentValid, Days: len(report.Days)}
+		switch {
+		case err == nil:
+		case errors.Is(err, ccusage.ErrMalformed):
+			result.State = AgentMalformed
+		case errors.Is(err, ccusage.ErrTimeout), errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+			result.State = AgentTimedOut
+		default:
+			result.State = AgentFailed
+		}
+		status.Agents = append(status.Agents, result)
 	}
-	return output, err
+	return status
 }

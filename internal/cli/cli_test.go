@@ -170,7 +170,7 @@ func TestDoctorCommandUsesBoundedInjectedDiagnostics(t *testing.T) {
 		homeDir: func() (string, error) { return privateHome, nil },
 		getenv:  func(string) string { return "" },
 		timeout: time.Second,
-		diagnose: func(ctx context.Context, home, codexHome string) doctor.Report {
+		diagnose: func(ctx context.Context, home, codexHome string, _ doctor.ParserProbe) doctor.Report {
 			if _, ok := ctx.Deadline(); !ok {
 				t.Fatal("doctor context has no deadline")
 			}
@@ -199,7 +199,7 @@ func TestDoctorCommandRejectsRelativeCodexHome(t *testing.T) {
 		homeDir: func() (string, error) { return syntheticHome, nil },
 		getenv:  func(string) string { return "relative" },
 		timeout: time.Second,
-		diagnose: func(context.Context, string, string) doctor.Report {
+		diagnose: func(context.Context, string, string, doctor.ParserProbe) doctor.Report {
 			t.Fatal("diagnose should not run")
 			return doctor.Report{}
 		},
@@ -445,7 +445,7 @@ func TestCommandsUseTheBuiltInAPIAddressUnlessOverridden(t *testing.T) {
 					}
 					return &fakeAutosyncManager{}, nil
 				},
-				diagnose: func(context.Context, string, string) doctor.Report {
+				diagnose: func(context.Context, string, string, doctor.ParserProbe) doctor.Report {
 					return doctor.Report{GOOS: "darwin", GOARCH: "arm64"}
 				},
 			}
@@ -487,7 +487,7 @@ func TestDevelopmentBuildNamesTheMissingAPIAddress(t *testing.T) {
 			}
 			return nil
 		},
-		diagnose: func(context.Context, string, string) doctor.Report {
+		diagnose: func(context.Context, string, string, doctor.ParserProbe) doctor.Report {
 			return doctor.Report{GOOS: "darwin", GOARCH: "arm64"}
 		},
 	}

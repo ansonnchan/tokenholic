@@ -1,0 +1,65 @@
+{
+  "daily": [
+    {
+      "cacheCreationTokens": 200,
+      "cacheReadTokens": 100,
+      "date": "2026-01-02",
+      "inputTokens": 1300,
+      "modelBreakdowns": [
+        {
+          "cacheCreationTokens": 200,
+          "cacheReadTokens": 100,
+          "inputTokens": 1000,
+          "modelName": "model-synthetic-x",
+          "outputTokens": 500
+        },
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 0,
+          "inputTokens": 300,
+          "missingPricing": true,
+          "modelName": "model-synthetic-y",
+          "outputTokens": 40
+        }
+      ],
+      "modelsUsed": [
+        "model-synthetic-x",
+        "model-synthetic-y"
+      ],
+      "outputTokens": 540,
+      "totalTokens": 2220
+    },
+    {
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 50,
+      "date": "2026-01-03",
+      "inputTokens": 200,
+      "modelBreakdowns": [
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 50,
+          "inputTokens": 200,
+          "missingPricing": true,
+          "modelName": "model-synthetic-x",
+          "outputTokens": 20
+        }
+      ],
+      "modelsUsed": [
+        "model-synthetic-x"
+      ],
+      "outputTokens": 20,
+      "totalTokens": 275
+    }
+  ],
+  "totals": {
+    "cacheCreationTokens": 200,
+    "cacheReadTokens": 150,
+    "inputTokens": 1500,
+    "outputTokens": 560,
+    "totalTokens": 2495,
+    "unpricedModels": [
+      "model-synthetic-x",
+      "model-synthetic-y"
+    ]
+  }
+}
