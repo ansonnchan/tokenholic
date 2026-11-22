@@ -9,7 +9,6 @@ import (
 	"github.com/ansonnchan/tokenholic/internal/normalize"
 	"github.com/ansonnchan/tokenholic/internal/numfmt"
 	"github.com/ansonnchan/tokenholic/internal/share"
-	"github.com/ansonnchan/tokenholic/internal/store"
 	"github.com/ansonnchan/tokenholic/internal/tui/widget"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -417,19 +416,12 @@ func (m Model) claimChip(width int) []string {
 // openShare drafts a post from the period HOME is showing. The draft holds
 // the user's own totals and names no group.
 func (m Model) openShare() (tea.Model, tea.Cmd) {
-	g := m.theme.Glyphs
-	summary := summaryFor(m.dashboard, m.period)
-	total := summary.Tokens.Total()
-	if !m.loaded || total.Value == nil {
+	if !m.loaded {
 		return m, nil
 	}
-	usage := share.Usage{
-		Tokens:     strings.TrimPrefix(tokensText(g, total), g.AtLeast),
-		LowerBound: total.State == store.AvailabilityPartial || summary.APIEstimate.State == store.AvailabilityPartial,
-		Period:     sharePeriod(m.period),
-	}
-	if summary.APIEstimate.Value != nil {
-		usage.Estimate = strings.TrimPrefix(estimateText(g, summary.APIEstimate), g.AtLeast)
+	usage, ok := share.UsageFor(summaryFor(m.dashboard, m.period))
+	if !ok {
+		return m, nil
 	}
 	text := share.UsageText(usage)
 	m.help = false
@@ -438,19 +430,6 @@ func (m Model) openShare() (tea.Model, tea.Cmd) {
 	// the full-screen view closes.
 	m.sharedLink = m.share.link
 	return m, nil
-}
-
-func sharePeriod(period store.Period) string {
-	switch period {
-	case store.PeriodToday:
-		return "today"
-	case store.PeriodWeek:
-		return "this week"
-	case store.PeriodLast30Days:
-		return "in the last 30 days"
-	default:
-		return "so far"
-	}
 }
 
 func (m Model) updateShare(key tea.KeyMsg) (tea.Model, tea.Cmd) {

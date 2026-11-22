@@ -52,16 +52,7 @@ func periodChips(t theme.Theme, selected store.Period, width int) []string {
 
 // summaryFor picks the dashboard's summary for a period.
 func summaryFor(dashboard application.Dashboard, period store.Period) store.UsageSummary {
-	switch period {
-	case store.PeriodToday:
-		return dashboard.Today
-	case store.PeriodWeek:
-		return dashboard.Week
-	case store.PeriodLast30Days:
-		return dashboard.Last30Days
-	default:
-		return dashboard.AllTime
-	}
+	return dashboard.Summary(period)
 }
 
 // homeView is the personal dashboard: headline totals, the daily series, and

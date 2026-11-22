@@ -6,6 +6,9 @@ package share
 import (
 	"net/url"
 	"strings"
+
+	"github.com/ansonnchan/tokenholic/internal/numfmt"
+	"github.com/ansonnchan/tokenholic/internal/store"
 )
 
 // intentEndpoint is X's public compose page. It takes the draft in the query
@@ -65,4 +68,39 @@ func UsageText(usage Usage) string {
 	}
 	text.WriteString("\n\n>_ npx @tokenholic/cli")
 	return text.String()
+}
+
+// UsageFor describes one period's local totals for a draft. It reports false
+// when the period has no token total to state, because there is nothing to
+// post: an unknown total is never drafted as zero, and neither is a lower
+// bound of zero, which only means nothing could be counted. Either value
+// being a lower bound makes the whole draft say "at least".
+func UsageFor(summary store.UsageSummary) (Usage, bool) {
+	total := summary.Tokens.Total()
+	if total.Value == nil || *total.Value == 0 {
+		return Usage{}, false
+	}
+	usage := Usage{
+		Tokens:     numfmt.Tokens(*total.Value),
+		LowerBound: total.State == store.AvailabilityPartial || summary.APIEstimate.State == store.AvailabilityPartial,
+		Period:     PeriodPhrase(summary.Period),
+	}
+	if summary.APIEstimate.Value != nil {
+		usage.Estimate = numfmt.USD(*summary.APIEstimate.Value)
+	}
+	return usage, true
+}
+
+// PeriodPhrase is how a draft names a period at the end of its sentence.
+func PeriodPhrase(period store.Period) string {
+	switch period {
+	case store.PeriodToday:
+		return "today"
+	case store.PeriodWeek:
+		return "this week"
+	case store.PeriodLast30Days:
+		return "in the last 30 days"
+	default:
+		return "so far"
+	}
 }

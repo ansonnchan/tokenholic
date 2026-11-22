@@ -25,6 +25,21 @@ type Dashboard struct {
 	Diagnostics store.DiagnosticSnapshot
 }
 
+// Summary returns the totals for one period; an unrecognized period is
+// all-time.
+func (d Dashboard) Summary(period store.Period) store.UsageSummary {
+	switch period {
+	case store.PeriodToday:
+		return d.Today
+	case store.PeriodWeek:
+		return d.Week
+	case store.PeriodLast30Days:
+		return d.Last30Days
+	default:
+		return d.AllTime
+	}
+}
+
 // DailyDays is how many local dates Dashboard.Daily covers.
 const DailyDays = 30
 

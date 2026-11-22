@@ -102,6 +102,26 @@ func localTimezone() string {
 	return "UTC"
 }
 
+// loadLocalUsage scans local records and returns the dashboard's totals, for
+// commands that report usage without opening the TUI.
+func loadLocalUsage(ctx context.Context, home, codexHome string) (dashboard application.Dashboard, err error) {
+	database, service, err := openLocalApplication(ctx, home, codexHome)
+	if err != nil {
+		return application.Dashboard{}, err
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), localCloseTimeout)
+		defer cancel()
+		if closeErr := database.Close(closeCtx); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	if err := service.Refresh(ctx); err != nil {
+		return application.Dashboard{}, err
+	}
+	return service.Load(ctx)
+}
+
 func openLocalApplication(ctx context.Context, home, codexHome string) (*store.DB, *application.Service, error) {
 	path, err := store.DefaultPath()
 	if err != nil {

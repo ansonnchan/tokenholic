@@ -32,7 +32,7 @@ multiplayer owns authenticated group and leaderboard HTTP calls
 | `modelcatalog` | Versioned canonical model and API-equivalent pricing resolution | Source parsing |
 | `multiplayer` | Native group and global-board commands, leaderboard DTOs, and authenticated API calls | Credentials, server policy, aggregation, ranking, or terminal rendering |
 | `numfmt` | Compact token counts, estimate amounts, and shares as every surface displays them | Deciding how an unknown or unavailable value is shown |
-| `share` | Compose links for a user's own post, and the draft text | Sending anything, or calling a social network's API |
+| `share` | Compose links for a user's own post, and the draft text from stored totals | Sending anything, or calling a social network's API |
 | `store` | SQLite lifecycle, migrations, and local persistence | Source-specific behavior |
 | `sync` | Allowlisted absolute-bucket batches, retry, dry run, and acknowledgements | Raw local records or provider credentials |
 | `tui` | Keyboard-first presentation of committed local state | Collection, SQL, or synchronization logic |
