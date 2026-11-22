@@ -208,6 +208,25 @@ on two Macs. Steps 5 to 7 were left for later.
   nothing was lost or counted twice. It needs either a message that says the
   upload is continuing, more time for a first sync, or a faster batch on the
   server. Not fixed yet.
+- **Tagged and published.** `v0.2.0` was tagged on November 22, 2026, at the
+  owner's instruction and before step 5: the Windows manual run has not been
+  done. The release workflow ran for the first time and passed every job:
+  build, the Linux x64, Linux arm64, and Windows x64 smoke runs, the GitHub
+  release, and npm. All seven packages are on the registry at 0.2.0 with
+  provenance. The registry took a few minutes to show them; a check straight
+  after the workflow still saw 0.1.0.
+- **Checked after publishing, on macOS arm64 only,** in an empty temporary
+  home: `npx --yes @tokenholic/cli@0.2.0 --version` printed `0.2.0`; `doctor`
+  showed `API address: built in` and `ccusage: ready (pinned 20.0.51,
+  executable verified)`, so the pinned ccusage arrives through a real npm
+  install and passes its digest check; and against a home holding invented
+  records for the five ccusage agents, `show-data` printed their hand-computed
+  totals. Step 7 on Linux and Windows, and its two rows from step 4, are
+  still to do.
+- **The website's publish workflow can fail on a GitHub artifact error.** On
+  one merge the deploy step found no artifact right after uploading it, and
+  re-running the same run then found two. Starting a fresh run from the
+  Actions page, or `gh workflow run pages.yml --ref main`, worked.
 - **Not yet checked, added by M11:** any of the five agents read through
   ccusage on a machine that uses one. They were built against invented
   records only. On such a machine, `tokenholic doctor` should show the agent

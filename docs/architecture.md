@@ -1,7 +1,7 @@
 # Architecture
 
-Status: MVP and M6–M11 implemented. The hosted API runs `main`; the website is not published and the 0.2 client is not tagged or on npm (see `docs/release-validation.md`)
-Last updated: November 21, 2026
+Status: MVP and M6–M11 implemented and released as 0.2.0. The hosted API runs `main`, the website is published, and `@tokenholic/cli` 0.2.0 is on npm (see `docs/release-validation.md` for what the release run did and did not check)
+Last updated: November 22, 2026
 
 ## System goals
 
