@@ -1029,7 +1029,8 @@ The local, multiplayer, packaging, and autosync implementation is complete.
 The parity revamp, M6 to M10, and the long-tail agents, M11, are built and
 released: `@tokenholic/cli` 0.2.0 was tagged and published on November 22,
 2026, for macOS, Linux, and Windows on arm64 and x64. 0.3.0 followed the same
-day with `tokenholic demo` and the MIT license. The hosted API runs `main`,
+day with `tokenholic demo` and the MIT license, and 0.3.1 with the fix for a
+first sync that ran out of time. The hosted API runs `main`,
 because Render deploys every push, and the website is published.
 
 Released does not mean every check was run. What is still open:
