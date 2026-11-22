@@ -67,6 +67,11 @@ type Bucket struct {
 	// with neither is byte-identical to one sent before the fields existed.
 	ServiceTier string `json:"service_tier,omitempty"`
 	PromptBand  string `json:"prompt_band,omitempty"`
+	// Granularity is "day" when the bucket is a whole UTC day filed at its
+	// start: the absolute total of one agent, day, and model, replaced by a
+	// later revision as the day grows. It is omitted for a minute bucket,
+	// which is then byte-identical to one sent before the field existed.
+	Granularity string `json:"granularity,omitempty"`
 	Tokens      Tokens `json:"tokens"`
 	Revision    uint64 `json:"revision"`
 }
@@ -191,6 +196,10 @@ func (e Envelope) Validate() error {
 	if !normalize.ServiceTier(bucket.ServiceTier).Valid() || !normalize.PromptBand(bucket.PromptBand).Valid() {
 		return errors.New("bucket pricing evidence is invalid")
 	}
+	if err := normalize.ValidateGranularity(normalize.Granularity(bucket.Granularity), normalize.Source(bucket.Source),
+		bucket.Start, bucket.ServiceTier != "" || bucket.PromptBand != ""); err != nil {
+		return fmt.Errorf("bucket granularity: %w", err)
+	}
 	tokens := bucket.Tokens
 	for _, value := range []Value{
 		tokens.InputUncached, tokens.InputCacheRead, tokens.InputCacheWrite, tokens.InputCacheWrite5m,
@@ -254,7 +263,8 @@ func CanonicalEnvelope(envelope Envelope) ([]byte, [32]byte, error) {
 
 func validSourceSurface(source, surface string) bool {
 	return source == "claude" && (surface == "cli" || surface == "desktop_code" || surface == "desktop_agent" || surface == "desktop_cowork") ||
-		source == "codex" && (surface == "cli" || surface == "desktop" || surface == "shared_local")
+		source == "codex" && (surface == "cli" || surface == "desktop" || surface == "shared_local") ||
+		normalize.Source(source).DayLevel() && surface == "cli"
 }
 
 func validateValue(value Value) error {
@@ -283,6 +293,10 @@ func bucketKey(bucket Bucket) string {
 	// key and must stay in step.
 	if bucket.ServiceTier != "" || bucket.PromptBand != "" {
 		parts = append(parts, "pricing-evidence", bucket.ServiceTier, bucket.PromptBand)
+	}
+	// Granularity joins the identity the same way: only when present.
+	if bucket.Granularity != "" {
+		parts = append(parts, "granularity", bucket.Granularity)
 	}
 	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(digest[:])

@@ -227,3 +227,97 @@ func (f *fakeRepository) ApplyUsageBuckets(_ context.Context, _ serverauth.Princ
 	}
 	return acknowledgements, nil
 }
+
+// dayLevelBatch builds one bucket through the local store, as a client does.
+func dayLevelBatch(t *testing.T, source normalize.Source, granularity normalize.Granularity, start time.Time) (protocol.Batch, error) {
+	t.Helper()
+	tokens := uint64(1_000_000)
+	unavailable := store.AggregateValue{State: store.AvailabilityUnavailable}
+	bucket := store.UsageBucket{
+		Start: start, Source: source, Surface: "cli", ObservedModelID: "model-a", ModelEvidence: "reported",
+		Measurement: "reported", NormalizationVersion: "1", Granularity: granularity,
+		Tokens: store.TokenBreakdown{
+			InputUncached:  store.AggregateValue{Value: &tokens, State: store.AvailabilityComplete},
+			InputCacheRead: unavailable, InputCacheWrite: unavailable, InputCacheWrite5m: unavailable,
+			InputCacheWrite1h: unavailable, Output: unavailable, ReasoningOutput: unavailable,
+		},
+		Preview:  store.Preview{Resolution: "unknown", APIEstimate: unavailable},
+		Revision: 1,
+	}
+	database, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close(context.Background()) })
+	if _, err := database.ApplyBucketRevisions(t.Context(), []store.UsageBucket{bucket}); err != nil {
+		return protocol.Batch{}, err
+	}
+	records, err := database.PendingOutbox(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, _, err := protocol.BuildBatch(records)
+	return batch, err
+}
+
+func TestApplyAdmitsDayLevelSourcesAsDaysOnly(t *testing.T) {
+	day := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	for _, source := range normalize.DayLevelSources() {
+		t.Run(string(source), func(t *testing.T) {
+			service, repository := testService(t)
+			batch, err := dayLevelBatch(t, source, normalize.GranularityDay, day)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.Apply(t.Context(), "credential", batch); err != nil {
+				t.Fatalf("Apply() = %v", err)
+			}
+			if !repository.called || len(repository.buckets) != 1 || repository.buckets[0].Envelope.Bucket.Granularity != "day" {
+				t.Fatalf("stored buckets = %+v", repository.buckets)
+			}
+			// The server prices a day from its own catalog like any bucket.
+			if derived := repository.buckets[0].Derived; derived.PricingRevision == "" || derived.PricedTokens+derived.UnpricedTokens != 1_000_000 {
+				t.Fatalf("derived = %+v", derived)
+			}
+		})
+	}
+
+	// A hand-built request cannot smuggle a day in for a native source, or a
+	// finer value in for a day-level one: the client store refuses to build
+	// either, and the server refuses to accept either.
+	valid, err := dayLevelBatch(t, normalize.SourceGemini, normalize.GranularityDay, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*protocol.Bucket){
+		"a day of Claude":            func(bucket *protocol.Bucket) { bucket.Source = "claude" },
+		"a day of Codex":             func(bucket *protocol.Bucket) { bucket.Source = "codex" },
+		"a minute of Gemini":         func(bucket *protocol.Bucket) { bucket.Granularity = "" },
+		"a day filed inside the day": func(bucket *protocol.Bucket) { bucket.Start = bucket.Start.Add(time.Hour) },
+		"an unknown source":          func(bucket *protocol.Bucket) { bucket.Source = "cursor" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, repository := testService(t)
+			batch := protocol.Batch{SchemaVersion: valid.SchemaVersion, Buckets: []protocol.Envelope{valid.Buckets[0]}}
+			mutate(&batch.Buckets[0].Bucket)
+			if _, err := service.Apply(t.Context(), "credential", batch); !errors.Is(err, ErrInvalidBatch) {
+				t.Fatalf("Apply() error = %v, want ErrInvalidBatch", err)
+			}
+			if repository.called {
+				t.Fatal("repository received an invalid batch")
+			}
+		})
+	}
+	for name, build := range map[string]func() (protocol.Batch, error){
+		"a day of Claude": func() (protocol.Batch, error) {
+			return dayLevelBatch(t, normalize.SourceClaude, normalize.GranularityDay, day)
+		},
+		"a minute of Gemini": func() (protocol.Batch, error) {
+			return dayLevelBatch(t, normalize.SourceGemini, normalize.GranularityMinute, day)
+		},
+	} {
+		if _, err := build(); err == nil {
+			t.Fatalf("the client store built %s", name)
+		}
+	}
+}
