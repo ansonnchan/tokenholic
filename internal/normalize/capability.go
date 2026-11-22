@@ -40,6 +40,11 @@ const (
 	HealthDegraded HealthStatus = "degraded"
 	// HealthError means discovery failed for another reason.
 	HealthError HealthStatus = "error"
+	// HealthUnavailable means the source's records exist but this install
+	// cannot read them, for a reason given as a warning code. It is how a
+	// day-level source is reported when the program that reads it is
+	// absent or turned off. Its usage is unknown, never zero.
+	HealthUnavailable HealthStatus = "unavailable"
 )
 
 // SourceHealth is the redaction-safe result of discovering one source root.
