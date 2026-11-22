@@ -1,14 +1,16 @@
 # Release artifacts
 
-tokenholic releases checksummed native archives for macOS and Linux, each on
-arm64 and x64, named `tokenholic_<version>_<os>_<cpu>.tar.gz`. Release builds
+tokenholic releases checksummed native archives for macOS, Linux, and Windows,
+each on arm64 and x64, named `tokenholic_<version>_<os>_<cpu>.tar.gz`. Windows
+archives use the same format; Windows 10 and later unpack them with the
+built-in `tar`. Release builds
 disable CGO, remove local filesystem paths and VCS metadata, inject the
 semantic version into `tokenholic --version`, and verify each binary before
 packaging it: its format and CPU, and for Linux that it is statically linked,
 so the same file runs on glibc and musl systems.
 
-Each archive contains the native `tokenholic` executable and
-`ccusage.lock.json`. The lock file is the pinned external-parser contract; the
+Each archive contains the native `tokenholic` executable (`tokenholic.exe` on
+Windows) and `ccusage.lock.json`. The lock file is the pinned external-parser contract; the
 application never downloads or replaces the optional ccusage executable at
 runtime. Keeping the contract beside the binary makes the parser requirement
 auditable without expanding the release's trust boundary.
@@ -29,15 +31,17 @@ workflow, in four steps that each wait for the one before:
 
 1. **Build.** A macOS runner cross-compiles every archive and uploads them as
    workflow artifacts. It can execute only the macOS binary for its own CPU.
-2. **Smoke.** A Linux x64 runner and a Linux arm64 runner each download the
-   artifacts, check their archive against `SHA256SUMS`, and confirm the binary
-   starts and reports the tagged version. A failure here stops the release
-   before anything is public.
+2. **Smoke.** Linux x64, Linux arm64, and Windows x64 runners each download
+   the artifacts, check their archive against `SHA256SUMS`, and confirm the
+   binary starts and reports the tagged version. A failure here stops the
+   release before anything is public. Windows arm64 has no runner; it is
+   covered by the manual run in [release validation](./release-validation.md).
 3. **Release.** The archives and `SHA256SUMS` are attached to the matching
    GitHub release.
 4. **npm.** The workflow verifies the checksums again, prepares exact-version
    platform packages, tests the npm workspace, and publishes every
-   `@tokenholic/<os>-<cpu>` package and finally `@tokenholic/cli`.
+   `@tokenholic/<os>-<cpu>` package and finally `@tokenholic/cli`. The
+   Windows packages are named `win32`, as Node and npm name that system.
 
 Configure the GitHub Actions `NPM_TOKEN` secret with publish access to the
 `@tokenholic` scope before creating a release tag. The publisher is

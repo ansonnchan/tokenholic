@@ -34,7 +34,7 @@ The native Go command currently provides:
 - a keyboard-first Overview, Sources, Models, Settings, and private Groups TUI with manual collection;
 - GitHub device-flow `claim`/`login` and revoking `logout` commands backed by the OS credential vault;
 - bounded `sync` and offline exact-payload `show-data`/`sync --dry-run` commands with durable acknowledgements;
-- opt-in hourly autosync on macOS (launchd) and Linux (a systemd user timer) with a stable binary, overlap lock, private logs, status, and complete removal;
+- opt-in hourly autosync on macOS (launchd), Linux (a systemd user timer), and Windows (Task Scheduler) with a stable binary, overlap lock, private logs, status, and complete removal;
 - one authenticated account usage row across active devices with independent revocation and freshness;
 - private groups with owner/member roles, expiring limited-use invites, and membership-authorized reads;
 - timezone-aware group leaderboards for total tokens and API-equivalent estimates, with cost coverage, rank trends, and freshness;
@@ -46,16 +46,16 @@ Model names are not allowlisted. A previously unseen, non-empty observed identif
 ## Requirements
 
 - Go 1.25 or newer.
-- macOS or Linux for the currently implemented discovery paths. On Linux, signing in needs a Secret Service keyring and autosync needs a systemd user session; local use needs neither.
+- macOS, Linux, or Windows 10 or later. On Linux, signing in needs a Secret Service keyring and autosync needs a systemd user session; local use needs neither. Windows support is verified in CI and has not yet had its manual run on a real machine.
 - PostgreSQL 18 only when exercising the hosted schema integration tests.
 - ccusage 20.0.51 only when manually checking the optional compatibility probe; native collection does not require it.
 
-The pnpm workspace owns npm distribution tooling; it is not needed to build the native command from source. Checksummed macOS and Linux archives, each for arm64 and x64, are produced by the release workflow.
+The pnpm workspace owns npm distribution tooling; it is not needed to build the native command from source. Checksummed macOS, Linux, and Windows archives, each for arm64 and x64, are produced by the release workflow.
 
 Tagged releases publish the same native binaries through `npx @tokenholic/cli`.
 The launcher installs only the optional package matching the current system:
-macOS or Linux, on arm64 or x64. Other platforms fail with a supported-target
-message.
+macOS, Linux, or Windows, on arm64 or x64. Other platforms fail with a
+supported-target message.
 
 ## Quickstart
 

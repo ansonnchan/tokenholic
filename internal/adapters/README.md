@@ -5,9 +5,9 @@ Adapters are the only packages that understand provider-owned storage layouts an
 ## Discovery boundary
 
 `DefaultRoots` returns the evidence roots for the operating system tokenholic
-runs on. The layouts themselves, `MacRoots` and `LinuxRoots`, are ordinary
-functions that are compiled and tested on every system; only the choice
-between them is build-tagged. An operating system with no confirmed location
+runs on. The layouts themselves, `MacRoots`, `LinuxRoots`, and
+`WindowsRoots`, are ordinary functions that are compiled and tested on every
+system; only the choice between them is build-tagged. An operating system with no confirmed location
 gets no roots, and `tokenholic doctor` says the platform is unsupported.
 
 Every platform reads the same five kinds of evidence:
@@ -47,9 +47,25 @@ Linux:
 | Claude Desktop (beta) | `$XDG_CONFIG_HOME/Claude`, by default `~/.config/Claude`, in `claude-code-sessions` and `local-agent-mode-sessions` | Derived, not stated outright. The Linux build keeps its configuration file in `~/.config/Claude` [4], the same folder that holds both session directories on macOS and Windows [5], and the third-party build documents the same layout under `~/.config/Claude-3p` on Linux [6]. Following `XDG_CONFIG_HOME` is Electron's rule for an application's data folder [7]. Not yet observed on a real Linux install |
 | Codex | `~/.codex`, or `CODEX_HOME` | Source and documentation: the home is `.codex` under the home directory on every system, with no XDG handling [8] |
 
+Windows:
+
+| Evidence | Location | Basis |
+| --- | --- | --- |
+| Claude Code CLI | `%USERPROFILE%\.claude\projects` | Documented: `~/.claude` is `%USERPROFILE%\.claude` on Windows [1] |
+| Claude Desktop | `%APPDATA%\Claude`, in `claude-code-sessions` and `local-agent-mode-sessions` | Documented as the data folder that holds `local-agent-mode-sessions` [5] |
+| Claude Desktop, packaged install | `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude`, same two directories; optional | Documented as the second place the same folder can be, with the instruction to check both [5] |
+| Codex | `%USERPROFILE%\.codex`, or `CODEX_HOME` | Documented, and shared by the Codex app and the native CLI [10] |
+
+`%APPDATA%` and `%LOCALAPPDATA%` fall back to `AppData\Roaming` and
+`AppData\Local` under the user profile when unset or relative. None of the
+Windows locations has been observed on a real install yet; the manual run in
+[release validation](../../docs/release-validation.md) is where that happens.
+A coding agent run inside WSL keeps its records in the Linux home, which the
+Windows build does not read.
+
 A default Codex home beside a separate `CODEX_HOME` is attributed to Codex
-Desktop on macOS. On Linux nothing first-party says the desktop app writes
-there, so it stays shared and unattributed.
+Desktop on macOS and Windows. On Linux nothing first-party says the desktop
+app writes there, so it stays shared and unattributed.
 
 Two documented overrides are not honored yet: Claude Code's
 `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME` [9]. A user who sets
@@ -66,6 +82,7 @@ Sources, retrieved 2026-11-21:
 7. <https://www.electronjs.org/docs/latest/api/app> (`app.getPath`)
 8. <https://github.com/openai/codex/blob/main/codex-rs/utils/home-dir/src/lib.rs> and <https://developers.openai.com/codex/environment-variables>
 9. <https://code.claude.com/docs/en/env-vars>
+10. <https://developers.openai.com/codex/app/windows>
 
 ## Native JSONL parsers
 

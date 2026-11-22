@@ -1,6 +1,6 @@
 # tokenholic roadmap
 
-Status: MVP complete; product-parity revamp in progress (M6 to M9 built except one blocked item, Linux support built, nothing from M6 on deployed; Windows, the release, and M11 planned)
+Status: MVP complete; product-parity revamp in progress (M6 to M9 built except one blocked item, Linux and Windows support built, nothing from M6 on deployed; the release and M11 planned)
 Last updated: November 21, 2026
 
 ## Product definition
@@ -813,11 +813,24 @@ Goal: make tokenholic discoverable and shareable without a browser dashboard.
     checked: a desktop Linux machine with a keyring and real agent records.
   - Depends on: TKH-083.
 
-- [ ] **TKH-101: Support Windows** (`feat/windows-support`)
+- [x] **TKH-101: Support Windows** (`feat/windows-support`)
   - Discovery paths, Windows Credential Manager, ACL-based private files, a
     Windows-compatible autosync lock, Task Scheduler autosync, windows
     x64/arm64 artifacts and npm packages, and a Windows CI runner.
   - Acceptance includes one manual run on a real Windows machine or VM.
+  - Built and verified on a Windows CI runner, including registering the
+    generated task with the real Task Scheduler. **The manual run has not
+    been done.** Its steps are in `docs/release-validation.md` and it stays
+    open under TKH-102.
+  - Not provable in CI and therefore unknown until that run: how the TUI
+    renders in a real Windows terminal, sign-in through Credential Manager,
+    whether a console window flashes when the scheduled task starts, and
+    whether each tool's records are where its documentation says.
+  - tokenholic's own files live under `%LOCALAPPDATA%`, not the roaming
+    folder, because the database and its upload state belong to one device.
+  - Known limit: a group created from Windows is created in UTC, because
+    the client cannot yet translate a Windows timezone name. Windows arm64
+    is built but has no CI runner.
   - Depends on: TKH-100.
 
 - [ ] **TKH-102: Release and validate** (`chore/release-0.2`)
@@ -957,9 +970,10 @@ fixture from. M8, the TUI revamp, is complete: the design system, the
 personal views, the board view, and in-TUI onboarding, claim, and sharing.
 M9, the website and sharing, is built: the static pages, the API's origin
 allowlist, share pages and PNG cards, and `tokenholic share`. None of it is
-published yet. Linux support is built: discovery, a systemd user timer,
-archives, npm packages, and CI. The remaining parity revamp continues in
-order: Windows, and a validated release, which must also give builds a default API
+published yet. Linux and Windows support are built: discovery, credentials,
+private files, the sync lock, autosync through each system's scheduler,
+archives, npm packages, and CI on all three systems. Windows still needs its
+one manual run. The remaining parity revamp is a validated release, which must also give builds a default API
 address before a new user can claim without configuration, publish the
 website, tell the API its address, and check a shared link against a card
 validator. The

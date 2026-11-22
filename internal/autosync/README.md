@@ -16,6 +16,7 @@ files go, what they contain, and which commands load, inspect, and unload them.
 | --- | --- | --- |
 | macOS | `launchd` agent in the user's GUI domain | `~/Library/LaunchAgents/io.tokenholic.autosync.plist` |
 | Linux | systemd user timer | `tokenholic-autosync.service` and `tokenholic-autosync.timer` in `$XDG_CONFIG_HOME/systemd/user` |
+| Windows | Task Scheduler task `tokenholic-autosync` | `task.xml` and `job.json` in `%LOCALAPPDATA%\tokenholic\autosync` |
 | anything else | none | Every command reports that autosync is not supported |
 
 Each scheduler is ordinary Go that is compiled and tested on every system, so
@@ -24,15 +25,16 @@ its generated files are checked wherever the suite runs. Only
 
 ## Files it owns
 
-| | macOS | Linux |
-| --- | --- | --- |
-| Stable executable | `~/Library/Application Support/tokenholic/bin/tokenholic` | `$XDG_DATA_HOME/tokenholic/bin/tokenholic` |
-| Logs | `~/Library/Logs/tokenholic/` | `$XDG_STATE_HOME/tokenholic/` |
+| | macOS | Linux | Windows |
+| --- | --- | --- | --- |
+| Stable executable | `~/Library/Application Support/tokenholic/bin/tokenholic` | `$XDG_DATA_HOME/tokenholic/bin/tokenholic` | `%LOCALAPPDATA%\tokenholic\autosync\tokenholic.exe` |
+| Logs | `~/Library/Logs/tokenholic/` | `$XDG_STATE_HOME/tokenholic/` | the same `autosync` folder |
 
 The XDG variables fall back to `~/.config`, `~/.local/share`, and
 `~/.local/state` when unset, empty, or relative. Directories are owner-only
 and the two log files are created owner-only before the scheduler first
-writes to them. Disabling removes these files and the definition files, then
+writes to them. "Owner-only" is the permission bits on Unix and a protected
+single-user access-control list on Windows; `internal/privatefs` owns both. Disabling removes these files and the definition files, then
 any directory that is left empty. It never touches the usage database or the
 stored sign-in.
 
@@ -45,6 +47,27 @@ scheduler does not inherit a shell's exports, and without the last one the
 job would look for the database and the lock somewhere else. Nothing else
 from the caller's environment is copied, and no credential is ever written:
 the job reads the sign-in from the OS credential store like any other run.
+
+## Windows specifics
+
+- The task runs as the signed-in user with an interactive token, only while
+  they are signed in, at least privilege. No password is stored with it.
+  Triggers are sign-in, after a one-minute delay, and every hour from the
+  moment it was enabled. Enabling also starts it once.
+- Task Scheduler starts a bare program: it cannot set an environment or
+  redirect output. The task therefore runs `tokenholic autosync run
+  <job.json>`. The job file holds the allowlisted environment and the two
+  log paths, and `LoadScheduledJob` refuses any other variable, so the file
+  cannot steer the process. The command is not offered to users.
+- Everything autosync owns is in one private folder, so disabling removes
+  the folder. The task is registered at the scheduler's root so that
+  deleting it leaves no empty task folder behind.
+- `schtasks` prints messages in the system's language, so only its exit code
+  is read.
+- A scheduled console program can show a console window when it starts. The
+  job gives the console up immediately, but the window may flash first.
+  Whether it does is part of the manual run in
+  [release validation](../../docs/release-validation.md).
 
 ## Linux specifics
 
@@ -66,7 +89,9 @@ the job reads the sign-in from the OS credential store like any other run.
 ## The lock
 
 Manual and scheduled synchronization take the same non-blocking exclusive
-lock, `tokenholic/sync.lock` beside the usage database in the user
-configuration directory, so two never run at once. The second one reports
-that a sync is already running. On macOS the lock also covers the capitalized
-directory that releases before the rename used.
+lock, `tokenholic/sync.lock` beside the usage database, so two never run at
+once. The second one reports that a sync is already running. The lock is
+`flock` on Unix and `LockFileEx` on Windows. Both belong to the open file,
+and the operating system drops them when the holder exits, however it exits,
+so a crashed sync never blocks the next. On macOS the lock also covers the
+capitalized directory that releases before the rename used.

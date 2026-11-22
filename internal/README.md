@@ -26,7 +26,7 @@ multiplayer owns authenticated group and leaderboard HTTP calls
 | `normalize` | Provider-neutral records, capability vocabulary, and validation | Filesystem discovery or provider parsing |
 | `collect` | Application scan orchestration, deduplication, and cumulative reduction | SQL implementation or uploads |
 | `application` | Committed dashboard queries and manual refresh sequencing | Source parsing, SQL, or terminal rendering |
-| `autosync` | Opt-in hourly schedule through the system scheduler (launchd on macOS, a systemd user timer on Linux) and the cross-command synchronization lock | Collection, uploads, credentials, or deployment |
+| `autosync` | Opt-in hourly schedule through the system scheduler (launchd on macOS, a systemd user timer on Linux, Task Scheduler on Windows) and the cross-command synchronization lock | Collection, uploads, credentials, or deployment |
 | `doctor` | Redacted source, parser, and storage diagnostics | Usage collection or repair |
 | `fixturecheck` | Privacy validation for committed fixtures | Runtime validation of user data |
 | `modelcatalog` | Versioned canonical model and API-equivalent pricing resolution | Source parsing |
@@ -34,6 +34,7 @@ multiplayer owns authenticated group and leaderboard HTTP calls
 | `numfmt` | Compact token counts, estimate amounts, and shares as every surface displays them | Deciding how an unknown or unavailable value is shown |
 | `share` | Compose links for a user's own post, and the draft text from stored totals | Sending anything, or calling a social network's API |
 | `store` | SQLite lifecycle, migrations, and local persistence | Source-specific behavior |
+| `privatefs` | Owner-only files and directories on every system, and the per-user application directory | What is stored in them |
 | `sync` | Allowlisted absolute-bucket batches, retry, dry run, and acknowledgements | Raw local records or provider credentials |
 | `tui` | Keyboard-first presentation of committed local state | Collection, SQL, or synchronization logic |
 | `tui/theme` | Palette, text styles, and the glyph set with its ASCII fallbacks | Layout or content |

@@ -8,7 +8,7 @@ does not participate in local collection builds.
 
 - Go 1.25 or newer.
 - Node.js 20 or newer plus the repository-pinned pnpm through Corepack, only for npm distribution work.
-- macOS or Linux to exercise the implemented default discovery roots.
+- macOS, Linux, or Windows to exercise the implemented default discovery roots.
 - Git for the repository hygiene check.
 - Docker or another PostgreSQL 18 installation only for hosted schema tests.
 
@@ -24,7 +24,7 @@ make test        # standard Go tests
 make test-race   # race-enabled Go tests
 make build       # build every Go package
 make prices      # regenerate the vendored price snapshot from its pin (network)
-make release VERSION=1.2.3 # reproducible macOS and Linux archives
+make release VERSION=1.2.3 # reproducible macOS, Linux, and Windows archives
 pnpm check                 # npm metadata and launcher validation
 pnpm test                  # npm preparation, launcher, and website tests
 ```
@@ -92,7 +92,7 @@ session only after the server confirms deletion. It does not erase local SQLite
 usage or provider evidence.
 
 Autosync is opt-in and uses the system's per-user scheduler: a launch agent on
-macOS and a systemd user timer on Linux. Enabling it copies the current native
+macOS, a systemd user timer on Linux, and a Task Scheduler task on Windows. Enabling it copies the current native
 executable to a stable private location, so use a built release binary rather
 than `go run` for a lasting schedule. Re-enable it after an upgrade to refresh
 that copy. Disabling removes the schedule, copy, and logs without deleting
@@ -108,6 +108,12 @@ another system, run the suite in a container:
 ```sh
 docker run --rm -v "$PWD":/src:ro -w /src golang:1.25 go test ./...
 ```
+
+Windows has no such shortcut. `GOOS=windows go vet ./...` catches compile
+errors from any system; behavior is proven by the Windows CI job and by the
+manual run in [release validation](./release-validation.md). On Windows, run
+the Makefile from Git Bash and point `GOCACHE` and `GOPATH` at Windows paths,
+as the CI job does.
 
 An authenticated client can inspect the account-level aggregation endpoint:
 
@@ -149,9 +155,12 @@ For stacked work, open and report each parent PR before starting its child branc
 
 ## CI
 
-GitHub Actions runs `make check` and a release build on macOS and Linux,
+GitHub Actions runs `make check` and a release build on macOS, Linux, and
+Windows,
 validates the npm release workspace, builds the production API container, and
 runs the hosted schema integration test against PostgreSQL 18 on Linux. On
 Linux the autosync tests also ask `systemd-analyze` to parse the generated
-units. Go jobs use the version declared in `go.mod`. A local clean checkout should pass the same applicable commands before
+units, and on Windows they register the generated task with the real Task
+Scheduler and remove it. That last test changes system state, so it runs
+only where `TOKENHOLIC_TEST_TASK_SCHEDULER` is set, as CI sets it. Go jobs use the version declared in `go.mod`. A local clean checkout should pass the same applicable commands before
 a PR is marked ready.
