@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"debug/elf"
 	"debug/macho"
+	"debug/pe"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -25,7 +26,6 @@ import (
 )
 
 const (
-	binaryName = "tokenholic"
 	lockName   = "ccusage.lock.json"
 	versionKey = "github.com/ansonnchan/tokenholic/internal/cli.version"
 )
@@ -47,9 +47,19 @@ var targets = []target{
 	{goOS: "darwin", goArch: "amd64", archiveArch: "x64", verify: machO(macho.CpuAmd64)},
 	{goOS: "linux", goArch: "arm64", archiveArch: "arm64", verify: staticELF(elf.EM_AARCH64)},
 	{goOS: "linux", goArch: "amd64", archiveArch: "x64", verify: staticELF(elf.EM_X86_64)},
+	{goOS: "windows", goArch: "arm64", archiveArch: "arm64", verify: portableExecutable(pe.IMAGE_FILE_MACHINE_ARM64)},
+	{goOS: "windows", goArch: "amd64", archiveArch: "x64", verify: portableExecutable(pe.IMAGE_FILE_MACHINE_AMD64)},
 }
 
 func (t target) String() string { return t.goOS + "/" + t.goArch }
+
+// binaryName is the executable's name inside the archive and the npm package.
+func (t target) binaryName() string {
+	if t.goOS == "windows" {
+		return "tokenholic.exe"
+	}
+	return "tokenholic"
+}
 
 func (t target) archiveName(version string) string {
 	return fmt.Sprintf("tokenholic_%s_%s_%s.tar.gz", version, t.goOS, t.archiveArch)
@@ -120,7 +130,7 @@ func run(args []string, output io.Writer) error {
 		archiveName := target.archiveName(*version)
 		archivePath := filepath.Join(*outputDir, archiveName)
 		entries := []archiveEntry{
-			{name: binaryName, mode: 0o755, data: binary},
+			{name: target.binaryName(), mode: 0o755, data: binary},
 			{name: lockName, mode: 0o644, data: lock},
 		}
 		if err := writeArchive(archivePath, entries); err != nil {
@@ -203,6 +213,20 @@ func staticELF(want elf.Machine) func(string) error {
 			if program.Type == elf.PT_INTERP || program.Type == elf.PT_DYNAMIC {
 				return errors.New("release binary is dynamically linked")
 			}
+		}
+		return nil
+	}
+}
+
+func portableExecutable(want uint16) func(string) error {
+	return func(path string) error {
+		file, err := pe.Open(path)
+		if err != nil {
+			return fmt.Errorf("inspect release binary: %w", err)
+		}
+		defer file.Close()
+		if file.Machine != want {
+			return fmt.Errorf("release binary machine type is %#x, want %#x", file.Machine, want)
 		}
 		return nil
 	}
