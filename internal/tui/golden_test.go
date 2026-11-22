@@ -66,6 +66,12 @@ var screens = []screen{
 	{name: "claim_failed", dashboard: sampleDashboard, account: func() *fakeAccount {
 		return &fakeAccount{completeErr: errors.New("synthetic: expired")}
 	}, keys: []string{"c", "enter"}},
+	{name: "claim_no_store", dashboard: sampleDashboard, account: func() *fakeAccount {
+		return &fakeAccount{beginErr: ErrNoCredentialStore}
+	}, keys: []string{"c", "enter"}},
+	{name: "claim_start_failed", dashboard: sampleDashboard, account: func() *fakeAccount {
+		return &fakeAccount{beginErr: errors.New("synthetic: unreachable")}
+	}, keys: []string{"c", "enter"}},
 	{name: "claim_upload_failed", dashboard: sampleDashboard, account: func() *fakeAccount {
 		return &fakeAccount{syncErr: ErrUpgradeRequired}
 	}, keys: []string{"c", "enter"}},
