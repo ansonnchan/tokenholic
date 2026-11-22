@@ -65,14 +65,21 @@ type Multiplayer interface {
 // Config controls environment-sensitive shell behavior.
 type Config struct {
 	// NoColor disables all styling; ASCII swaps glyphs for their fallbacks;
-	// Background overrides light or dark detection. They are independent.
+	// Mode is the look to start in, light unless set. They are independent.
 	NoColor     bool
 	ASCII       bool
-	Background  theme.Background
+	Mode        theme.Mode
 	Multiplayer Multiplayer
-	// Theme replaces the detected theme. Run sets it from the output; tests
-	// and previews set it to a fixed one.
+	// Theme is the theme to start with. Run builds it from the output and
+	// Mode; tests and previews set a fixed one.
 	Theme *theme.Theme
+	// Themes builds the theme for a mode, which is what lets the user switch
+	// while the TUI runs. Run sets it from the output; nil means the look
+	// cannot change.
+	Themes func(theme.Mode) theme.Theme
+	// SaveMode remembers a switch for the next run. nil means a switch lasts
+	// until the TUI quits.
+	SaveMode func(theme.Mode) error
 	// Clipboard copies text for the user. Run sets it to an OSC 52 write to
 	// the output; nil means copying is unavailable.
 	Clipboard func(string)
@@ -90,6 +97,10 @@ type Model struct {
 	app         Application
 	multiplayer Multiplayer
 	theme       theme.Theme
+	themes      func(theme.Mode) theme.Theme
+	saveMode    func(theme.Mode) error
+	// modeUnsaved is true when the last switch could not be remembered.
+	modeUnsaved bool
 	clipboard   func(string)
 	account     Account
 	openURL     func(string) error
@@ -180,6 +191,8 @@ func NewModel(ctx context.Context, app Application, config Config) Model {
 		app:          app,
 		multiplayer:  config.Multiplayer,
 		theme:        tokens,
+		themes:       config.Themes,
+		saveMode:     config.SaveMode,
 		clipboard:    config.Clipboard,
 		account:      config.Account,
 		openURL:      config.OpenURL,
@@ -218,6 +231,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.updateKey(message)
+	case modeSaved:
+		m.modeUnsaved = message.err != nil
+		return m, nil
 	case spinnerTick:
 		if !m.busy() {
 			m.ticking = false
@@ -351,6 +367,8 @@ func (m Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.openShare()
 		}
 		return m, nil
+	case "t":
+		return m.switchTheme()
 	case "j", "down":
 		return m.move(1)
 	case "k", "up":
@@ -447,8 +465,13 @@ func Run(ctx context.Context, app Application, input io.Reader, output io.Writer
 	if input == nil || output == nil {
 		return errors.New("run TUI: input and output are required")
 	}
+	if config.Themes == nil {
+		config.Themes = func(mode theme.Mode) theme.Theme {
+			return theme.New(output, theme.Options{NoColor: config.NoColor, ASCII: config.ASCII, Mode: mode})
+		}
+	}
 	if config.Theme == nil {
-		tokens := theme.New(output, theme.Options{NoColor: config.NoColor, ASCII: config.ASCII, Background: config.Background})
+		tokens := config.Themes(config.Mode)
 		config.Theme = &tokens
 	}
 	if config.Clipboard == nil && !config.NoColor {
@@ -469,6 +492,24 @@ func Run(ctx context.Context, app Application, input io.Reader, output io.Writer
 	}
 	writeSharedLink(output, final)
 	return nil
+}
+
+// modeSaved reports whether a theme switch was remembered.
+type modeSaved struct{ err error }
+
+// switchTheme moves between the dark and light look and asks for the choice
+// to be remembered. An output that takes no color has no look to switch.
+func (m Model) switchTheme() (tea.Model, tea.Cmd) {
+	if m.themes == nil || !m.theme.Color {
+		return m, nil
+	}
+	mode := m.theme.Mode.Other()
+	m.theme = m.themes(mode)
+	if m.saveMode == nil {
+		return m, nil
+	}
+	save := m.saveMode
+	return m, func() tea.Msg { return modeSaved{err: save(mode)} }
 }
 
 // writeSharedLink prints the last share link once the full-screen view is

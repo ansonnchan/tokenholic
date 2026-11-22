@@ -10,6 +10,7 @@
 │ o       join or leave the global board                                               │
 │ s       draft a post of your totals to share                                         │
 │ r       reload                                                                       │
+│ t       switch between the dark and light theme                                      │
 │ ?       close help                                                                   │
 │ q       quit                                                                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────╯

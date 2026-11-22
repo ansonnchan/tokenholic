@@ -29,9 +29,8 @@
 │ DATABASE     schema 7 of 7 · integrity ok    │
 ╰──────────────────────────────────────────────╯
 ╭─ DISPLAY ────────────────────────────────────╮
-│ TOKENHOLIC_THEME                             │
-│   light or dark, when the terminal's         │
-│   background is detected wrongly             │
+│ THEME        off; this terminal is not usin… │
+│                                              │
 │ NO_COLOR                                     │
 │   any value turns all styling off            │
 │ TOKENHOLIC_ASCII                             │

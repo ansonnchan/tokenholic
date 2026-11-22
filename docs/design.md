@@ -38,26 +38,37 @@ remains plain diagnostic output.
 - Selection is shown by a solid coral chip, never by color alone: without
   color the same cells hold brackets, so `[BOARDS]` replaces the chip and
   nothing moves when selection or color changes.
-- The TUI uses the terminal's own background; it never paints the full
-  viewport. The website is dark-only.
+- The TUI paints its own canvas over the whole viewport, light by default,
+  so it looks the same in every terminal. `t` switches to a dark look and
+  back, and the choice is remembered. The website is dark-only.
 - No neon palettes, gradients, glow, ASCII-art backgrounds, or idle animation.
 
 ### Palette
 
-The TUI never paints the viewport, so every color has a value for dark and
-for light terminal backgrounds. Color is the default. At startup the TUI asks
-the terminal for its background color and uses the matching column; a
-terminal that does not answer is treated as dark. `TOKENHOLIC_THEME=light` or
-`dark` overrides a wrong guess. The choice is made once per launch.
-Each degrades to the 256-color value shown, then to the nearest of the 16
-ANSI colors. `internal/tui/theme` is the source of these values; the website
-and share cards use the dark column.
+The TUI has two looks, light and dark, and every color has a value for each.
+Color is the default and light is the default look, whatever the terminal's
+own colors are: the TUI paints a canvas behind everything and sets its own
+text color, so it never depends on a background it does not control. This
+replaced asking the terminal for its background and matching it (decided
+November 21, 2026).
 
-| Role | Dark background | Light background |
+`t` switches look from any view. The choice is saved in a small preferences
+file beside the usage database and used on the next launch. Nobody needs a
+setting for it; `TOKENHOLIC_THEME=light` or `dark` exists only to start in a
+look regardless of the saved one. With `NO_COLOR` nothing is painted and the
+terminal's own colors show.
+
+Each color degrades to the 256-color value shown, then to the nearest of the
+16 ANSI colors. `internal/tui/theme` is the source of these values, and a
+test holds every text role to 4.5:1 against its canvas. The website and share
+cards use the dark column, and the dark canvas is the website's page color.
+
+| Role | Dark | Light |
 | --- | --- | --- |
+| Canvas | `#0B1120` (233) | `#FAF7F2` (231) |
+| Primary text | `#E8EAF0` (255) | `#1B1F27` (234) |
 | Accent (coral) | `#D9805F` (209) | `#B4502F` (166) |
 | Text on an accent chip | `#1B1210` (233) | `#FFFFFF` (231) |
-| Primary text | Terminal foreground | Terminal foreground |
 | Muted text | `#8D929B` (245) | `#6A6F78` (242) |
 | Panel border and rules | `#50555E` (240) | `#B4B8C0` (250) |
 | Current-user row tint | `#33231D` (236) | `#F8E6DE` (224) |
@@ -66,7 +77,7 @@ and share cards use the dark column.
 | Down / negative | `#E36A62` (167) | `#B3362E` (124) |
 | Warning | `#D9A64E` (179) | `#8A5F00` (94) |
 | Error | `#D95C53` (167) | `#A82A22` (124) |
-| Web page / panel / text | `#0B1120` / `#111A2E` / `#E8EAF0` | — |
+| Web panel | `#111A2E` | — |
 
 Bold marks titles, section labels, headline values, and anything in the
 accent. With `NO_COLOR` the TUI emits no escape sequences at all, bold
@@ -489,7 +500,8 @@ $ npx @tokenholic/cli        EST = API LIST PRICES, NEVER SPENDING · SELF-REPOR
 
 - Support `NO_COLOR`: brackets mark selection, text labels carry status.
   This is a fallback a user opts into, never the default look.
-- Test light and dark terminal backgrounds.
+- Test both looks. Because the TUI paints its canvas, contrast is a property
+  of the palette and is checked by a test, not left to the terminal.
 - Do not use color alone for rank movement, coverage, or errors.
 - Provide ASCII fallbacks for every Unicode glyph used for meaning. The
   fallback set is one switch for the whole interface, independent of color,

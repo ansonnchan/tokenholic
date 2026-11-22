@@ -10,6 +10,7 @@
 │ c       claim your spot: sign in with GitHub, when       │ ╰─────────────────────────────────────────────────────────╯
 │         signed out                                       │
 │ r       scan local usage again                           │
+│ t       switch between the dark and light theme          │
 │ ?       close help                                       │
 │ q       quit                                             │
 ╰──────────────────────────────────────────────────────────╯

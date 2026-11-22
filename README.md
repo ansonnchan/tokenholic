@@ -171,12 +171,13 @@ account from inside the TUI; a build from source offers it once
 `TOKENHOLIC_API_URL` names an API. The
 minimum supported width is 48 columns.
 
-The TUI is in color by default and picks its light or dark palette from the
-terminal's background. Three environment variables adjust that:
+The TUI is in color and light by default, on its own background, so it looks
+the same in every terminal. Press `t` to switch to a dark look or back; the
+choice is remembered. Three optional environment variables adjust display:
 
 | Variable | Effect |
 | --- | --- |
-| `TOKENHOLIC_THEME=light` or `dark` | Use that palette when the terminal's background is detected wrongly |
+| `TOKENHOLIC_THEME=light` or `dark` | Start in that look regardless of the saved choice |
 | `NO_COLOR` (any value) | Disable all styling; selection and status use brackets and words |
 | `TOKENHOLIC_ASCII` (any value) | Replace box-drawing and symbol characters with ASCII |
 

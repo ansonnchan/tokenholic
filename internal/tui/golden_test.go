@@ -114,6 +114,8 @@ func renderScreen(t *testing.T, screen screen, tokens theme.Theme, width int) []
 		app = firstLaunch(screen.dashboard())
 	}
 	config := Config{Theme: &tokens, Clipboard: func(string) {}, OpenURL: func(string) error { return nil }}
+	// As when it runs for real, the look can be switched.
+	config.Themes = func(mode theme.Mode) theme.Theme { return theme.Fixed(tokens.Color, mode == theme.Dark, tokens.ASCII) }
 	if screen.remote != nil {
 		config.Multiplayer = screen.remote()
 	}

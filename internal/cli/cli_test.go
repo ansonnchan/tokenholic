@@ -67,6 +67,28 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// TOKENHOLIC_THEME is an optional override. Left unset, or set to anything
+// that is not a look, it leaves the saved choice in charge.
+func TestThemeVariableIsOnlyAnOverride(t *testing.T) {
+	t.Parallel()
+	for value, want := range map[string]displayOptions{
+		"":      {},
+		"dark":  {mode: theme.Dark, modeSet: true},
+		"LIGHT": {mode: theme.Light, modeSet: true},
+		"auto":  {},
+	} {
+		got := displayFromEnvironment(func(name string) string {
+			if name == "TOKENHOLIC_THEME" {
+				return value
+			}
+			return ""
+		})
+		if got != want {
+			t.Errorf("TOKENHOLIC_THEME=%q: %+v, want %+v", value, got, want)
+		}
+	}
+}
+
 func TestRootCommandLaunchesLocalTUIWithEnvironment(t *testing.T) {
 	t.Parallel()
 	input := strings.NewReader("q")
@@ -86,7 +108,7 @@ func TestRootCommandLaunchesLocalTUIWithEnvironment(t *testing.T) {
 		},
 		input: input,
 		launch: func(ctx context.Context, home, codexHome, apiURL string, gotInput io.Reader, _ io.Writer, display displayOptions) error {
-			want := displayOptions{noColor: true, ascii: true, background: theme.LightBackground}
+			want := displayOptions{noColor: true, ascii: true, mode: theme.Light, modeSet: true}
 			if ctx == nil || home != syntheticHome || codexHome != syntheticCodexHome || apiURL != "" || gotInput != input || display != want {
 				t.Fatalf("launch inputs = %v %q %q %q %v %+v", ctx, home, codexHome, apiURL, gotInput, display)
 			}
