@@ -1,0 +1,8 @@
+# Every text file is checked out with LF endings on every system. Golden
+# snapshots, fixtures, and embedded migrations are compared byte for byte, and
+# gofmt rejects CRLF, so a Windows checkout must not rewrite them.
+* text=auto eol=lf
+
+*.ttf binary
+*.woff2 binary
+*.png binary
