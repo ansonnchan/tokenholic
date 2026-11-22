@@ -102,7 +102,7 @@ func defaultDependencies() dependencies {
 			})
 		},
 		diagnose: func(ctx context.Context, home, codexHome string) doctor.Report {
-			discovery := adapters.Discoverer{Roots: adapters.DefaultMacRoots(home, codexHome)}
+			discovery := adapters.Discoverer{Roots: defaultRoots(home, codexHome)}
 			path, err := store.DefaultPath()
 			if err != nil {
 				report := doctor.Diagnose(ctx, discovery, doctor.CCUsageProbe{}, nil)

@@ -60,7 +60,7 @@ func (r Report) ExitCode() int {
 	if r.Database.State != "" && r.Database.State != DatabaseReady && r.Database.State != DatabaseNotInitialized {
 		return 2
 	}
-	if r.GOOS != "darwin" {
+	if !platformSupported(r.GOOS) {
 		return 1
 	}
 	if r.Parser.Issue != "" || r.Parser.Found && !r.Parser.Compatible {
@@ -88,7 +88,11 @@ func (r Report) ExitCode() int {
 func (r Report) Render() string {
 	var output strings.Builder
 	fmt.Fprintln(&output, "tokenholic doctor")
-	fmt.Fprintf(&output, "Platform: %s/%s\n", r.GOOS, r.GOARCH)
+	if platformSupported(r.GOOS) {
+		fmt.Fprintf(&output, "Platform: %s/%s\n", r.GOOS, r.GOARCH)
+	} else {
+		fmt.Fprintf(&output, "Platform: %s/%s (not supported; no coding-agent locations are known here)\n", r.GOOS, r.GOARCH)
+	}
 	switch {
 	case r.Parser.Compatible:
 		fmt.Fprintf(&output, "ccusage: compatible (%s)\n", ccusage.PinnedVersion)
@@ -136,6 +140,12 @@ func (r Report) Render() string {
 		fmt.Fprintln(&output, "Result: issues found; review the warnings above")
 	}
 	return output.String()
+}
+
+// platformSupported reports whether default discovery knows any location on
+// an operating system. It must agree with adapters.DefaultRoots.
+func platformSupported(goos string) bool {
+	return goos == "darwin" || goos == "linux"
 }
 
 func (r Report) noSupportedSources() bool {
@@ -256,7 +266,7 @@ func sourceOrder(kind adapters.RootKind) int {
 func warningText(code string) string {
 	switch code {
 	case "source_root_unreadable", "source_entry_permission_denied":
-		return "the source exists but cannot be read; check macOS file permissions"
+		return "the source exists but cannot be read; check its file permissions"
 	case "source_root_symlink":
 		return "the source root is a symlink; configure the resolved data root explicitly"
 	case "source_root_not_directory":

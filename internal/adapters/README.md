@@ -4,7 +4,13 @@ Adapters are the only packages that understand provider-owned storage layouts an
 
 ## Discovery boundary
 
-`DefaultMacRoots` lists the currently supported macOS evidence roots:
+`DefaultRoots` returns the evidence roots for the operating system tokenholic
+runs on. The layouts themselves, `MacRoots` and `LinuxRoots`, are ordinary
+functions that are compiled and tested on every system; only the choice
+between them is build-tagged. An operating system with no confirmed location
+gets no roots, and `tokenholic doctor` says the platform is unsupported.
+
+Every platform reads the same five kinds of evidence:
 
 - Claude Code CLI project-session JSONL;
 - Claude Desktop Code sessions;
@@ -17,6 +23,49 @@ A root marked optional is a secondary location of a source. It adds records when
 These roots are intentionally narrow. Ordinary Claude Desktop chat and general web/desktop chat storage are out of scope. Discovery is read-only, refuses root symlinks, skips nested symlinks and non-regular files, and records health through stable warning codes.
 
 Candidate paths are local implementation details. They are needed to open a file but must not appear in diagnostics, normalized observations, logs, fixtures, or uploads. Relative paths may be used locally to separate otherwise anonymous files, but are never public metadata.
+
+### Where each platform looks
+
+A location is added only with evidence from the tool's own documentation or
+source, retrieved on the date shown. Where the evidence is indirect the table
+says so. A source that is absent is reported as not found, never guessed at.
+
+macOS:
+
+| Evidence | Location |
+| --- | --- |
+| Claude Code CLI | `~/.claude/projects` |
+| Claude Desktop | `~/Library/Application Support/Claude`, in `claude-code-sessions` and `local-agent-mode-sessions` |
+| Codex | `~/.codex`, or `CODEX_HOME` |
+
+Linux:
+
+| Evidence | Location | Basis |
+| --- | --- | --- |
+| Claude Code CLI | `~/.claude/projects` | Documented [1]. Claude Code does not follow the XDG variables today |
+| Claude Code CLI, versions 1.0.28 to 1.0.30 | `$XDG_CONFIG_HOME/claude/projects`, by default `~/.config/claude/projects`; optional | Those versions moved the configuration directory, sessions included, under `XDG_CONFIG_HOME`, and 1.0.31 moved it back [2]. The directory name `claude` comes from a user's report of 1.0.29 [3], not from Anthropic. Records found in both places count once |
+| Claude Desktop (beta) | `$XDG_CONFIG_HOME/Claude`, by default `~/.config/Claude`, in `claude-code-sessions` and `local-agent-mode-sessions` | Derived, not stated outright. The Linux build keeps its configuration file in `~/.config/Claude` [4], the same folder that holds both session directories on macOS and Windows [5], and the third-party build documents the same layout under `~/.config/Claude-3p` on Linux [6]. Following `XDG_CONFIG_HOME` is Electron's rule for an application's data folder [7]. Not yet observed on a real Linux install |
+| Codex | `~/.codex`, or `CODEX_HOME` | Source and documentation: the home is `.codex` under the home directory on every system, with no XDG handling [8] |
+
+A default Codex home beside a separate `CODEX_HOME` is attributed to Codex
+Desktop on macOS. On Linux nothing first-party says the desktop app writes
+there, so it stays shared and unattributed.
+
+Two documented overrides are not honored yet: Claude Code's
+`CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME` [9]. A user who sets
+them sees Claude Code reported as not found.
+
+Sources, retrieved 2026-11-21:
+
+1. <https://code.claude.com/docs/en/claude-directory>
+2. <https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md> (1.0.28) and <https://github.com/anthropics/claude-code/issues/1455#issuecomment-3005581687>
+3. <https://github.com/anthropics/claude-code/issues/2277>
+4. <https://modelcontextprotocol.io/docs/develop/connect-local-servers>
+5. <https://claude.com/docs/cowork/hipaa-setup>
+6. <https://claude.com/docs/third-party/claude-desktop/data-storage>
+7. <https://www.electronjs.org/docs/latest/api/app> (`app.getPath`)
+8. <https://github.com/openai/codex/blob/main/codex-rs/utils/home-dir/src/lib.rs> and <https://developers.openai.com/codex/environment-variables>
+9. <https://code.claude.com/docs/en/env-vars>
 
 ## Native JSONL parsers
 

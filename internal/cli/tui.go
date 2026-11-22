@@ -122,6 +122,13 @@ func loadLocalUsage(ctx context.Context, home, codexHome string) (dashboard appl
 	return service.Load(ctx)
 }
 
+// defaultRoots lists this system's evidence roots. The platform directory
+// variables come from the process environment: they locate provider data and
+// are not settings of tokenholic's own.
+func defaultRoots(home, codexHome string) []adapters.RootSpec {
+	return adapters.DefaultRoots(adapters.Environment{Home: home, CodexHome: codexHome, Getenv: os.Getenv})
+}
+
 func openLocalApplication(ctx context.Context, home, codexHome string) (*store.DB, *application.Service, error) {
 	path, err := store.DefaultPath()
 	if err != nil {
@@ -139,7 +146,7 @@ func openLocalApplication(ctx context.Context, home, codexHome string) (*store.D
 		return nil, nil, fmt.Errorf("initialize model catalog: %w", err)
 	}
 	orchestrator := collect.Orchestrator{
-		Discovery: adapters.Discoverer{Roots: adapters.DefaultMacRoots(home, codexHome)},
+		Discovery: adapters.Discoverer{Roots: defaultRoots(home, codexHome)},
 		Collector: collect.Collector{SourceVersion: "local-jsonl-v1"},
 		Store:     database, AdapterVersion: "native-v1",
 	}
