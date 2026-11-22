@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ansonnchan/tokenholic/internal/privatefs"
 	"github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
@@ -29,13 +30,15 @@ type DB struct {
 	closed    chan struct{}
 }
 
-// DefaultPath returns the platform-appropriate application database path.
+// DefaultPath returns the platform-appropriate application database path:
+// under the user configuration directory on macOS and Linux, and under the
+// local, non-roaming application data folder on Windows.
 func DefaultPath() (string, error) {
-	configDir, err := os.UserConfigDir()
+	root, err := privatefs.ApplicationRoot()
 	if err != nil {
-		return "", fmt.Errorf("resolve user config directory: %w", err)
+		return "", fmt.Errorf("resolve local database directory: %w", err)
 	}
-	return defaultPath(configDir)
+	return defaultPath(root)
 }
 
 func defaultPath(configDir string) (string, error) {
@@ -118,12 +121,10 @@ func (db *DB) SchemaVersion(ctx context.Context) (int, error) {
 }
 
 func prepareDatabaseFile(path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create local database directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("secure local database directory: %w", err)
+	// The directory is private before the database exists, so SQLite's
+	// journal files beside it are never created readable by anyone else.
+	if err := privatefs.MkdirAll(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("prepare local database directory: %w", err)
 	}
 	info, err := os.Lstat(path)
 	if err == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -136,12 +137,11 @@ func prepareDatabaseFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("create local database: %w", err)
 	}
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("secure local database: %w", err)
-	}
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close prepared local database: %w", err)
+	}
+	if err := privatefs.RestrictFile(path); err != nil {
+		return fmt.Errorf("secure local database: %w", err)
 	}
 	return nil
 }
@@ -155,5 +155,12 @@ func dataSourceName(path string) string {
 	query.Add("_pragma", "journal_mode(WAL)")
 	query.Add("_pragma", "synchronous(NORMAL)")
 	query.Set("_txlock", "immediate")
-	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
+	return fileURI(filepath.ToSlash(path), query)
+}
+
+// fileURI writes a SQLite file: URI for a slash-separated absolute path. The
+// path follows the scheme directly, with no authority: SQLite would read a
+// Windows drive letter after "file://" as a host name and refuse it.
+func fileURI(slashed string, query url.Values) string {
+	return "file:" + (&url.URL{Path: slashed}).EscapedPath() + "?" + query.Encode()
 }
