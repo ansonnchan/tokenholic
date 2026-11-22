@@ -52,6 +52,8 @@ The tie between these sources and day totals holds in both directions and is che
 
 Capabilities describe how a source can provide each field, including explicit `unsupported` states. Source health describes whether a compatible evidence root was detected and readable. Neither contract converts missing coverage into a zero usage value.
 
+`unavailable` is the health of a source whose records exist while this install cannot read them. It applies to the day-level sources, which are read by a separate program that can be absent or turned off, and a warning code names the reason. It is not `not_found`: the agent is in use, and its usage is unknown.
+
 ## Validation
 
 `Observation.Validate` protects the boundary by checking source/surface combinations, version identifiers, model-resolution requirements, token availability, and warning safety. Validate observations before persistence or serialization so downstream packages do not need to reinterpret malformed provider data.

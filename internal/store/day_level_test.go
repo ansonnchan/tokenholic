@@ -354,3 +354,27 @@ func TestDayLevelSchemaConstraints(t *testing.T) {
 		}
 	}
 }
+
+// A day-level source can be present while nothing can read it. That state is
+// stored as its own status, with its reason, and round-trips.
+func TestUnavailableHealthRoundTrips(t *testing.T) {
+	t.Parallel()
+	db := openStoreForTest(t)
+	batch := dayBatch(normalize.SourceGemini)
+	batch.Health.Health.Status = normalize.HealthUnavailable
+	batch.Health.Health.Warnings = []normalize.Warning{{Code: "synthetic_reason"}}
+	if _, err := db.CommitObservations(t.Context(), batch); err != nil {
+		t.Fatal(err)
+	}
+	records, err := db.AdapterHealthRecords(t.Context())
+	if err != nil || len(records) != 1 {
+		t.Fatalf("AdapterHealthRecords() = %d, %v", len(records), err)
+	}
+	if health := records[0].Health; health.Status != normalize.HealthUnavailable || len(health.Warnings) != 1 || health.Warnings[0].Code != "synthetic_reason" {
+		t.Fatalf("stored health = %+v", health)
+	}
+	batch.Health.Health.Status = "retired"
+	if _, err := db.CommitObservations(t.Context(), batch); err == nil {
+		t.Fatal("an unknown health status was stored")
+	}
+}

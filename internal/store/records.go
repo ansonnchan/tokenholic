@@ -580,7 +580,7 @@ func validSourceIdentity(source SourceIdentity) bool {
 func validHealthStatus(status normalize.HealthStatus) bool {
 	switch status {
 	case normalize.HealthDetected, normalize.HealthNotFound, normalize.HealthPermissionDenied,
-		normalize.HealthUnsupported, normalize.HealthDegraded, normalize.HealthError:
+		normalize.HealthUnsupported, normalize.HealthDegraded, normalize.HealthError, normalize.HealthUnavailable:
 		return true
 	default:
 		return false

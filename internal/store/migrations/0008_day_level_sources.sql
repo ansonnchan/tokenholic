@@ -3,7 +3,9 @@
 --
 -- SQLite cannot widen a CHECK constraint, so the three tables that list the
 -- sources are rebuilt with the wider lists and their rows copied unchanged.
--- Nothing is deleted and no Claude or Codex row is altered.
+-- Nothing is deleted and no Claude or Codex row is altered. Source health
+-- also gains the status "unavailable", for a day-level source whose records
+-- exist while the program that reads them is absent or turned off.
 --
 -- Foreign keys are enforced while this runs. adapter_health refers to
 -- source_checkpoints with ON DELETE CASCADE, so the copy of the child is made
@@ -95,7 +97,8 @@ CREATE TABLE adapter_health_new (
     source_identity TEXT PRIMARY KEY REFERENCES source_checkpoints_new(source_identity) ON DELETE CASCADE,
     source TEXT NOT NULL CHECK (source IN ('claude', 'codex', 'copilot', 'gemini', 'grok', 'opencode', 'qwen')),
     surface TEXT NOT NULL CHECK (surface IN ('cli', 'desktop_code', 'desktop_agent', 'desktop_cowork', 'desktop', 'shared_local')),
-    status TEXT NOT NULL CHECK (status IN ('detected', 'not_found', 'permission_denied', 'unsupported', 'degraded', 'error')),
+    -- unavailable: the records exist but this install cannot read them.
+    status TEXT NOT NULL CHECK (status IN ('detected', 'not_found', 'permission_denied', 'unsupported', 'degraded', 'error', 'unavailable')),
     record_count TEXT CHECK (record_count IS NULL OR (length(record_count) > 0 AND record_count NOT GLOB '*[^0-9]*')),
     format TEXT NOT NULL,
     capabilities_json TEXT NOT NULL CHECK (json_valid(capabilities_json)),
