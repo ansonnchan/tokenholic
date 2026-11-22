@@ -375,8 +375,12 @@ func TestAutosyncCommandsUseExplicitManagerBoundary(t *testing.T) {
 				return ""
 			}
 		},
-		autosync: func(home, executable, apiURL, codexHome string) (autosyncManager, error) {
+		autosync: func(config autosync.Config) (autosyncManager, error) {
+			home, executable, apiURL, codexHome := config.Home, config.Executable, config.APIURL, config.CodexHome
 			managerCalls++
+			if config.Getenv == nil || config.Getenv("CODEX_HOME") != "/synthetic/codex" {
+				t.Fatal("autosync did not receive the command's environment")
+			}
 			if home != "/synthetic/home" || executable != "/synthetic/bin/tokenholic" {
 				t.Fatalf("autosync inputs = %q/%q/%q/%q", home, executable, apiURL, codexHome)
 			}
@@ -413,7 +417,7 @@ func TestAutosyncEnableRequiresAPIAndRedactsFailure(t *testing.T) {
 		homeDir:    func() (string, error) { return "/synthetic/home", nil },
 		executable: func() (string, error) { return "/synthetic/bin/tokenholic", nil },
 		getenv:     func(string) string { return "" },
-		autosync: func(string, string, string, string) (autosyncManager, error) {
+		autosync: func(autosync.Config) (autosyncManager, error) {
 			return &fakeAutosyncManager{}, nil
 		},
 	}
@@ -423,12 +427,54 @@ func TestAutosyncEnableRequiresAPIAndRedactsFailure(t *testing.T) {
 		t.Fatalf("missing API = %d/%q", code, stderr.String())
 	}
 	base.getenv = func(string) string { return "https://api.example.test" }
-	base.autosync = func(string, string, string, string) (autosyncManager, error) {
+	base.autosync = func(autosync.Config) (autosyncManager, error) {
 		return &fakeAutosyncManager{err: errors.New("private credential /private/path")}, nil
 	}
 	stderr.Reset()
 	if code := run([]string{"autosync", "enable"}, &stdout, &stderr, base); code != 1 || strings.Contains(stderr.String(), "private") || strings.Contains(stderr.String(), "credential") {
 		t.Fatalf("failed enable = %d/%q", code, stderr.String())
+	}
+}
+
+func TestAutosyncExplainsAMissingScheduler(t *testing.T) {
+	manager := &fakeAutosyncManager{err: fmt.Errorf("inspect /private/path: %w", autosync.ErrSchedulerUnavailable)}
+	deps := dependencies{
+		homeDir:    func() (string, error) { return "/synthetic/home", nil },
+		executable: func() (string, error) { return "/synthetic/bin/tokenholic", nil },
+		getenv: func(name string) string {
+			if name == "TOKENHOLIC_API_URL" {
+				return "https://api.example.test"
+			}
+			return ""
+		},
+		autosync: func(autosync.Config) (autosyncManager, error) { return manager, nil },
+	}
+	for _, test := range []struct {
+		name      string
+		command   string
+		installed bool
+		err       error
+		code      int
+		want      string
+	}{
+		{name: "enable", command: "enable", code: 1, want: "autosync needs a synthetic scheduler, which is not available here"},
+		{name: "status with nothing installed", command: "status", code: 0, want: "Autosync is disabled. Enabling it needs a synthetic scheduler"},
+		{name: "status with leftover files", command: "status", installed: true, code: 0, want: "Run `tokenholic autosync disable` to remove them"},
+		{name: "unsupported system", command: "enable", err: autosync.ErrUnsupported, code: 1, want: "not supported on this operating system"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager.status = autosync.Status{Installed: test.installed}
+			if test.err != nil {
+				defer func(previous error) { manager.err = previous }(manager.err)
+				manager.err = test.err
+			}
+			var stdout, stderr bytes.Buffer
+			code := run([]string{"autosync", test.command}, &stdout, &stderr, deps)
+			output := stdout.String() + stderr.String()
+			if code != test.code || !strings.Contains(output, test.want) || strings.Contains(output, "/private/path") {
+				t.Fatalf("autosync %s = %d/%q", test.command, code, output)
+			}
+		})
 	}
 }
 
@@ -713,6 +759,8 @@ func (f *fakeAutosyncManager) Disable(context.Context) error {
 func (f *fakeAutosyncManager) Status(context.Context) (autosync.Status, error) {
 	return f.status, f.err
 }
+
+func (f *fakeAutosyncManager) Requirement() string { return "a synthetic scheduler" }
 
 func (f *fakeGroupManager) List(context.Context) ([]multiplayer.Group, error) {
 	return f.groups, f.err

@@ -31,21 +31,36 @@ func TestLockPreventsOverlapAndCanBeReacquired(t *testing.T) {
 	}
 }
 
-func TestDefaultLockCoordinatesLowercaseAndLegacyPaths(t *testing.T) {
+func TestDefaultLockHoldsEveryApplicationDirectory(t *testing.T) {
 	root := t.TempDir()
 	lock, err := acquireDefault(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{
-		filepath.Join(root, applicationDirectory, "sync.lock"),
-		filepath.Join(root, legacyApplicationDirectory(), "sync.lock"),
-	} {
-		if _, err := Acquire(path); !errors.Is(err, ErrAlreadyRunning) {
-			t.Fatalf("Acquire(%q) = %v, want overlap", path, err)
+	if _, err := acquireDefault(root); !errors.Is(err, ErrAlreadyRunning) {
+		t.Fatalf("second acquireDefault() = %v, want overlap", err)
+	}
+	for _, directory := range lockDirectories() {
+		if _, err := Acquire(filepath.Join(root, directory, "sync.lock")); !errors.Is(err, ErrAlreadyRunning) {
+			t.Fatalf("Acquire(%s) = %v, want overlap", directory, err)
 		}
 	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No directory appears that this platform never shipped.
+	if len(entries) > len(lockDirectories()) {
+		t.Fatalf("lock created %d directories for %d spellings", len(entries), len(lockDirectories()))
+	}
 	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := acquireDefault(root)
+	if err != nil {
+		t.Fatalf("acquireDefault() after release = %v", err)
+	}
+	if err := again.Close(); err != nil {
 		t.Fatal(err)
 	}
 }

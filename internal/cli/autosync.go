@@ -2,11 +2,14 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ansonnchan/tokenholic/internal/autosync"
 )
 
 func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependencies) int {
@@ -48,7 +51,9 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 		apiURL = ""
 		codexHome = ""
 	}
-	manager, err := deps.autosync(home, executable, apiURL, codexHome)
+	manager, err := deps.autosync(autosync.Config{
+		Home: home, Executable: executable, APIURL: apiURL, CodexHome: codexHome, Getenv: deps.getenv,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, "autosync configuration is invalid")
 		return 1
@@ -58,20 +63,36 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 	switch args[0] {
 	case "enable":
 		if err := manager.Enable(ctx); err != nil {
-			fmt.Fprintln(stderr, "could not enable autosync; no schedule was activated")
+			if !reportSchedulerProblem(stderr, manager, err) {
+				fmt.Fprintln(stderr, "could not enable autosync; no schedule was activated")
+			}
 			return 1
 		}
 		fmt.Fprintln(stdout, "Enabled autosync at login and hourly. Re-enable it after upgrading tokenholic.")
 	case "disable":
 		if err := manager.Disable(ctx); err != nil {
-			fmt.Fprintln(stderr, "could not disable autosync; inspect its status and retry")
+			if !reportSchedulerProblem(stderr, manager, err) {
+				fmt.Fprintln(stderr, "could not disable autosync; inspect its status and retry")
+			}
 			return 1
 		}
 		fmt.Fprintln(stdout, "Disabled autosync and removed its installed binary and logs. Local usage was not changed.")
 	case "status":
 		status, err := manager.Status(ctx)
+		if errors.Is(err, autosync.ErrSchedulerUnavailable) && status.Installed {
+			// Files from an earlier install can outlive the scheduler, for
+			// example after a move between machines or init systems.
+			fmt.Fprintf(stdout, "Autosync files are installed, but %s is not available, so nothing runs them. Run `tokenholic autosync disable` to remove them.\n", manager.Requirement())
+			return 0
+		}
+		if errors.Is(err, autosync.ErrSchedulerUnavailable) {
+			fmt.Fprintf(stdout, "Autosync is disabled. Enabling it needs %s, which is not available here.\n", manager.Requirement())
+			return 0
+		}
 		if err != nil {
-			fmt.Fprintln(stderr, "could not inspect autosync status")
+			if !reportSchedulerProblem(stderr, manager, err) {
+				fmt.Fprintln(stderr, "could not inspect autosync status")
+			}
 			return 1
 		}
 		switch {
@@ -86,4 +107,21 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 		}
 	}
 	return 0
+}
+
+// reportSchedulerProblem explains the two failures a user can act on: an
+// operating system tokenholic cannot schedule on, and a scheduler that is not
+// running. Both messages are fixed text plus the scheduler's name, so they
+// are safe to show. It reports whether it wrote anything.
+func reportSchedulerProblem(stderr io.Writer, manager autosyncManager, err error) bool {
+	switch {
+	case errors.Is(err, autosync.ErrUnsupported):
+		fmt.Fprintln(stderr, "autosync is not supported on this operating system; run `tokenholic sync` yourself or from your own scheduler")
+	case errors.Is(err, autosync.ErrSchedulerUnavailable):
+		fmt.Fprintf(stderr, "autosync needs %s, which is not available here; nothing was scheduled\n", manager.Requirement())
+		fmt.Fprintln(stderr, "run `tokenholic sync` yourself or from your own scheduler instead")
+	default:
+		return false
+	}
+	return true
 }
