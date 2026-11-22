@@ -220,6 +220,13 @@ never read. Set it too high and a client can choose its own address; leave it
 too low and every client shares the proxy's allowance. An invalid value stops
 startup.
 
+So that the value can be measured rather than guessed, the API writes one log
+line the first time a limited request arrives with each number of
+`X-Forwarded-For` entries. The line holds the count and the current setting
+and never an address, and a process writes at most ten of them. The
+[deployment guide](../docs/deployment.md#3-deploy-the-render-blueprint) says
+how to read it.
+
 Limiter state is local to one process. That is correct for the single demo
 instance: several instances would each grant the full limit. Move the state to
 shared storage before running more than one, and not before a measured need.

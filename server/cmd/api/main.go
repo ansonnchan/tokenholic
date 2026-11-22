@@ -5,12 +5,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -141,7 +143,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	limited, err := rateLimited(routes, os.Getenv)
+	limited, err := rateLimited(routes, os.Getenv, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -194,12 +196,12 @@ var (
 
 // rateLimited wraps the API in the in-memory limiter. Its state is local to
 // this process, which is correct only while one instance serves the API.
-func rateLimited(handler http.Handler, getenv func(string) string) (http.Handler, error) {
+func rateLimited(handler http.Handler, getenv func(string) string, log io.Writer) (http.Handler, error) {
 	hops, err := trustedProxyHops(getenv)
 	if err != nil {
 		return nil, err
 	}
-	limits := httpapi.RateLimits{TrustedProxyHops: hops}
+	limits := httpapi.RateLimits{TrustedProxyHops: hops, ObserveForwarded: forwardingReporter(log, hops)}
 	for _, limiter := range []struct {
 		target *httpapi.Allower
 		limit  ratelimit.Limit
@@ -260,6 +262,34 @@ func withSharePages(api http.Handler, site website.Site, profiles sharepage.Prof
 	routes.Handle(sharepage.Prefix, share)
 	routes.Handle("/", api)
 	return routes, nil
+}
+
+// forwardingReporter writes one line the first time a request arrives with
+// each number of X-Forwarded-For entries, which is how an operator measures
+// the proxy chain: a request sent without the header arrives with exactly
+// one entry per proxy that appends to it, and that number is the value for
+// TOKENHOLIC_TRUSTED_PROXY_HOPS. A client that sends its own header shows up
+// as a larger count. Only the count is written, never an address, and the
+// lines per process are bounded.
+func forwardingReporter(log io.Writer, hops int) func(int) {
+	var mutex sync.Mutex
+	seen := make(map[int]bool, httpapi.MaxTrustedProxyHops+2)
+	return func(entries int) {
+		if entries > httpapi.MaxTrustedProxyHops {
+			entries = httpapi.MaxTrustedProxyHops + 1
+		}
+		mutex.Lock()
+		defer mutex.Unlock()
+		if seen[entries] {
+			return
+		}
+		seen[entries] = true
+		count := strconv.Itoa(entries)
+		if entries > httpapi.MaxTrustedProxyHops {
+			count = "more than " + strconv.Itoa(httpapi.MaxTrustedProxyHops)
+		}
+		fmt.Fprintf(log, "tokenholic api: a request arrived with %s X-Forwarded-For entries; TOKENHOLIC_TRUSTED_PROXY_HOPS is %d\n", count, hops)
+	}
 }
 
 // trustedProxyHops reads how many reverse proxies in front of the API append

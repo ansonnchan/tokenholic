@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -91,7 +92,7 @@ func TestRateLimitedAppliesTheConfiguredLimits(t *testing.T) {
 	handler, err := rateLimited(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		reached++
 		response.WriteHeader(http.StatusNoContent)
-	}), func(string) string { return "" })
+	}), func(string) string { return "" }, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +111,64 @@ func TestRateLimitedAppliesTheConfiguredLimits(t *testing.T) {
 			t.Fatalf("health check %d = %d, want it never limited", attempt+1, response.Code)
 		}
 	}
-	if _, err := rateLimited(http.NotFoundHandler(), func(string) string { return "many" }); err == nil {
+	if _, err := rateLimited(http.NotFoundHandler(), func(string) string { return "many" }, io.Discard); err == nil {
 		t.Fatal("rateLimited() accepted an invalid proxy setting")
+	}
+}
+
+// The operator reads the proxy chain's length from the log: one line per
+// distinct count, and never an address.
+func TestForwardingIsReportedOncePerCountWithoutAddresses(t *testing.T) {
+	var log strings.Builder
+	handler, err := rateLimited(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}), func(name string) string {
+		if name == "TOKENHOLIC_TRUSTED_PROXY_HOPS" {
+			return "1"
+		}
+		return ""
+	}, &log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(path string, forwarded ...string) {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		if len(forwarded) > 0 {
+			request.Header.Set("X-Forwarded-For", strings.Join(forwarded, ", "))
+		}
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+	send("/healthz")
+	if log.Len() != 0 {
+		t.Fatalf("a health probe was reported: %q", log.String())
+	}
+	for range 3 {
+		send("/v1/public/users/synthetic", "203.0.113.7", "198.51.100.9")
+	}
+	send("/v1/public/users/synthetic", "203.0.113.7")
+	long := make([]string, 40)
+	for index := range long {
+		long[index] = "203.0.113.7"
+	}
+	send("/v1/public/users/synthetic", long...)
+	send("/v1/public/users/synthetic", append(long, "203.0.113.8")...)
+
+	lines := strings.Split(strings.TrimSpace(log.String()), "\n")
+	want := []string{
+		"a request arrived with 2 X-Forwarded-For entries; TOKENHOLIC_TRUSTED_PROXY_HOPS is 1",
+		"a request arrived with 1 X-Forwarded-For entries; TOKENHOLIC_TRUSTED_PROXY_HOPS is 1",
+		"a request arrived with more than 8 X-Forwarded-For entries; TOKENHOLIC_TRUSTED_PROXY_HOPS is 1",
+	}
+	if len(lines) != len(want) {
+		t.Fatalf("log = %q, want %d lines", log.String(), len(want))
+	}
+	for index, line := range lines {
+		if !strings.HasSuffix(line, want[index]) {
+			t.Errorf("line %d = %q, want it to end %q", index, line, want[index])
+		}
+	}
+	if strings.Contains(log.String(), "203.0.113") || strings.Contains(log.String(), "198.51.100") {
+		t.Fatalf("the log holds an address: %q", log.String())
 	}
 }
 
