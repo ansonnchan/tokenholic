@@ -8,11 +8,11 @@ The repository's free demo configuration uses one Render web service and one
 Supabase PostgreSQL project:
 
 ```text
-macOS tokenholic client
-        |
-        | privacy-limited HTTPS requests
-        v
-Render free Go API
+macOS tokenholic client          GitHub Pages website (optional)
+        |                                |
+        | privacy-limited HTTPS requests | public, read-only JSON
+        v                                v
+Render free Go API  <--------------------+
         |
         | encrypted PostgreSQL connection
         v
@@ -82,9 +82,9 @@ documentation or the headers a request actually arrives with, how many
 entries its proxies add. A value that is too high lets a client pick its own
 address. This has not been measured against a live Render service yet.
 
-`TOKENHOLIC_WEB_ORIGIN` is optional. Set it to the website's HTTPS origin once
-the site exists, and new invitations carry a link to its invite page. Without
-it the API returns invite codes only.
+`TOKENHOLIC_WEB_ORIGIN` is optional and belongs to
+[publishing the website](#6-publish-the-website). Without it the API returns
+invite codes without links and no web page can read it.
 
 After the first deployment completes, verify the generated HTTPS origin:
 
@@ -138,3 +138,34 @@ Free Supabase projects have no automatic backups. Treat synchronized records as
 disposable copies of local aggregates. The source evidence and local SQLite
 database remain authoritative; deleting the Render service and Supabase project
 removes the demo without affecting local usage.
+
+## 6. Publish the website
+
+The website in [`web/`](../web/README.md) is static and read-only. Nothing is
+published until every step below is done by the repository's owner; merging
+the workflow file alone publishes nothing.
+
+1. In the repository's **Settings → Pages**, set the source to **GitHub
+   Actions**.
+2. In **Settings → Secrets and variables → Actions → Variables**, add the
+   repository variable `TOKENHOLIC_API_ORIGIN` with the API's HTTPS origin,
+   such as `https://<service>.onrender.com`. It is not a secret: it is
+   written into the published pages.
+3. Run the **Website** workflow, or push a change under `web/` to `main`.
+   The workflow copies `web/` without its development files, writes the API
+   origin into `assets/js/config.js`, and deploys the result. Until the
+   variable exists the job is skipped, not failed.
+4. On Render, set `TOKENHOLIC_WEB_ORIGIN` to the address the site is served
+   from: `https://<owner>.github.io/<repository>` for a project site, or the
+   bare origin for a user site or custom domain. The API then lets pages
+   from that origin, and no other, read its public routes, and new
+   invitations carry a link to the invite page.
+
+Check it with a browser: the landing page loads without the API; a profile
+or board address shows `WAKING THE API` while the service starts and then
+either the page or the not-found panel. A page that stays unreachable while
+`/healthz` answers usually means step 4 names a different origin from the
+one in the address bar.
+
+The site keeps no data and needs no migration. To take it down, disable Pages
+and unset `TOKENHOLIC_WEB_ORIGIN`.
