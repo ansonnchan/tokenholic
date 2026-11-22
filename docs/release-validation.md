@@ -223,6 +223,16 @@ on two Macs. Steps 5 to 7 were left for later.
   records for the five ccusage agents, `show-data` printed their hand-computed
   totals. Step 7 on Linux and Windows, and its two rows from step 4, are
   still to do.
+- **0.3.0, the same day.** `v0.3.0` added `tokenholic demo` and the MIT
+  license, and changed nothing in collection, sync, or the API. The release
+  workflow passed every job again and the registry again took a few minutes
+  to show the new version. Checked on macOS arm64 from a clean install of
+  `@tokenholic/cli@0.3.0` with an empty home: `--version` printed `0.3.0`;
+  `doctor` showed the built-in API address and the verified ccusage; every
+  package carried `LICENSE`; and `demo`, driven through a pseudo-terminal,
+  drew in color, joined the global board, declined to create a group, quit
+  with exit 0, and wrote no file. Steps 1 to 5 were not repeated for it, and
+  everything listed as not yet checked for 0.2.0 is still not checked.
 - **The website's publish workflow can fail on a GitHub artifact error.** On
   one merge the deploy step found no artifact right after uploading it, and
   re-running the same run then found two. Starting a fresh run from the
