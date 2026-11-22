@@ -1,6 +1,6 @@
 # tokenholic roadmap
 
-Status: MVP complete; product-parity revamp in progress (M6 to M8 complete except one blocked item, M9–M11 planned)
+Status: MVP complete; product-parity revamp in progress (M6 to M8 complete except one blocked item, M9 website pages built, share cards and M10–M11 planned)
 Last updated: November 21, 2026
 
 ## Product definition
@@ -762,11 +762,20 @@ Goal: deliver the retro-terminal dashboard described in `docs/design.md`.
 
 Goal: make tokenholic discoverable and shareable without a browser dashboard.
 
-- [ ] **TKH-090: Publish the static website** (`feat/web-pages`)
+- [x] **TKH-090: Publish the static website** (`feat/web-pages`)
   - `web/` landing page, public profile, public board, and invite landing
     pages on GitHub Pages; the API serves public JSON with an origin allowlist.
   - Acceptance: private data returns not-found; pages work at phone width and
     show a wake-up state while the API cold-starts.
+  - Built and tested against a stubbed API. Not published: the Pages
+    workflow stays skipped until the owner enables Pages and names the API in
+    a repository variable, and the hosted API needs `TOKENHOLIC_WEB_ORIGIN`
+    before the site can read it. Both belong with release validation
+    (TKH-102), with the steps in `docs/deployment.md`.
+  - `TOKENHOLIC_WEB_ORIGIN` may carry a path, because a GitHub Pages project
+    site lives under one.
+  - The site has no sign-in, so it never labels a row `★ YOU`; a link can
+    highlight a member instead.
   - Depends on: TKH-073, TKH-080 (shared visual tokens).
 
 - [ ] **TKH-091: Render share pages and cards** (`feat/share-cards`)
@@ -795,6 +804,8 @@ Goal: make tokenholic discoverable and shareable without a browser dashboard.
   - Confirm how many proxies the host puts in front of the API and set
     `TOKENHOLIC_TRUSTED_PROXY_HOPS` to match, so per-address rate limits key
     on the real client.
+  - Publish the website and set `TOKENHOLIC_WEB_ORIGIN` on the API, following
+    `docs/deployment.md`.
   - Depends on: TKH-091, TKH-101.
 
 M6–M10 exit criteria:
@@ -923,9 +934,11 @@ complete, and so is M7, leaderboards, profiles, and integrity, except for
 Codex compaction usage (TKH-075), which waits on real records to build a
 fixture from. M8, the TUI revamp, is complete: the design system, the
 personal views, the board view, and in-TUI onboarding, claim, and sharing.
-The remaining parity revamp continues in order: the website and share cards,
-then Linux, Windows, and a validated release, which must also give builds a
-default API address before a new user can claim without configuration. The
+In M9 the website's pages and the API's origin allowlist are built; nothing
+is published yet. The remaining parity revamp continues in order: share
+pages and cards, then Linux, Windows, and a validated release, which must
+also give builds a default API address before a new user can claim without
+configuration, publish the website, and tell the API its address. The
 free demo environment's end-to-end
 validation (TKH-043) folds into TKH-102. Long-tail agents through ccusage
 follow in M11, after the release. A measured private beta remains optional.

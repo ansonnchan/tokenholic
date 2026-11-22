@@ -1,6 +1,6 @@
 # Architecture
 
-Status: MVP implemented; M6–M10 target design accepted (see "Planned target design")
+Status: MVP and M6–M8 implemented, M9 website pages implemented; remaining M9–M10 design accepted (see "Planned target design")
 Last updated: November 21, 2026
 
 ## System goals
@@ -52,11 +52,11 @@ server/
   sync/                    Authenticated absolute-revision application
   pricing/                 Server-owned model resolution and estimates
   ratelimit/               In-memory token buckets for the single instance
-  web/                     Public JSON, share pages, and PNG cards (planned)
+  website/                 The static site's address: allowed origin and links into it
 migrations/                Embedded hosted PostgreSQL schema history
 fixtures/                  Sanitized compatibility fixtures
 packages/                  npm-distribution workspace
-web/                       Static GitHub Pages website (planned)
+web/                       Static read-only website for GitHub Pages
 docs/                      Architecture and product design
 ```
 
@@ -406,8 +406,21 @@ the global board's minimum population and row limit.
 An invite code can be previewed without signing in, at
 `GET /v1/public/invites/{code}`, which names the group a usable code joins.
 An unknown, expired, used-up, or malformed code is the same not-found. When
-the API knows the website's origin, an invitation also carries a link whose
-fragment holds the code, so the code is never sent to a web server.
+the API knows the website's address, an invitation also carries a link whose
+fragment holds the code, so the code is never sent to the server hosting the
+site.
+
+A browser may read the public routes only from the website. The API is told
+the site's HTTPS address in `TOKENHOLIC_WEB_ORIGIN`; `server/website` parses
+it into the origin a browser sends and the base for links, which keeps a
+path because a GitHub Pages project site lives under one. A request for a
+public route whose `Origin` header is exactly that origin is answered with
+`Access-Control-Allow-Origin` naming it. No other origin, no other route, no
+wildcard, and no credentials are ever allowed, and with the variable unset no
+browser origin can read anything. The header depends only on the request's
+path prefix and origin, never on the record, so the allowlist cannot be used
+to tell a private record from a missing one. It wraps the rate limiter, so a
+refused request is readable by the page too.
 
 Leaderboard authorization checks membership on every request. A member of one
 group cannot enumerate another group or its users.
@@ -509,8 +522,10 @@ The optional demo environment uses one stateless Go API deployment on Render
 and one Supabase PostgreSQL database. A root Blueprint and a production
 container make that environment reproducible without introducing application
 dependencies on either provider. Local collection remains the primary product
-and does not require the hosted service. The planned static website is served
-separately by GitHub Pages and depends on the API only for public JSON.
+and does not require the hosted service. The static website is served
+separately by GitHub Pages and depends on the API only for public JSON. A
+workflow publishes `web/` as it is and writes one value into it, the API
+origin; it stays skipped until a repository variable supplies that origin.
 
 The free environment exists for end-to-end personal testing and interviews,
 not for a production availability or durability claim. Free-tier sleeping,
@@ -620,12 +635,21 @@ X crawler  -->  API share page (/s/...) with Open Graph tags + PNG card
                  -> browsers redirect to the GitHub Pages page
 ```
 
-- The website is static HTML, CSS, and minimal JavaScript with no framework or
-  build step. It never writes and never signs in.
+- Implemented: the website is static HTML, CSS, and minimal JavaScript with
+  no framework or build step. It never writes and never signs in. Its only
+  network code reads the three public routes with credential-free GETs.
+- Implemented: the API's origin allowlist, described under "Public
+  visibility".
+- Implemented: the site formats values with a JavaScript port of
+  `internal/numfmt` that runs the Go formatter's test vectors, and takes its
+  colors from the TUI palette under a test, so neither can drift.
+- A page shows a private, deleted, or nonexistent record as one state, and
+  an unknown value as unknown, exactly as the API reports them.
 - Share pages and 1200×630 PNG cards are rendered by the Go API because
   crawlers do not execute JavaScript. Cards are cacheable and content-hashed.
 - Render free-tier cold starts can delay pages and cards; that is an accepted
-  demo limitation, and pages show an explicit wake-up state.
+  demo limitation. Implemented for pages: a read that has not answered within
+  a few seconds shows a wake-up state and keeps retrying for two minutes.
 
 ### Platforms
 

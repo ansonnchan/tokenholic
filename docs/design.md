@@ -1,6 +1,6 @@
 # Design direction
 
-Status: TUI revamp built (M8); website (M9) accepted
+Status: TUI revamp built (M8); website pages built (M9), share cards planned
 Last updated: November 21, 2026
 
 ## Intent
@@ -66,7 +66,7 @@ and share cards use the dark column.
 | Down / negative | `#E36A62` (167) | `#B3362E` (124) |
 | Warning | `#D9A64E` (179) | `#8A5F00` (94) |
 | Error | `#D95C53` (167) | `#A82A22` (124) |
-| Web background | Deep navy with slightly lighter panels | — |
+| Web page / panel / text | `#0B1120` / `#111A2E` / `#E8EAF0` | — |
 
 Bold marks titles, section labels, headline values, and anything in the
 accent. With `NO_COLOR` the TUI emits no escape sequences at all, bold
@@ -346,21 +346,97 @@ while refreshing.
 
 ## Website
 
-The website (M9) shares the TUI's tokens and voice and stays read-only.
+The website (M9) shares the TUI's tokens and voice and stays read-only. It
+has no sign-in, sets no cookie, and loads nothing from another host except
+GitHub avatars. [`web/README.md`](../web/README.md) is the working guide.
 
-- Pages: landing (copy-able `npx @tokenholic/cli`, what is collected and
-  what never leaves the machine), public profile, public board, and invite
-  landing.
-- Dark-only navy background, the coral accent, solid coral primary buttons,
-  chip tabs, titled panels with dashed rules, rank tables with GitHub
-  avatars, the standing rail, and `★ YOU` when viewing one's own public page.
-- Type: an OFL-licensed pixel display face for the wordmark and titles and an
-  OFL-licensed monospace for everything else, self-hosted.
-- While the API wakes, show an explicit loading state rather than empty data.
-- Share cards (1200×630 PNG) use the same palette: wordmark, scope, the
-  headline value with `EST`, rank, and period.
-- Accessibility: WCAG AA contrast, visible focus rings, reduced-motion
-  support, and layouts that work at phone width.
+### Pages
+
+| Page | Address | Shows |
+| --- | --- | --- |
+| Landing | `/` | Headline, copy-able `npx @tokenholic/cli`, a sample board, how it works, and what is read, sent, and never sent |
+| Public profile | `/u/?login=<login>` | Avatar, login, and tokens, `$ EST`, and priced share for the last 30 days and all-time |
+| Public board | `/b/?slug=<slug>` | Standings with period and metric chips, a standing rail, and board facts |
+| Invite | `/invite/#<code>` | The group a code joins, when it expires, and the two commands that join it |
+
+A static host serves files, not routes, so a profile and a board are named
+by a query string and every link is relative. The site therefore works at a
+domain's root or under a path.
+
+### Look
+
+- Dark-only. The page is `#0B1120`, panels are `#111A2E`, and text is
+  `#E8EAF0`; every other color is the dark column of the palette table.
+- Type: Silkscreen, a pixel face, for the wordmark, headline, panel titles,
+  and step numbers, set at multiples of 8 pixels; JetBrains Mono for
+  everything else. Both are OFL-licensed and self-hosted, with their licenses
+  beside them in `web/assets/fonts/`.
+- Titled panels carry their title in the top border, as the TUI draws them.
+  Section labels are uppercase, tracked out, and followed by a dashed rule.
+- Solid coral marks the primary button and the selected chip. A page has one
+  primary action.
+- The landing page's board is a static sample, labelled as sample data.
+
+### Board
+
+- Opens on `THIS WEEK` and `$ EST`, as the terminal's does. Chips are plain
+  links, so a period or metric is an address that can be shared.
+- Rows are drawn exactly as the server ranked them: rank or `—`, avatar,
+  `@login` linking to that member's profile, value, and movement or the
+  reason there is no rank. A member above the plausibility limit carries `!`.
+- The first three ranks use the gold, silver, and bronze tokens.
+- The site cannot know who is looking, so nothing is ever labelled `★ YOU`.
+  A link may name a member in its fragment (`#login`); that row gets the
+  coral edge, tint, and accent text, and the rail shows that member's
+  standing. Without one the rail shows the leader.
+- The rail also states how many public members the board lists, when the
+  period started, the timezone, and when the board was read, and repeats the
+  install command.
+- Notes under the standings state the rules in words: the priced share an
+  estimate needs to be ranked, that estimates are never spending, when ranks
+  are hidden, and what `!` means.
+- An avatar that is missing or fails to load is a tile with the login's
+  first letter.
+
+### States
+
+Every data page draws one of these, and never an empty layout:
+
+| State | When | Shows |
+| --- | --- | --- |
+| Loading | First 2.5 seconds | `LOADING` with a blinking caret |
+| Waking | No answer yet, or the API is starting | `WAKING THE API`: free hosting sleeps when idle; the page fills in by itself |
+| Loaded | The API answered | The page |
+| Not found | The API said so, or the address could not name a record | One panel, in the same words for a private record and a missing one |
+| Too many requests | The API refused the request | How long to wait, and `TRY AGAIN` |
+| Unreachable | Two minutes of trying failed | `ERROR API UNREACHABLE` and `TRY AGAIN` |
+
+A not-found invite says it may have expired, been used up, or been mistyped.
+A value that is unknown is `—`, a lower bound carries `≥`, and each panel
+says which in words. `$ EST` labels every estimate.
+
+### Phone width
+
+Layouts are one column below 720 pixels and never scroll sideways. The board
+rail drops under the standings, chips wrap, a long login is cut with an
+ellipsis, and a long command wraps inside its box so an invite code is always
+shown whole.
+
+### Accessibility
+
+- Text meets WCAG AA (4.5:1) on the page, panels, and the highlighted row; a
+  test fails if a token change breaks that. Panel borders are decoration.
+- Every link and button has a visible coral focus ring, and a skip link
+  leads the tab order.
+- Movement, lower bounds, and status never rely on color: each has a glyph or
+  a word, and movement is also announced in words.
+- The only motion is the loading caret, which stops under
+  `prefers-reduced-motion`.
+
+### Share cards
+
+Share cards (1200×630 PNG) use the same palette: wordmark, scope, the
+headline value with `EST`, rank, and period.
 
 ## Accessibility
 

@@ -26,7 +26,7 @@ make build       # build every Go package
 make prices      # regenerate the vendored price snapshot from its pin (network)
 make release VERSION=1.2.3 # reproducible macOS arm64/x64 archives
 pnpm check                 # npm metadata and launcher validation
-pnpm test                  # npm preparation and launcher tests
+pnpm test                  # npm preparation, launcher, and website tests
 ```
 
 Run the hosted schema integration test against an isolated PostgreSQL database:

@@ -23,6 +23,7 @@ This directory owns decisions that cross package boundaries. Package-specific im
 - [Source diagnostics](../internal/doctor/README.md)
 - [Compatibility fixtures](../fixtures/README.md)
 - [Server boundary](../server/README.md)
+- [Website](../web/README.md)
 
 ## Where new documentation belongs
 
