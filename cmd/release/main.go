@@ -110,7 +110,8 @@ func run(args []string, output io.Writer) error {
 
 	checksums := make(map[string]string, len(targets))
 	for _, target := range targets {
-		binaryPath := filepath.Join(temporary, "tokenholic-"+target.goOS+"-"+target.goArch)
+		// The file keeps its real name: Windows will not run one without .exe.
+		binaryPath := filepath.Join(temporary, target.goOS+"-"+target.goArch, target.binaryName())
 		if err := build(binaryPath, *version, target); err != nil {
 			return err
 		}
