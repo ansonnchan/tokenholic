@@ -205,8 +205,8 @@ on two Macs. Steps 5 to 7 were left for later.
   five minutes, and the free API took about twelve seconds for each batch of
   100 buckets, so a machine with a long history reported "could not
   synchronize usage" twice before a third run finished. Each run kept what it
-  uploaded; nothing was lost or counted twice. Fixed in the client after
-  0.3.0: the upload has no overall limit, prints its progress, and a run that
+  uploaded; nothing was lost or counted twice. Fixed in the client in
+  0.3.1: the upload has no overall limit, prints its progress, and a run that
   stops partway says how many buckets were uploaded and that `tokenholic
   sync` continues from there. The fix is covered by tests against a fake
   server; it has not been watched uploading a long history to the live API.
@@ -236,6 +236,15 @@ on two Macs. Steps 5 to 7 were left for later.
   drew in color, joined the global board, declined to create a group, quit
   with exit 0, and wrote no file. Steps 1 to 5 were not repeated for it, and
   everything listed as not yet checked for 0.2.0 is still not checked.
+- **0.3.1, the same day.** `v0.3.1` carries the sync fix above and nothing
+  else. Its merge redeployed the API, which uses none of the changed code;
+  afterwards the health route answered and the sync routes refused an
+  unsigned request and the retired protocol as before. The release workflow
+  passed every job. Checked on macOS arm64 from a clean install with an empty
+  home: `--version` printed `0.3.1`, `doctor` showed the built-in address and
+  the verified ccusage, and `demo` ran and quit cleanly. The fix itself was
+  not exercised by that check: it needs a signed-in machine with more than
+  one batch waiting.
 - **The website's publish workflow can fail on a GitHub artifact error.** On
   one merge the deploy step found no artifact right after uploading it, and
   re-running the same run then found two. Starting a fresh run from the
