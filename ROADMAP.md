@@ -1025,24 +1025,20 @@ Each source must ship with:
 
 ## Next delivery sequence
 
-The local, multiplayer, packaging, and autosync implementation is complete,
-and `@tokenholic/cli` 0.1.0 is published. The parity revamp, M6 to M10, is
-built: usage and cost correctness; leaderboards, profiles, and integrity; the
-TUI revamp; the website and sharing; and Linux, Windows, and release
-preparation. One item is open inside it, Codex compaction usage (TKH-075),
-which waits on real records to build a fixture from.
+The local, multiplayer, packaging, and autosync implementation is complete.
+The parity revamp, M6 to M10, and the long-tail agents, M11, are built and
+released: `@tokenholic/cli` 0.2.0 was tagged and published on November 22,
+2026, for macOS, Linux, and Windows on arm64 and x64. The hosted API runs
+`main`, because Render deploys every push, and the website is published.
 
-The hosted API already runs this code: Render deploys every push to `main`,
-so each merged pull request has been live within minutes. Nothing else is
-out. The website is not published, the API has not been told its address,
-and the only client on npm is 0.1, which speaks the old sync protocol and is
-refused. What remains is the owner's release run in
-`docs/release-validation.md`: confirm the deploy, measure the proxy chain,
-publish the website and tell the API its address, run the two-account
-journey and the Windows run, then tag and publish. The free demo
-environment's end-to-end validation (TKH-043) is part of that run.
+Released does not mean every check was run. What is still open:
 
-Long-tail agents through ccusage, M11, are built ahead of the tag at the
-owner's choice: GitHub Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, and
-Qwen Code are read as daily totals through one pinned ccusage release. They
-have not met real records yet. A measured private beta remains optional.
+- The Windows manual run in `docs/release-validation.md`. Windows has only
+  what CI and the release workflow's smoke run prove.
+- The five agents read through ccusage have not met real records.
+- Codex compaction usage (TKH-075), which waits on real records to build a
+  fixture from.
+- The rest of the release checklist's unchecked rows: a public group's board
+  page, autosync over an hour, revoking a device, and deleting an account.
+
+A measured private beta remains optional.

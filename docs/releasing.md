@@ -95,3 +95,9 @@ because users must act on them:
 - **Local estimates are a preview.** The server now resolves models and derives
   estimates. The values the CLI shows before a server reply come from its own
   bundled catalog and can differ from the server's.
+- **Five more agents, through ccusage, on by default.** GitHub Copilot CLI,
+  Gemini CLI, Grok Build CLI, OpenCode, and Qwen Code are counted as daily
+  totals. To read them tokenholic runs ccusage, a third-party program, at one
+  pinned and digest-checked release that is installed with the npm package.
+  It reads those agents' local session records and returns token counts.
+  `tokenholic ccusage off` stops tokenholic from running it.
