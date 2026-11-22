@@ -249,8 +249,17 @@ func (m Model) hints() []widget.Hint {
 			widget.Hint{Key: "c", Label: "create"}, widget.Hint{Key: "i", Label: "join"},
 		)
 	}
+	// Every key that does something here is named, so none has to be found
+	// by accident. When the bar is too narrow, hints drop from the end, and
+	// help still lists them all.
+	if m.section != BoardsSection && m.canClaim() {
+		hints = append(hints, widget.Hint{Key: "c", Label: "claim"})
+	}
+	hints = append(hints, widget.Hint{Key: "r", Label: "refresh"})
+	if m.themes != nil && m.theme.Color {
+		hints = append(hints, widget.Hint{Key: "t", Label: m.theme.Mode.Other().String() + " theme"})
+	}
 	return append(hints,
-		widget.Hint{Key: "r", Label: "refresh"},
 		widget.Hint{Key: "?", Label: "help", Keep: true},
 		widget.Hint{Key: "q", Label: "quit", Keep: true},
 	)
