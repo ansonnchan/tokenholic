@@ -145,7 +145,7 @@ func (r Report) Render() string {
 // platformSupported reports whether default discovery knows any location on
 // an operating system. It must agree with adapters.DefaultRoots.
 func platformSupported(goos string) bool {
-	return goos == "darwin" || goos == "linux"
+	return goos == "darwin" || goos == "linux" || goos == "windows"
 }
 
 func (r Report) noSupportedSources() bool {
