@@ -658,6 +658,12 @@ main.wrap {
   color: var(--muted);
   font-size: 13px;
 }
+.profile-share {
+  margin-left: auto;
+}
+.panel-actions {
+  margin-top: 16px;
+}
 
 .pair {
   display: grid;
@@ -820,6 +826,14 @@ main.wrap {
   .profile-name,
   .invite-group {
     font-size: 24px;
+  }
+  .profile-head {
+    flex-wrap: wrap;
+    margin-bottom: 36px;
+  }
+  .profile-share {
+    flex-basis: 100%;
+    margin-left: 0;
   }
   .tile-value {
     font-size: 22px;

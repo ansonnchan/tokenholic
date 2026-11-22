@@ -7,12 +7,12 @@
 // naming a member highlights that row and puts it in the rail; it is a
 // pointer someone chose to share, not an identity.
 
-import { OK, readPublic } from "./api.js";
+import { apiBase, OK, readPublic } from "./api.js";
 import { apiOrigin } from "./config.js";
-import { avatar, command, el, INSTALL, instantText, panel, show, showLoading, showProblem, showWaking } from "./ui.js";
+import { avatar, command, el, INSTALL, instantText, panel, shareButton, show, showLoading, showProblem, showWaking } from "./ui.js";
 import {
-  boardNotes, boardRows, comparisonLabel, DEFAULT_METRIC, DEFAULT_PERIOD, METRIC_ORDER, metricColumn, metricLabel,
-  PERIOD_ORDER, periodLabel, validLogin, validSlug,
+  boardNotes, boardRows, boardSharePage, boardShareText, comparisonLabel, DEFAULT_METRIC, DEFAULT_PERIOD, intentLink,
+  METRIC_ORDER, metricColumn, metricLabel, PERIOD_ORDER, periodLabel, validLogin, validSlug,
 } from "./values.js";
 
 const NOT_FOUND = {
@@ -85,6 +85,8 @@ function render(view, board, slug, selected) {
   const since = board.window?.start ? instantText(board.window.start, zone, day) : "the beginning";
   const asOf = instantText(board.generated_at, zone, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
   const notes = boardNotes(board);
+  const draft = boardShareText(board);
+  const share = shareButton(draft && intentLink(draft, boardSharePage(apiBase(apiOrigin), slug, board.period, board.metric)));
 
   const main = panel(name,
     el("div", { class: "board-controls" },
@@ -105,6 +107,7 @@ function render(view, board, slug, selected) {
         fact("As of", asOf),
       ),
       el("p", { class: "panel-foot", text: "Lists only members whose own profile is public." }),
+      share ? el("p", { class: "panel-actions" }, share) : null,
     ),
     panel("Get on a board", command(INSTALL, "Private by default. You choose what goes public.")),
   );

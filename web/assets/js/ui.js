@@ -68,6 +68,13 @@ export function command(text, note = "") {
 
 export const INSTALL = "npx @tokenholic/cli";
 
+// shareButton is a link to X's compose page with a draft the visitor reviews
+// and posts themselves. It is null when there is nothing to draft.
+export function shareButton(link) {
+  if (!link) return null;
+  return el("a", { class: "button is-quiet", href: link, target: "_blank", rel: "noopener noreferrer", text: "Share on X" });
+}
+
 // showLoading is the first thing a data page draws. It never shows a number.
 export function showLoading(view) {
   view.setAttribute("aria-busy", "true");
