@@ -5,6 +5,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"crypto/sha256"
+	"debug/elf"
 	"debug/macho"
 	"encoding/hex"
 	"errors"
@@ -31,15 +32,27 @@ const (
 
 var semanticVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 
+// target is one operating system and CPU a release ships for. archiveArch is
+// the CPU as npm names it, which the platform packages share.
 type target struct {
-	archiveArch string
-	goArch      string
-	cpu         macho.Cpu
+	goOS, goArch string
+	archiveArch  string
+	// verify proves the built file is what the target claims before it is
+	// packaged.
+	verify func(path string) error
 }
 
 var targets = []target{
-	{archiveArch: "arm64", goArch: "arm64", cpu: macho.CpuArm64},
-	{archiveArch: "x64", goArch: "amd64", cpu: macho.CpuAmd64},
+	{goOS: "darwin", goArch: "arm64", archiveArch: "arm64", verify: machO(macho.CpuArm64)},
+	{goOS: "darwin", goArch: "amd64", archiveArch: "x64", verify: machO(macho.CpuAmd64)},
+	{goOS: "linux", goArch: "arm64", archiveArch: "arm64", verify: staticELF(elf.EM_AARCH64)},
+	{goOS: "linux", goArch: "amd64", archiveArch: "x64", verify: staticELF(elf.EM_X86_64)},
+}
+
+func (t target) String() string { return t.goOS + "/" + t.goArch }
+
+func (t target) archiveName(version string) string {
+	return fmt.Sprintf("tokenholic_%s_%s_%s.tar.gz", version, t.goOS, t.archiveArch)
 }
 
 type archiveEntry struct {
@@ -87,30 +100,31 @@ func run(args []string, output io.Writer) error {
 
 	checksums := make(map[string]string, len(targets))
 	for _, target := range targets {
-		binaryPath := filepath.Join(temporary, "tokenholic-"+target.goArch)
-		if err := build(binaryPath, *version, target.goArch); err != nil {
+		binaryPath := filepath.Join(temporary, "tokenholic-"+target.goOS+"-"+target.goArch)
+		if err := build(binaryPath, *version, target); err != nil {
 			return err
 		}
-		if err := verifyMachO(binaryPath, target.cpu); err != nil {
-			return err
+		if err := target.verify(binaryPath); err != nil {
+			return fmt.Errorf("verify %s: %w", target, err)
 		}
-		if runtime.GOOS == "darwin" && runtime.GOARCH == target.goArch {
+		// Only the build machine's own target can be executed.
+		if runtime.GOOS == target.goOS && runtime.GOARCH == target.goArch {
 			if err := verifyVersion(binaryPath, *version); err != nil {
 				return err
 			}
 		}
 		binary, err := os.ReadFile(binaryPath)
 		if err != nil {
-			return fmt.Errorf("read %s binary: %w", target.archiveArch, err)
+			return fmt.Errorf("read %s binary: %w", target, err)
 		}
-		archiveName := fmt.Sprintf("tokenholic_%s_darwin_%s.tar.gz", *version, target.archiveArch)
+		archiveName := target.archiveName(*version)
 		archivePath := filepath.Join(*outputDir, archiveName)
 		entries := []archiveEntry{
 			{name: binaryName, mode: 0o755, data: binary},
 			{name: lockName, mode: 0o644, data: lock},
 		}
 		if err := writeArchive(archivePath, entries); err != nil {
-			return fmt.Errorf("package %s: %w", target.archiveArch, err)
+			return fmt.Errorf("package %s: %w", target, err)
 		}
 		checksum, err := fileChecksum(archivePath)
 		if err != nil {
@@ -126,15 +140,15 @@ func run(args []string, output io.Writer) error {
 	return nil
 }
 
-func build(destination, version, goarch string) error {
+func build(destination, version string, target target) error {
 	command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w -X "+versionKey+"="+version, "-o", destination, "./cmd/tokenholic")
 	command.Env = replaceEnvironment(os.Environ(), map[string]string{
 		"CGO_ENABLED": "0",
-		"GOARCH":      goarch,
-		"GOOS":        "darwin",
+		"GOARCH":      target.goArch,
+		"GOOS":        target.goOS,
 	})
 	if combined, err := command.CombinedOutput(); err != nil {
-		return fmt.Errorf("build darwin/%s: %w: %s", goarch, err, strings.TrimSpace(string(combined)))
+		return fmt.Errorf("build %s: %w: %s", target, err, strings.TrimSpace(string(combined)))
 	}
 	return nil
 }
@@ -159,16 +173,39 @@ func replaceEnvironment(environment []string, replacements map[string]string) []
 	return result
 }
 
-func verifyMachO(path string, want macho.Cpu) error {
-	file, err := macho.Open(path)
-	if err != nil {
-		return fmt.Errorf("inspect release binary: %w", err)
+func machO(want macho.Cpu) func(string) error {
+	return func(path string) error {
+		file, err := macho.Open(path)
+		if err != nil {
+			return fmt.Errorf("inspect release binary: %w", err)
+		}
+		defer file.Close()
+		if file.Cpu != want {
+			return fmt.Errorf("release binary architecture is %s, want %s", file.Cpu, want)
+		}
+		return nil
 	}
-	defer file.Close()
-	if file.Cpu != want {
-		return fmt.Errorf("release binary architecture is %s, want %s", file.Cpu, want)
+}
+
+// staticELF also requires that the binary needs no dynamic loader or shared
+// library, so one Linux build runs on glibc and musl systems alike.
+func staticELF(want elf.Machine) func(string) error {
+	return func(path string) error {
+		file, err := elf.Open(path)
+		if err != nil {
+			return fmt.Errorf("inspect release binary: %w", err)
+		}
+		defer file.Close()
+		if file.Machine != want {
+			return fmt.Errorf("release binary architecture is %s, want %s", file.Machine, want)
+		}
+		for _, program := range file.Progs {
+			if program.Type == elf.PT_INTERP || program.Type == elf.PT_DYNAMIC {
+				return errors.New("release binary is dynamically linked")
+			}
+		}
+		return nil
 	}
-	return nil
 }
 
 func verifyVersion(path, version string) error {
