@@ -12,7 +12,7 @@ import (
 // bundledRevision pins the embedded data. It changes whenever the snapshot,
 // the overrides, or rulesVersion change; update it deliberately in the
 // same change so the reprice that follows is visible in review.
-const bundledRevision = "2026-11-21-c56215b01d69"
+const bundledRevision = "2026-11-21-1255fbad1e32"
 
 func TestBundledRevisionIsPinned(t *testing.T) {
 	t.Parallel()
@@ -231,6 +231,81 @@ func TestDecodeSnapshotRejectsMalformedData(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := DecodeSnapshot([]byte(data)); err == nil {
 				t.Fatal("DecodeSnapshot() accepted malformed data")
+			}
+		})
+	}
+}
+
+// The day-level agents report models from providers beyond Anthropic and
+// OpenAI. A day total proves no prompt size and no service tier, so the
+// cases price exactly what such a bucket can prove and leave the rest
+// unpriced with its reason. Nothing here is an alias: a name the provider's
+// price list does not carry stays unknown.
+func TestBundledCatalogPricesDayLevelProviders(t *testing.T) {
+	t.Parallel()
+	deriver, err := BundledDeriver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	million := uint64(1_000_000)
+	tests := []struct {
+		observed string
+		provider string
+		// wantMicroUSD is one million each of input, cache read, and output
+		// at the standard rate, per the provider's published prices.
+		wantMicroUSD uint64
+		reason       string
+	}{
+		// $0.30 input + $0.03 cache read + $2.50 output.
+		{observed: "gemini-2.5-flash", provider: "gemini", wantMicroUSD: 2_830_000},
+		// $0.75 + $0.075 + $3.75.
+		{observed: "gemini-3.8-flash", provider: "gemini", wantMicroUSD: 4_575_000},
+		// Priced by prompt length, which a day total cannot prove.
+		{observed: "gemini-2.5-pro", provider: "gemini", reason: ReasonPromptLengthUnproven},
+		{observed: "grok-4.5", provider: "xai", reason: ReasonPromptLengthUnproven},
+		{observed: "grok-code-fast-1", provider: "xai", reason: ReasonPromptLengthUnproven},
+		// Grok Build's own model name is not on xAI's price list. It is not
+		// assumed to be the model its name resembles.
+		{observed: "grok-4.5-build", reason: ReasonUnknownModel},
+		// Left out of the snapshot: priced at a prompt length no band proves.
+		{observed: "gemini-exp-1206", reason: ReasonUnknownModel},
+		// No first-party token price is vendored for these.
+		{observed: "qwen3-coder-plus", reason: ReasonUnknownModel},
+		{observed: "claude-sonnet-4.5", reason: ReasonUnknownModel},
+		// A route through another vendor is never a first-party price.
+		{observed: "gemini/gemini-2.5-flash", reason: ReasonUnknownModel},
+		{observed: "xai/grok-4.5", reason: ReasonUnknownModel},
+	}
+	for _, test := range tests {
+		t.Run(test.observed, func(t *testing.T) {
+			t.Parallel()
+			derivation, err := deriver.Derive(Usage{
+				ObservedModelID: test.observed, ModelEvidence: normalize.ModelReported,
+				Tokens: normalize.TokenCounts{InputUncached: &million, InputCacheRead: &million, Output: &million},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.provider == "" {
+				if derivation.Resolution.CanonicalID != nil || derivation.Resolution.Provider != nil {
+					t.Fatalf("resolution = %+v, want an unknown model", derivation.Resolution)
+				}
+			} else if derivation.Resolution.Provider == nil || *derivation.Resolution.Provider != test.provider ||
+				derivation.Resolution.CanonicalID == nil || *derivation.Resolution.CanonicalID != test.observed {
+				t.Fatalf("resolution = %+v, want %s from %s", derivation.Resolution, test.observed, test.provider)
+			}
+			if test.reason != "" {
+				if derivation.Resolution.UnpricedReason != test.reason {
+					t.Fatalf("unpriced reason = %q, want %q", derivation.Resolution.UnpricedReason, test.reason)
+				}
+				if derivation.EstimateMicroUSD != nil || derivation.PricedTokens != 0 || derivation.UnpricedTokens != 3*million {
+					t.Fatalf("derivation = %+v, want every token unpriced and no estimate", derivation)
+				}
+				return
+			}
+			if derivation.EstimateMicroUSD == nil || *derivation.EstimateMicroUSD != test.wantMicroUSD ||
+				derivation.PricedTokens != 3*million || derivation.UnpricedTokens != 0 {
+				t.Fatalf("derivation = %+v, want %d micro-USD for three million priced tokens", derivation, test.wantMicroUSD)
 			}
 		})
 	}

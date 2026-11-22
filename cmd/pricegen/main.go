@@ -167,27 +167,51 @@ func build(pin modelcatalog.SnapshotPin, upstream []byte) (modelcatalog.Snapshot
 	}
 	sort.Strings(identifiers)
 	snapshot := modelcatalog.Snapshot{Source: pin}
+	vendored := make(map[string]string)
+	excluded := make(map[string]bool)
 	for _, identifier := range identifiers {
 		model, keep, err := convert(pin, identifier, entries[identifier])
 		if err != nil {
 			return modelcatalog.Snapshot{}, fmt.Errorf("model %q: %w", identifier, err)
 		}
-		if keep {
-			snapshot.Models = append(snapshot.Models, model)
+		if !keep {
+			continue
+		}
+		if slices.Contains(pin.ExcludedModels, model.ID) {
+			excluded[model.ID] = true
+			continue
+		}
+		// Removing a provider's prefix must never land on another entry.
+		if other, taken := vendored[model.ID]; taken {
+			return modelcatalog.Snapshot{}, fmt.Errorf("model %q: vendored under the same name as %q", identifier, other)
+		}
+		vendored[model.ID] = identifier
+		snapshot.Models = append(snapshot.Models, model)
+	}
+	for _, model := range pin.ExcludedModels {
+		// An exclusion that matches nothing is stale and hides a mistake.
+		if !excluded[model] {
+			return modelcatalog.Snapshot{}, fmt.Errorf("excluded model %q is not a model the pin would vendor", model)
 		}
 	}
 	if len(snapshot.Models) == 0 {
 		return modelcatalog.Snapshot{}, errors.New("no upstream model matched the pinned providers and modes")
 	}
+	sort.Slice(snapshot.Models, func(i, j int) bool { return snapshot.Models[i].ID < snapshot.Models[j].ID })
 	return snapshot, nil
 }
 
 // convert keeps one upstream entry when it is a first-party, token-priced
 // model. Prefixed routes and moving aliases are dropped: a route is another
 // vendor's price, and an alias would reprice history when it moves.
+//
+// Some providers' own prices are published only under their own prefix, as
+// "<provider>/<model>". The pin names those providers. For them the prefixed
+// entry is the first-party one and is vendored under the bare model name,
+// and an unprefixed entry of theirs is dropped as the secondary copy.
 func convert(pin modelcatalog.SnapshotPin, identifier string, raw json.RawMessage) (modelcatalog.SnapshotModel, bool, error) {
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || strings.ContainsAny(identifier, "/ ") {
+	if err := json.Unmarshal(raw, &fields); err != nil || strings.Contains(identifier, " ") {
 		return modelcatalog.SnapshotModel{}, false, nil
 	}
 	if _, alias := fields["alias_of"]; alias {
@@ -196,6 +220,19 @@ func convert(pin modelcatalog.SnapshotPin, identifier string, raw json.RawMessag
 	provider, mode := text(fields["litellm_provider"]), text(fields["mode"])
 	if !slices.Contains(pin.Providers, provider) || !slices.Contains(pin.Modes, mode) {
 		return modelcatalog.SnapshotModel{}, false, nil
+	}
+	if slices.Contains(pin.PrefixedProviders, provider) {
+		bare, prefixed := strings.CutPrefix(identifier, provider+"/")
+		if !prefixed {
+			return modelcatalog.SnapshotModel{}, false, nil
+		}
+		identifier = bare
+	}
+	if identifier == "" || strings.Contains(identifier, "/") {
+		return modelcatalog.SnapshotModel{}, false, nil
+	}
+	if err := sameReasoningRate(fields); err != nil {
+		return modelcatalog.SnapshotModel{}, false, err
 	}
 	_, hasInput := fields["input_cost_per_token"]
 	_, hasOutput := fields["output_cost_per_token"]
@@ -297,6 +334,33 @@ func convert(pin modelcatalog.SnapshotPin, identifier string, raw json.RawMessag
 		}
 	}
 	return model, true, nil
+}
+
+// sameReasoningRate refuses a model that prices reasoning output apart from
+// other output. Reasoning is counted inside output here, so one output rate
+// is all a bucket can be priced with; a second rate would make the estimate
+// a guess.
+func sameReasoningRate(fields map[string]json.RawMessage) error {
+	reasoning, found := fields["output_cost_per_reasoning_token"]
+	if !found {
+		return nil
+	}
+	output, found := fields["output_cost_per_token"]
+	if !found {
+		return errors.New("output_cost_per_reasoning_token: a reasoning rate without an output rate")
+	}
+	reasoningRate, err := rateFromCostPerToken(reasoning)
+	if err != nil {
+		return fmt.Errorf("output_cost_per_reasoning_token: %w", err)
+	}
+	outputRate, err := rateFromCostPerToken(output)
+	if err != nil {
+		return fmt.Errorf("output_cost_per_token: %w", err)
+	}
+	if reasoningRate != outputRate {
+		return errors.New("output_cost_per_reasoning_token: reasoning output is priced apart from output, which no bucket can separate")
+	}
+	return nil
 }
 
 // addFastMode vendors the fast-mode card from the multiplier the upstream
