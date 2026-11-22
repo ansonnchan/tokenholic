@@ -1,6 +1,10 @@
 package numfmt
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"testing"
+)
 
 func TestTokensKeepsThreeSignificantDigitsAndPromotesUnits(t *testing.T) {
 	t.Parallel()
@@ -108,6 +112,51 @@ func TestPercentCutsInsteadOfRounding(t *testing.T) {
 	for basisPoints, want := range cases {
 		if got := Percent(basisPoints); got != want {
 			t.Errorf("Percent(%d) = %q, want %q", basisPoints, got, want)
+		}
+	}
+}
+
+// The website formats the same values in JavaScript. Both read these
+// vectors, so a change to one formatter fails the other's tests.
+func TestSharedVectors(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile("testdata/vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors struct {
+		Tokens  []struct{ In, Want string } `json:"tokens"`
+		USD     []struct{ In, Want string } `json:"usd_micros"`
+		Percent []struct {
+			In   int
+			Want string
+		} `json:"percent_basis_points"`
+		Invalid []string `json:"invalid_decimals"`
+	}
+	if err := json.Unmarshal(raw, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	if len(vectors.Tokens) == 0 || len(vectors.USD) == 0 || len(vectors.Percent) == 0 || len(vectors.Invalid) == 0 {
+		t.Fatal("vectors file is missing a section")
+	}
+	for _, vector := range vectors.Tokens {
+		if got, ok := TokensDecimal(vector.In); !ok || got != vector.Want {
+			t.Errorf("TokensDecimal(%q) = %q, %t; want %q", vector.In, got, ok, vector.Want)
+		}
+	}
+	for _, vector := range vectors.USD {
+		if got, ok := USDDecimal(vector.In); !ok || got != vector.Want {
+			t.Errorf("USDDecimal(%q) = %q, %t; want %q", vector.In, got, ok, vector.Want)
+		}
+	}
+	for _, vector := range vectors.Percent {
+		if got := Percent(vector.In); got != vector.Want {
+			t.Errorf("Percent(%d) = %q, want %q", vector.In, got, vector.Want)
+		}
+	}
+	for _, invalid := range vectors.Invalid {
+		if _, ok := TokensDecimal(invalid); ok {
+			t.Errorf("TokensDecimal(%q) accepted", invalid)
 		}
 	}
 }
