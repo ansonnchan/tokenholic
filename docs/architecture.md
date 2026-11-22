@@ -252,6 +252,19 @@ or credential, and performs no network or acknowledgement mutation. Transient
 network, rate limit, and server failures receive one exponential-backoff retry
 with jitter; an interrupted or rejected batch remains pending.
 
+A day-level source is the one case that is not a minute. Its usage arrives as
+one total per UTC day and model, stored as a single record with the count
+semantics `day_total` that a later reading replaces in place, so a day that
+grows between scans is never counted twice. That record becomes one bucket
+filed at 00:00 UTC of its day and marked `"granularity": "day"`. The mark is
+part of the bucket's key and JSON; a minute bucket has no such field, so no
+existing bucket changed when these sources were admitted. Normalized
+validation, the SQLite schema, and the sync protocol each tie day totals to
+the day-level sources in both directions, so Claude and Codex usage can never
+be stored or uploaded as a day. A day's place against a local midnight is
+approximate: in a timezone behind UTC its usage shows under the previous
+local date until the UTC date changes.
+
 Local buckets use one-minute UTC intervals. This preserves exact modern IANA
 timezone day and week boundaries while grouping events that occur in the same
 minute. Today starts at local midnight, weeks start Monday, and the 30-day view
@@ -503,6 +516,12 @@ Every row also includes last-upload freshness, source mix, most-used model,
 and counts for unknown or inferred model resolution and unavailable API
 estimates. Revoked devices and inactive memberships do not contribute.
 
+A row also counts its day-level buckets in the window: whole UTC days from a
+source the client reads through ccusage. The server stores such a bucket with
+`interval_seconds` 86400 instead of 60 and files it at the start of its UTC
+day, so which side of the board's day boundary its usage fell on is
+approximate. The count lets a board say so. The usage is ranked as usual.
+
 The global board ranks every account that opted in, with the same rules and
 UTC boundaries, since its members share no timezone. `users.global_opt_in` is
 false by default and changes only through an authenticated request that states
@@ -519,7 +538,8 @@ order stay. A private group has no such floor. A long board returns its first
 
 Pricing is a versioned registry built from a pinned LiteLLM `model_prices`
 snapshot plus small reviewed overrides. `cmd/pricegen` vendors the pinned
-commit, verifies its SHA-256, and keeps only first-party token prices. Every
+commit, verifies its SHA-256, and keeps only first-party token prices: those
+of Anthropic, OpenAI, Google, and xAI. Every
 override cites an official provider pricing page and retrieval date. The
 registry provides standard API-equivalent estimates only; it does not claim
 subscription usage was billed. The
@@ -536,7 +556,8 @@ publishes, and one above a prompt-length threshold. A bucket's pricing
 evidence selects the card, and the stored pricing key names it. A proven tier
 or prompt length without a vendored rate stays unpriced. A model that charges
 more above a threshold is priced only when the bucket proves which side its
-requests fell on. A tier the source did not prove is priced on the standard
+requests fell on. A day-level bucket proves no prompt length, so such a
+model stays unpriced for the day-level sources. A tier the source did not prove is priced on the standard
 card; that default is a recorded product decision, described in the model
 catalog guide, and it is the only place an estimate assumes a billing fact.
 

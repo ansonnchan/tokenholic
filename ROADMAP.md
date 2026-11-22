@@ -257,7 +257,7 @@ output_tokens
 reasoning_output_tokens
 service_tier: standard | priority | flex | batch | fast (absent when unproven)
 prompt_tokens (one request's whole prompt; absent when unproven)
-count_semantics: incremental | cumulative_snapshot
+count_semantics: incremental | cumulative_snapshot | day_total
 measurement: reported | derived | estimated
 adapter_version
 normalization_version
@@ -314,7 +314,7 @@ error records, are excluded before normalization.
 The default upload payload may include:
 
 - user and device identifiers;
-- UTC time bucket;
+- UTC time bucket, and whether it is a minute or a whole day;
 - source and surface;
 - the observed model identifier and how the source attributed it;
 - the service tier and a coarse prompt-size band, when the source proves them;
@@ -911,7 +911,7 @@ Constraints that shape this milestone:
   - Built: the runner, the contract, and their place in `tokenholic doctor`.
     Nothing is collected from these agents until TKH-111 and TKH-112.
 
-- [ ] **TKH-111: Admit day-level sources** (`feat/day-level-sources`)
+- [x] **TKH-111: Admit day-level sources** (`feat/day-level-sources`)
   - Add the sources and their surface to the allowlists that enumerate
     Claude and Codex today: local SQLite checks, normalized validation, and
     sync protocol validation. The server schema already checks shape only.
@@ -923,6 +923,19 @@ Constraints that shape this milestone:
   - Acceptance: rescanning a growing day replaces its value without adding
     to it; totals survive repeated sync; `show-data` still matches the upload.
   - Depends on: TKH-110.
+  - Built: the sources `copilot`, `gemini`, `grok`, `opencode`, and `qwen`
+    on the `cli` surface; a third count semantics, `day_total`; a bucket
+    marked `"granularity": "day"` and filed at the start of its UTC day; the
+    server column `interval_seconds` admitting 86400; and
+    `day_level_buckets` in each board row's limitations.
+  - The price snapshot now vendors Google's and xAI's own prices. A model
+    priced by prompt length stays unpriced for these sources, because a day
+    total proves no prompt length; Qwen models and names a price list does
+    not carry stay unpriced as unknown models. No price was entered by hand.
+  - A day is filed at 00:00 UTC, so in a timezone behind UTC its usage shows
+    under the previous local date until the UTC date changes. Filing it by
+    the day's midpoint was considered and left out: it needs every window
+    query, local and on the server, to treat day buckets specially.
 
 - [ ] **TKH-112: Enable the first agents** (`feat/ccusage-agents`)
   - Gemini CLI, OpenCode, GitHub Copilot CLI, Grok Build CLI, and Qwen Code.
