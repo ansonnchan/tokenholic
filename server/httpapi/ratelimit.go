@@ -34,11 +34,17 @@ type Allower interface {
 // A wrong value either lets a client choose its own address (too high) or
 // puts every client behind the proxy's address (too low), so it must match
 // the deployment.
+//
+// ObserveForwarded, when set, receives the number of X-Forwarded-For entries
+// on each limited request. It exists so an operator can measure the proxy
+// chain instead of guessing TrustedProxyHops; it sees a count and nothing
+// else about the request.
 type RateLimits struct {
 	PerAddress       Allower
 	PerCredential    Allower
 	DeviceStart      Allower
 	TrustedProxyHops int
+	ObserveForwarded func(entries int)
 }
 
 // RateLimited wraps the API with request rate limiting. A request over a
@@ -56,6 +62,9 @@ func RateLimited(next http.Handler, limits RateLimits) (http.Handler, error) {
 		if request.Method == http.MethodGet && request.URL.Path == "/healthz" {
 			next.ServeHTTP(response, request)
 			return
+		}
+		if limits.ObserveForwarded != nil {
+			limits.ObserveForwarded(len(forwardedEntries(request)))
 		}
 		address := clientAddress(request, limits.TrustedProxyHops)
 		checks := []struct {
@@ -112,12 +121,7 @@ func clientAddress(request *http.Request, trustedHops int) string {
 		host = request.RemoteAddr
 	}
 	if trustedHops > 0 {
-		var forwarded []string
-		for _, header := range request.Header.Values("X-Forwarded-For") {
-			for _, entry := range strings.Split(header, ",") {
-				forwarded = append(forwarded, strings.TrimSpace(entry))
-			}
-		}
+		forwarded := forwardedEntries(request)
 		if len(forwarded) >= trustedHops {
 			if address, err := netip.ParseAddr(forwarded[len(forwarded)-trustedHops]); err == nil {
 				return addressKey(address)
@@ -129,6 +133,19 @@ func clientAddress(request *http.Request, trustedHops int) string {
 		return host
 	}
 	return addressKey(address)
+}
+
+// forwardedEntries lists every X-Forwarded-For entry in arrival order. A
+// proxy may append to an existing header or add a header of its own; both
+// read as one list.
+func forwardedEntries(request *http.Request) []string {
+	var forwarded []string
+	for _, header := range request.Header.Values("X-Forwarded-For") {
+		for _, entry := range strings.Split(header, ",") {
+			forwarded = append(forwarded, strings.TrimSpace(entry))
+		}
+	}
+	return forwarded
 }
 
 func addressKey(address netip.Addr) string {

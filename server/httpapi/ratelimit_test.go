@@ -221,3 +221,40 @@ func TestRateLimitedRequiresCompleteConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// An operator measures the proxy chain from what requests actually carry.
+func TestRateLimitedReportsForwardingEntryCounts(t *testing.T) {
+	var observed []int
+	allow := &recordingAllower{}
+	handler, _ := limitedHandler(t, RateLimits{
+		PerAddress: allow, PerCredential: allow, DeviceStart: allow,
+		ObserveForwarded: func(entries int) { observed = append(observed, entries) },
+	})
+	for _, test := range []struct {
+		path    string
+		headers []string
+	}{
+		{"/v1/groups", nil},
+		{"/v1/groups", []string{"203.0.113.7"}},
+		{"/v1/groups", []string{"198.51.100.9, 203.0.113.7"}},
+		// Two headers read as one list.
+		{"/v1/groups", []string{"198.51.100.9", "203.0.113.7, 192.0.2.4"}},
+		// Health probes come from inside the platform and are not counted.
+		{"/healthz", []string{"203.0.113.7"}},
+	} {
+		request := httptest.NewRequest(http.MethodGet, test.path, nil)
+		for _, header := range test.headers {
+			request.Header.Add("X-Forwarded-For", header)
+		}
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+	if want := []int{0, 1, 2, 3}; len(observed) != len(want) {
+		t.Fatalf("observed = %v, want %v", observed, want)
+	} else {
+		for index := range want {
+			if observed[index] != want[index] {
+				t.Fatalf("observed = %v, want %v", observed, want)
+			}
+		}
+	}
+}
