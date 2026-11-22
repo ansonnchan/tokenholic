@@ -67,6 +67,10 @@ the job reads the sign-in from the OS credential store like any other run.
   deleting it leaves no empty task folder behind.
 - `schtasks` prints messages in the system's language, so only its exit code
   is read.
+- Windows refuses to delete or replace a program that is still running, and
+  a task told to stop takes a moment to go. Removing and replacing the stable
+  executable therefore retry for about three seconds before reporting the
+  refusal. The Windows CI runner found this.
 - A scheduled console program can show a console window when it starts. The
   job gives the console up immediately, but the window may flash first.
   Whether it does is part of the manual run in
