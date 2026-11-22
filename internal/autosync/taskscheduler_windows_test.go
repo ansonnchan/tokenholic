@@ -47,7 +47,7 @@ func TestTaskSchedulerAcceptsTheGeneratedTask(t *testing.T) {
 		t.Fatalf("read the registered task back: %v", err)
 	}
 	paths := scheduler.layout()
-	for _, want := range []string{paths.binary, "autosync run", "PT60M", "InteractiveToken"} {
+	for _, want := range []string{paths.binary, "autosync run", "<Interval>PT1H</Interval>", "InteractiveToken", "<LogonTrigger>"} {
 		if !strings.Contains(string(registered), want) {
 			t.Errorf("registered task does not contain %q:\n%s", want, registered)
 		}

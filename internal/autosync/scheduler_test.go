@@ -293,7 +293,7 @@ func TestTaskSchedulerDefinitions(t *testing.T) {
 		`<?xml version="1.0" encoding="UTF-16"?>`,
 		"<UserId>S-1-5-21-1-2-3-1001</UserId>",
 		"<LogonType>InteractiveToken</LogonType>", "<RunLevel>LeastPrivilege</RunLevel>",
-		"<LogonTrigger>", "<Interval>PT60M</Interval>", "<StartBoundary>2026-11-21T20:30:15</StartBoundary>",
+		"<LogonTrigger>", "<Interval>PT1H</Interval>", "<StartBoundary>2026-11-21T20:30:15</StartBoundary>",
 		"<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>",
 		"<Command>" + paths.binary + "</Command>",
 		"<Arguments>autosync run &quot;" + paths.definitions[0] + "&quot;</Arguments>",

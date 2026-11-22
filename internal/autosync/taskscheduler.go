@@ -80,7 +80,7 @@ func (t taskScheduler) definitions(work job) ([]definition, error) {
     </LogonTrigger>
     <TimeTrigger>
       <Repetition>
-        <Interval>PT` + fmt.Sprint(int(interval.Minutes())) + `M</Interval>
+        <Interval>PT` + fmt.Sprint(int(interval.Hours())) + `H</Interval>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
       <StartBoundary>` + t.now().Format("2006-01-02T15:04:05") + `</StartBoundary>
