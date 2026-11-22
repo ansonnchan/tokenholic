@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Only this site's own scripts, styles, and fonts load. Avatars come from
+       GitHub's avatar host; data comes from the API named in config.js. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' https://avatars.githubusercontent.com; connect-src https: http://127.0.0.1:* http://localhost:*; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0B1120">
+  <title>tokenholic: a terminal leaderboard for coding-agent tokens</title>
+  <meta name="description" content="tokenholic reads the usage records Claude Code and Codex keep on your machine, totals them in your terminal, and ranks you against the friends you invite.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/tokens.css">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-header wrap">
+    <a class="wordmark" href="./" aria-label="tokenholic home"><span class="caret">&gt;_</span> TOKENHOLIC</a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="#privacy">Privacy</a>
+      <a href="https://github.com/ansonnchan/tokenholic">Source</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <div class="hero wrap">
+      <div>
+        <p class="label">Terminal-native · Multiplayer · Private by default</p>
+        <h1>How many tokens did your coding agents burn?</h1>
+        <p class="lede">tokenholic reads the usage records Claude Code and Codex already keep on your machine, totals them in your terminal, and ranks you against the friends you invite.</p>
+        <div class="command">
+          <code id="install-command">npx @tokenholic/cli</code>
+          <button class="button" type="button" data-copy="install-command" data-copy-status="install-status">Copy</button>
+        </div>
+        <p class="command-note" id="install-status" role="status">No account needed. Nothing uploads until you claim.</p>
+      </div>
+
+      <!-- A static picture of the terminal board, built from the same table
+           styles as the real board page. Every name and number is made up. -->
+      <figure aria-label="Sample group board">
+        <div class="panel">
+          <h2 class="panel-title">Night-shift</h2>
+          <div class="board-controls">
+            <div class="chips" aria-hidden="true">
+              <span class="chip">Today</span>
+              <span class="chip is-on">This week</span>
+              <span class="chip">30 days</span>
+              <span class="chip">All-time</span>
+            </div>
+            <div class="chips" aria-hidden="true">
+              <span class="chip is-on">$ Est</span>
+              <span class="chip">Tokens</span>
+            </div>
+          </div>
+          <p class="rule">Standings <span class="rule-end">▲▼ vs last week</span></p>
+          <table class="standings">
+            <thead class="visually-hidden">
+              <tr><th scope="col">Rank</th><th scope="col">Member</th><th scope="col">API-equivalent estimate</th><th scope="col">Movement</th></tr>
+            </thead>
+            <tbody>
+              <tr class="rank-1">
+                <td class="col-rank">1</td>
+                <td class="col-name"><span class="who"><span class="avatar" aria-hidden="true">d</span><span class="who-name">@dana</span></span></td>
+                <td class="col-value">$1,180.00</td>
+                <td class="col-move"><span class="move-up">▲ 1</span></td>
+              </tr>
+              <tr class="rank-2">
+                <td class="col-rank">2</td>
+                <td class="col-name"><span class="who"><span class="avatar" aria-hidden="true">k</span><span class="who-name">@kai</span></span></td>
+                <td class="col-value">$1,090.00</td>
+                <td class="col-move"><span class="move-down">▼ 1</span></td>
+              </tr>
+              <tr class="rank-3">
+                <td class="col-rank">3</td>
+                <td class="col-name"><span class="who"><span class="avatar" aria-hidden="true">r</span><span class="who-name">@rio</span></span></td>
+                <td class="col-value">$840.50</td>
+                <td class="col-move">–</td>
+              </tr>
+              <tr>
+                <td class="col-rank">4</td>
+                <td class="col-name"><span class="who"><span class="avatar" aria-hidden="true">m</span><span class="who-name">@mika</span></span></td>
+                <td class="col-value">$702.15</td>
+                <td class="col-move"><span class="move-new">NEW</span></td>
+              </tr>
+              <tr class="is-current">
+                <td class="col-rank">5</td>
+                <td class="col-name"><span class="who"><span class="avatar" aria-hidden="true">y</span><span class="who-name">@you</span><span class="tag">★ YOU</span></span></td>
+                <td class="col-value">$640.00</td>
+                <td class="col-move"><span class="move-up">▲ 2</span></td>
+              </tr>
+              <tr>
+                <td class="col-rank">—</td>
+                <td class="col-name"><span class="who"><span class="avatar" aria-hidden="true">s</span><span class="who-name">@sam</span></span></td>
+                <td class="col-value">≥$560.75</td>
+                <td class="col-move">71% priced</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption class="label sample-note">Sample data · the real thing runs in your terminal</figcaption>
+      </figure>
+    </div>
+
+    <section class="section wrap" aria-labelledby="how">
+      <h2 class="rule" id="how">How it works</h2>
+      <ol class="steps">
+        <li>
+          <h3>Run it</h3>
+          <p>One command scans your local agent records and opens the dashboard. No account, no setup.</p>
+        </li>
+        <li>
+          <h3>See your numbers</h3>
+          <p>Tokens, an API-equivalent estimate, models, and sources, per day and all-time. All of it local.</p>
+        </li>
+        <li>
+          <h3>Claim your spot</h3>
+          <p>Sign in with GitHub from the terminal. Uploading starts only after you confirm what is sent.</p>
+        </li>
+        <li>
+          <h3>Compare</h3>
+          <p>Create a group, send an invite, and watch the board move. Go public only if you choose to.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="section wrap" id="privacy" aria-labelledby="privacy-title">
+      <h2 class="rule" id="privacy-title">What it touches</h2>
+      <div class="cards">
+        <section class="panel" aria-labelledby="reads">
+          <h3 class="panel-title" id="reads">Read locally</h3>
+          <ul class="ticks is-dot">
+            <li>Claude Code CLI sessions</li>
+            <li>Claude Desktop Code, Agent, and Cowork sessions</li>
+            <li>Codex CLI and Codex Desktop sessions</li>
+          </ul>
+          <p class="panel-foot">Only token counts and model IDs are taken from them. Ordinary chat apps are never read.</p>
+        </section>
+
+        <section class="panel" aria-labelledby="uploads">
+          <h3 class="panel-title" id="uploads">Sent on claim</h3>
+          <ul class="ticks is-yes">
+            <li>Token counts by category</li>
+            <li>The model ID each agent recorded</li>
+            <li>Which agent, and a one-minute UTC time bucket</li>
+            <li>Service tier and a coarse prompt-size band, when recorded</li>
+            <li>Your account and device identifiers</li>
+          </ul>
+          <p class="panel-foot"><code>tokenholic show-data</code> prints the exact payload before you ever sign in.</p>
+        </section>
+
+        <section class="panel" aria-labelledby="never">
+          <h3 class="panel-title" id="never">Never sent</h3>
+          <ul class="ticks is-no">
+            <li>Prompts and responses</li>
+            <li>Source code and diffs</li>
+            <li>Tool inputs and command text</li>
+            <li>File paths, project, repository, and branch names</li>
+            <li>Provider credentials</li>
+            <li>Raw session transcripts</li>
+          </ul>
+        </section>
+      </div>
+    </section>
+
+    <section class="section wrap" aria-labelledby="numbers">
+      <h2 class="rule" id="numbers">Reading the numbers</h2>
+      <dl class="glossary">
+        <dt>$ EST</dt>
+        <dd>An estimate of what the same tokens would cost at API list prices. It is never what you spent; a subscription bills differently.</dd>
+        <dt>≥</dt>
+        <dd>A lower bound. Some usage had no known price, or an agent did not record every category.</dd>
+        <dt>—</dt>
+        <dd>Unknown. An unknown value is never shown as zero.</dd>
+        <dt>RANK</dt>
+        <dd>Usage is reported by each member's own machine. A board is for bragging rights, not proof.</dd>
+        <dt>PUBLIC</dt>
+        <dd>Profiles, groups, and the global board stay private until their owner opts in from the terminal.</dd>
+      </dl>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <p>This site is read-only: no sign-in, no cookies, no analytics. Everything else happens in your terminal.</p>
+    <p>macOS today; Linux and Windows are next. Not affiliated with Anthropic or OpenAI.</p>
+  </footer>
+
+  <script type="module" src="assets/js/copy.js"></script>
+</body>
+</html>

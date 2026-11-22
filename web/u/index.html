@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' https://avatars.githubusercontent.com; connect-src https: http://127.0.0.1:* http://localhost:*; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0B1120">
+  <title>Public profile · tokenholic</title>
+  <meta name="description" content="A public tokenholic profile: coding-agent token totals and API-equivalent estimates the member chose to publish.">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/tokens.css">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-header wrap">
+    <a class="wordmark" href="../" aria-label="tokenholic home"><span class="caret">&gt;_</span> TOKENHOLIC</a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="../#privacy">Privacy</a>
+      <a href="../">Get it</a>
+    </nav>
+  </header>
+
+  <main id="main" class="wrap">
+    <!-- Filled in by profile.js from the API's public, read-only JSON. -->
+    <div id="view" aria-live="polite" aria-busy="true"></div>
+    <noscript>
+      <section class="panel state">
+        <h1 class="panel-title">JavaScript is off</h1>
+        <p class="state-lede">This page reads public data from the tokenholic API, which needs JavaScript. Nothing else on it does.</p>
+      </section>
+    </noscript>
+  </main>
+
+  <footer class="site-footer wrap">
+    <p>Totals are reported by the member's own machines and are not verified.</p>
+    <p>This site is read-only: no sign-in, no cookies, no analytics.</p>
+  </footer>
+
+  <script type="module" src="../assets/js/profile.js"></script>
+</body>
+</html>
