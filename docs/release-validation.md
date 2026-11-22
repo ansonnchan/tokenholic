@@ -84,6 +84,9 @@ down in the deployment guide: the platform is not adding the header. Record
 the measured value and the date in `docs/deployment.md`, which still says it
 has not been measured.
 
+Measured on November 21, 2026: the smallest count was 3, so the value for
+this service is `3`.
+
 ### 3. Publish the website
 
 Follow section 6 of the [deployment guide](./deployment.md):
@@ -177,6 +180,26 @@ npx --yes @tokenholic/cli@0.2.0 doctor
 Expect `0.2.0`, the right platform, and `API address: built in`. Then run
 step 4's rows 1 and 2 once more from `npx`, with no checkout and no variable
 set: that is the claim the landing page promises.
+
+## Found by the first run
+
+The first pass through steps 1 to 4, on November 21, 2026, with two accounts
+on two Macs. Steps 5 to 7 were left for later.
+
+- **Worked:** the website reading the live API, the allow-origin limited to
+  the site, a claim from the TUI and from the terminal against real GitHub,
+  an invite joined from the second account, and both machines showing the
+  same two rows and totals.
+- **A first upload can run out of time.** `tokenholic sync` gives itself five
+  minutes, and the free API took about twelve seconds for each batch of 100
+  buckets, so a machine with a long history reported "could not synchronize
+  usage" twice before a third run finished. Each run keeps what it uploaded;
+  nothing was lost or counted twice. It needs either a message that says the
+  upload is continuing, more time for a first sync, or a faster batch on the
+  server. Not fixed yet.
+- **Not yet checked:** public profile and group pages with a real account,
+  the share card in a link-preview checker, autosync over an hour, revoking
+  a device, and deleting an account.
 
 ## Windows
 

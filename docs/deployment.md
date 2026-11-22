@@ -88,7 +88,9 @@ every client then shares one address allowance, and only the per-credential
 limit separates users. Set it only after confirming, from the platform's
 documentation or the headers a request actually arrives with, how many
 entries its proxies add. A value that is too high lets a client pick its own
-address. This has not been measured against a live Render service yet.
+address. Measured on November 21, 2026: a request sent without the header
+reached this Render service with three entries, so the value here is `3`.
+Measure again if the hosting changes.
 
 To measure it, the API writes one log line the first time a request arrives
 with each number of `X-Forwarded-For` entries, with the count and never an
