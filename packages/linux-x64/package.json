@@ -1,0 +1,18 @@
+{
+  "name": "@tokenholic/linux-x64",
+  "version": "0.0.0-development",
+  "description": "tokenholic native binary for Linux x64",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ansonnchan/tokenholic.git"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["bin/tokenholic", "ccusage.lock.json"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "node ../../scripts/check-platform-package.mjs . linux x64"
+  }
+}

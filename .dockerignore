@@ -10,6 +10,8 @@ dist
 node_modules
 packages/darwin-arm64/bin
 packages/darwin-x64/bin
+packages/linux-arm64/bin
+packages/linux-x64/bin
 coverage.out
 *.db
 *.db-shm

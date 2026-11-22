@@ -5,11 +5,9 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
+import { archiveName as platformArchive, packageDirectory, platforms } from "./platforms.mjs";
+
 const semanticVersion = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-const targets = [
-  { archiveArch: "arm64", packageName: "darwin-arm64" },
-  { archiveArch: "x64", packageName: "darwin-x64" },
-];
 
 export function parseChecksums(contents) {
   const checksums = new Map();
@@ -30,13 +28,14 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
   const artifactRoot = path.resolve(artifactDirectory);
   const workspace = path.resolve(workspaceRoot);
   const checksums = parseChecksums(await readFile(path.join(artifactRoot, "SHA256SUMS"), "utf8"));
-  if (checksums.size !== targets.length) {
+  if (checksums.size !== platforms.length) {
     throw new Error("SHA256SUMS must contain exactly the supported platform archives");
   }
   const temporary = await mkdtemp(path.join(tmpdir(), "tokenholic-npm-"));
   try {
-    for (const target of targets) {
-      const archiveName = `tokenholic_${version}_darwin_${target.archiveArch}.tar.gz`;
+    for (const platform of platforms) {
+      const directory = packageDirectory(platform);
+      const archiveName = platformArchive(platform, version);
       const archivePath = path.join(artifactRoot, archiveName);
       const expected = checksums.get(archiveName);
       if (!expected) {
@@ -47,7 +46,7 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
         throw new Error(`checksum mismatch for ${archiveName}`);
       }
 
-      const extracted = path.join(temporary, target.packageName);
+      const extracted = path.join(temporary, directory);
       await mkdir(extracted);
       const result = spawnSync("tar", ["-xzf", archivePath, "-C", extracted], { encoding: "utf8", shell: false });
       if (result.error) {
@@ -61,7 +60,7 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
         throw new Error(`${archiveName} contains unexpected files`);
       }
 
-      const packageRoot = path.join(workspace, "packages", target.packageName);
+      const packageRoot = path.join(workspace, "packages", directory);
       const binaryDirectory = path.join(packageRoot, "bin");
       await mkdir(binaryDirectory, { recursive: true });
       await copyFile(path.join(extracted, "tokenholic"), path.join(binaryDirectory, "tokenholic"));
@@ -72,6 +71,11 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
 
     const umbrellaPath = path.join(workspace, "packages", "cli", "package.json");
     const umbrella = JSON.parse(await readFile(umbrellaPath, "utf8"));
+    const expected = platforms.map((platform) => `@tokenholic/${packageDirectory(platform)}`).sort();
+    if (Object.keys(umbrella.optionalDependencies ?? {}).sort().join("\n") !== expected.join("\n")) {
+      // A launcher that cannot install one of its binaries must not publish.
+      throw new Error("@tokenholic/cli must depend on exactly the supported platform packages");
+    }
     umbrella.version = version;
     umbrella.optionalDependencies = Object.fromEntries(
       Object.keys(umbrella.optionalDependencies).sort().map((name) => [name, version]),

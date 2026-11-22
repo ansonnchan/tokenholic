@@ -3,4 +3,6 @@
 node_modules/
 /packages/darwin-*/bin/
 /packages/darwin-*/ccusage.lock.json
+/packages/linux-*/bin/
+/packages/linux-*/ccusage.lock.json
 coverage.out
