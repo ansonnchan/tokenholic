@@ -40,6 +40,14 @@ Incremental observations represent usage contributed by one record. Cumulative s
 
 These axes are independent. For example, a reported cumulative counter becomes a derived incremental observation after reduction.
 
+## Day-level sources
+
+Five sources have no native reader: GitHub Copilot CLI (`copilot`), Gemini CLI (`gemini`), Grok Build CLI (`grok`), OpenCode (`opencode`), and Qwen Code (`qwen`). Their usage is known only as one total per UTC day and model, so a record from them has a third count semantics, `day_total`: the whole of one day for one model as known when it was read. The day's total grows until the day ends, and a later reading replaces the record. It is never added to it and never reduced like a running counter.
+
+A day total is filed at the start of its UTC day, on the `cli` surface. It carries no session, service tier, or prompt size, because it spans many requests. Where its usage fell against a local midnight is unknown, which is why the bucket built from it is marked with the granularity `day` and boards label the boundary as approximate. In a timezone behind UTC, usage from before the UTC date changes is therefore shown under the previous local date.
+
+The tie between these sources and day totals holds in both directions and is checked in one place, `ValidateGranularity`, plus `Observation.Validate`: a day-level source can report nothing finer, and Claude or Codex can never be stored as a day total. That second half is what keeps the native sources out of the coarse path whatever produced a record.
+
 ## Capabilities and health
 
 Capabilities describe how a source can provide each field, including explicit `unsupported` states. Source health describes whether a compatible evidence root was detected and readable. Neither contract converts missing coverage into a zero usage value.
