@@ -17,9 +17,9 @@ terminal, and ranks you against the friends you invite.
 
 [**Website → ansonnchan.github.io/tokenholic**](https://ansonnchan.github.io/tokenholic/) &nbsp;·&nbsp; [Quickstart](#quickstart) &nbsp;·&nbsp; [How it works](#how-it-works) &nbsp;·&nbsp; [Privacy](#privacy)
 
-<img src="docs/images/board.png" alt="A group board in the tokenholic terminal interface, ranking members by API-equivalent estimate" width="860">
+<img src="docs/images/demo.gif" alt="A walk through the tokenholic terminal interface: usage by period, a group board ranked by estimate and by tokens, the opt-in global board, models, sources, and the dark look" width="860">
 
-<sub>Sample data. The real thing runs in your terminal.</sub>
+<sub>Invented data. The real thing runs in your terminal, on your own usage.</sub>
 
 </div>
 
@@ -64,10 +64,6 @@ which comes with the npm package and can be turned off with
 - Costs are estimates at API list prices, never what you spent. An unknown
   value is shown as unknown, never as zero.
 - Sync when you run it, or hourly in the background if you enable it.
-
-<div align="center">
-<img src="docs/images/home.png" alt="The tokenholic home view: tokens, estimate, daily usage, and breakdowns by source and model" width="860">
-</div>
 
 ## Privacy
 
