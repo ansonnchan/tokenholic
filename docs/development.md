@@ -8,7 +8,7 @@ does not participate in local collection builds.
 
 - Go 1.25 or newer.
 - Node.js 20 or newer plus the repository-pinned pnpm through Corepack, only for npm distribution work.
-- macOS to exercise the implemented default discovery roots.
+- macOS or Linux to exercise the implemented default discovery roots.
 - Git for the repository hygiene check.
 - Docker or another PostgreSQL 18 installation only for hosted schema tests.
 
@@ -24,7 +24,7 @@ make test        # standard Go tests
 make test-race   # race-enabled Go tests
 make build       # build every Go package
 make prices      # regenerate the vendored price snapshot from its pin (network)
-make release VERSION=1.2.3 # reproducible macOS arm64/x64 archives
+make release VERSION=1.2.3 # reproducible macOS and Linux archives
 pnpm check                 # npm metadata and launcher validation
 pnpm test                  # npm preparation, launcher, and website tests
 ```
@@ -91,11 +91,23 @@ Account deletion is permanent for hosted data and removes the local device
 session only after the server confirms deletion. It does not erase local SQLite
 usage or provider evidence.
 
-Autosync is a macOS-only, opt-in user launch agent. Enabling it copies the
-current native executable to stable private application support, so use a built
-release binary rather than `go run` for a lasting schedule. Re-enable it after
-an upgrade to refresh that copy. Disabling removes the schedule, copy, and logs
-without deleting local usage or credentials.
+Autosync is opt-in and uses the system's per-user scheduler: a launch agent on
+macOS and a systemd user timer on Linux. Enabling it copies the current native
+executable to a stable private location, so use a built release binary rather
+than `go run` for a lasting schedule. Re-enable it after an upgrade to refresh
+that copy. Disabling removes the schedule, copy, and logs without deleting
+local usage or credentials. The [autosync guide](../internal/autosync/README.md)
+lists the files each platform uses.
+
+On Linux, signing in needs a Secret Service keyring (GNOME Keyring, KWallet,
+or KeePassXC) on the session D-Bus, and autosync needs a systemd user session.
+A container or a bare SSH session usually has neither; local collection,
+`show-data`, and `doctor` work without them. To exercise the Linux build from
+another system, run the suite in a container:
+
+```sh
+docker run --rm -v "$PWD":/src:ro -w /src golang:1.25 go test ./...
+```
 
 An authenticated client can inspect the account-level aggregation endpoint:
 
@@ -137,8 +149,9 @@ For stacked work, open and report each parent PR before starting its child branc
 
 ## CI
 
-GitHub Actions runs `make check` on macOS, validates the npm release workspace,
-builds the production API container, and runs the hosted schema integration
-test against PostgreSQL 18 on Linux. Go jobs use the version declared in
-`go.mod`. A local clean checkout should pass the same applicable commands before
+GitHub Actions runs `make check` and a release build on macOS and Linux,
+validates the npm release workspace, builds the production API container, and
+runs the hosted schema integration test against PostgreSQL 18 on Linux. On
+Linux the autosync tests also ask `systemd-analyze` to parse the generated
+units. Go jobs use the version declared in `go.mod`. A local clean checkout should pass the same applicable commands before
 a PR is marked ready.

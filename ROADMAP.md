@@ -1,6 +1,6 @@
 # tokenholic roadmap
 
-Status: MVP complete; product-parity revamp in progress (M6 to M9 built except one blocked item, nothing from M6 on deployed; M10–M11 planned)
+Status: MVP complete; product-parity revamp in progress (M6 to M9 built except one blocked item, Linux support built, nothing from M6 on deployed; Windows, the release, and M11 planned)
 Last updated: November 21, 2026
 
 ## Product definition
@@ -796,9 +796,21 @@ Goal: make tokenholic discoverable and shareable without a browser dashboard.
 
 ### M10 — Platforms and release
 
-- [ ] **TKH-100: Support Linux** (`feat/linux-support`)
+- [x] **TKH-100: Support Linux** (`feat/linux-support`)
   - Discovery paths, a user-level systemd timer, linux x64/arm64 artifacts and
     npm packages, and Linux CI.
+  - Built. Claude Code and Codex ignore the XDG variables on Linux, so the
+    XDG-aware part is Claude Desktop's data folder, the directory Claude Code
+    1.0.28 to 1.0.30 used, and tokenholic's own files. Every location is
+    cited in `internal/adapters/README.md`.
+  - The Claude Desktop location on Linux is derived from documentation and
+    has not been seen on a real install; the desktop app there is a beta.
+  - Sign-in needs a Secret Service keyring and autosync a systemd user
+    session. A machine without one is told so, and nothing falls back to a
+    file or another scheduler.
+  - Checked by hand in containers: the suite on Linux, the npm launcher with
+    a real archive, and autosync against a running systemd user session. Not
+    checked: a desktop Linux machine with a keyring and real agent records.
   - Depends on: TKH-083.
 
 - [ ] **TKH-101: Support Windows** (`feat/windows-support`)
@@ -945,8 +957,9 @@ fixture from. M8, the TUI revamp, is complete: the design system, the
 personal views, the board view, and in-TUI onboarding, claim, and sharing.
 M9, the website and sharing, is built: the static pages, the API's origin
 allowlist, share pages and PNG cards, and `tokenholic share`. None of it is
-published yet. The remaining parity revamp continues in order: Linux,
-Windows, and a validated release, which must also give builds a default API
+published yet. Linux support is built: discovery, a systemd user timer,
+archives, npm packages, and CI. The remaining parity revamp continues in
+order: Windows, and a validated release, which must also give builds a default API
 address before a new user can claim without configuration, publish the
 website, tell the API its address, and check a shared link against a card
 validator. The

@@ -1,9 +1,11 @@
 # Release artifacts
 
-tokenholic releases checksummed native archives for macOS arm64 and x64. Release
-builds disable CGO, remove local filesystem paths and VCS metadata, inject the
-semantic version into `tokenholic --version`, and verify each Mach-O architecture
-before packaging it.
+tokenholic releases checksummed native archives for macOS and Linux, each on
+arm64 and x64, named `tokenholic_<version>_<os>_<cpu>.tar.gz`. Release builds
+disable CGO, remove local filesystem paths and VCS metadata, inject the
+semantic version into `tokenholic --version`, and verify each binary before
+packaging it: its format and CPU, and for Linux that it is statically linked,
+so the same file runs on glibc and musl systems.
 
 Each archive contains the native `tokenholic` executable and
 `ccusage.lock.json`. The lock file is the pinned external-parser contract; the
@@ -17,21 +19,37 @@ Build artifacts from a clean checkout with:
 make release VERSION=1.2.3
 ```
 
-The command writes both archives and `SHA256SUMS` under `dist/`. Archive entry
+The command writes every archive and `SHA256SUMS` under `dist/`. Archive entry
 ordering, ownership, modes, timestamps, and gzip headers are normalized. Given
 the same source, Go toolchain, version, and pinned inputs, it produces the same
 bytes.
 
 Pushing an existing semantic-version tag such as `v1.2.3` runs the release
-workflow. The workflow builds the artifacts on macOS, uploads them as workflow
-artifacts, and publishes them to the matching GitHub release. It then verifies
-those checksums again, prepares exact-version platform packages, tests the npm
-workspace, and publishes `@tokenholic/darwin-arm64`, `@tokenholic/darwin-x64`, and
-finally `@tokenholic/cli`. Configure the GitHub Actions `NPM_TOKEN` secret with
-publish access to the `@tokenholic` scope before creating a release tag.
-The publisher is restart-safe and skips exact package versions that an earlier
-attempt completed. Verify a published version from a clean macOS account with
-`npx --yes @tokenholic/cli@VERSION --version`.
+workflow, in four steps that each wait for the one before:
+
+1. **Build.** A macOS runner cross-compiles every archive and uploads them as
+   workflow artifacts. It can execute only the macOS binary for its own CPU.
+2. **Smoke.** A Linux x64 runner and a Linux arm64 runner each download the
+   artifacts, check their archive against `SHA256SUMS`, and confirm the binary
+   starts and reports the tagged version. A failure here stops the release
+   before anything is public.
+3. **Release.** The archives and `SHA256SUMS` are attached to the matching
+   GitHub release.
+4. **npm.** The workflow verifies the checksums again, prepares exact-version
+   platform packages, tests the npm workspace, and publishes every
+   `@tokenholic/<os>-<cpu>` package and finally `@tokenholic/cli`.
+
+Configure the GitHub Actions `NPM_TOKEN` secret with publish access to the
+`@tokenholic` scope before creating a release tag. The publisher is
+restart-safe and skips exact package versions that an earlier attempt
+completed. Verify a published version from a clean account on each system
+with `npx --yes @tokenholic/cli@VERSION --version`.
+
+To add a platform, add it to `targets` in `cmd/release`, to
+`scripts/platforms.mjs`, to the launcher's table in
+`packages/cli/bin/tokenholic.js`, and to the umbrella package's optional
+dependencies, and create its package directory. Tests fail until all five
+agree.
 
 ## Notes to include in the next release
 

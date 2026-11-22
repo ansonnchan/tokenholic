@@ -8,7 +8,7 @@ The repository's free demo configuration uses one Render web service and one
 Supabase PostgreSQL project:
 
 ```text
-macOS tokenholic client          GitHub Pages website (optional)
+tokenholic client                GitHub Pages website (optional)
         |                                |
         | privacy-limited HTTPS requests | public, read-only JSON
         v                                v
@@ -112,7 +112,7 @@ tokenholic
 Use a second GitHub identity or a second tester to validate invitations and
 ranking. Confirm that a repeated `sync` does not increase unchanged totals.
 Before enabling autosync, remember that it preserves the configured API origin
-in the private launch-agent configuration.
+in the private schedule definition.
 
 ## 5. Operate or remove the demo
 
