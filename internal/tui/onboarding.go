@@ -36,6 +36,10 @@ var (
 	ErrUpgradeRequired = errors.New("this tokenholic version is too old to sync")
 	// ErrSyncBusy means another process on this machine is syncing.
 	ErrSyncBusy = errors.New("another synchronization is running")
+	// ErrNoCredentialStore means the operating system's credential store
+	// cannot hold a sign-in, so starting one would only strand the user at
+	// GitHub.
+	ErrNoCredentialStore = errors.New("the credential store is not available")
 )
 
 // claimStage is where the in-TUI claim has got to.
@@ -170,8 +174,13 @@ func (m Model) applyClaim(message tea.Msg) (tea.Model, tea.Cmd) {
 		if message.id != m.claim.id {
 			return m, nil
 		}
+		if errors.Is(message.err, ErrNoCredentialStore) {
+			// The terminal command has room to say which store and what to do.
+			m.claim.stage, m.claim.failure = claimFailed, "This system's credential store did not answer, so a sign-in cannot be saved. Run `tokenholic claim` in a terminal to see what to check"
+			return m, nil
+		}
 		if message.err != nil || message.challenge.UserCode == "" {
-			m.claim.stage, m.claim.failure = claimFailed, "Could not start sign-in. Check your connection and the API address"
+			m.claim.stage, m.claim.failure = claimFailed, "Could not start sign-in. Check your connection; the API can take a minute to wake"
 			return m, nil
 		}
 		ctx, cancel := context.WithCancel(m.ctx)

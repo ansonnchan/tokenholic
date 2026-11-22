@@ -54,7 +54,11 @@ func (a *deviceAccount) Login(context.Context) (string, error) {
 
 // Begin starts GitHub device authorization.
 func (a *deviceAccount) Begin(ctx context.Context) (account.DeviceStart, error) {
-	return a.manager.Begin(ctx, version)
+	started, err := a.manager.Begin(ctx, version)
+	if errors.Is(err, account.ErrVaultUnavailable) {
+		return account.DeviceStart{}, tui.ErrNoCredentialStore
+	}
+	return started, err
 }
 
 // Complete waits for authorization and stores the device session.
