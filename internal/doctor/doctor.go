@@ -40,7 +40,23 @@ type Report struct {
 	Parser   ParserStatus
 	Findings []adapters.Finding
 	Database DatabaseStatus
+	// API says where the API address comes from. It never holds the address:
+	// an override can name a private host.
+	API APISource
 }
+
+// APISource is where a command's API address comes from. The zero value
+// leaves the line out of the report.
+type APISource string
+
+const (
+	// APIBuiltIn means the release build's own hosted address is in use.
+	APIBuiltIn APISource = "built_in"
+	// APIOverridden means TOKENHOLIC_API_URL replaced it.
+	APIOverridden APISource = "overridden"
+	// APINone means a development build with no address and no override.
+	APINone APISource = "none"
+)
 
 // Diagnose gathers discovery and parser health under the caller's context.
 func Diagnose(ctx context.Context, discovery DiscoveryProbe, parser ParserProbe, database DatabaseProbe) Report {
@@ -92,6 +108,14 @@ func (r Report) Render() string {
 		fmt.Fprintf(&output, "Platform: %s/%s\n", r.GOOS, r.GOARCH)
 	} else {
 		fmt.Fprintf(&output, "Platform: %s/%s (not supported; no coding-agent locations are known here)\n", r.GOOS, r.GOARCH)
+	}
+	switch r.API {
+	case APIBuiltIn:
+		fmt.Fprintln(&output, "API address: built in; no setting needed")
+	case APIOverridden:
+		fmt.Fprintln(&output, "API address: set by TOKENHOLIC_API_URL (address not shown)")
+	case APINone:
+		fmt.Fprintln(&output, "API address: none; this is a development build, so account commands need TOKENHOLIC_API_URL")
 	}
 	switch {
 	case r.Parser.Compatible:

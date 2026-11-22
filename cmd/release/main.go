@@ -3,6 +3,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"debug/elf"
@@ -13,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +30,13 @@ import (
 const (
 	lockName   = "ccusage.lock.json"
 	versionKey = "github.com/ansonnchan/tokenholic/internal/cli.version"
+	apiKey     = "github.com/ansonnchan/tokenholic/internal/cli.defaultAPIURL"
+
+	// hostedAPI is the address every release build uses unless the user
+	// overrides it with TOKENHOLIC_API_URL. It is the operator's deployment,
+	// not a secret, and it is the one place to change when that service
+	// moves. A development build carries no address at all.
+	hostedAPI = "https://tokenholic-api.onrender.com"
 )
 
 var semanticVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
@@ -92,6 +101,9 @@ func run(args []string, output io.Writer) error {
 	if strings.TrimSpace(*outputDir) == "" {
 		return errors.New("release output directory is required")
 	}
+	if err := validateOrigin(hostedAPI); err != nil {
+		return fmt.Errorf("hosted API address: %w", err)
+	}
 	lock, err := os.ReadFile(lockName)
 	if err != nil {
 		return fmt.Errorf("read pinned parser contract: %w", err)
@@ -116,6 +128,9 @@ func run(args []string, output io.Writer) error {
 			return err
 		}
 		if err := target.verify(binaryPath); err != nil {
+			return fmt.Errorf("verify %s: %w", target, err)
+		}
+		if err := carries(binaryPath, hostedAPI); err != nil {
 			return fmt.Errorf("verify %s: %w", target, err)
 		}
 		// Only the build machine's own target can be executed.
@@ -152,7 +167,7 @@ func run(args []string, output io.Writer) error {
 }
 
 func build(destination, version string, target target) error {
-	command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w -X "+versionKey+"="+version, "-o", destination, "./cmd/tokenholic")
+	command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags", linkerFlags(version, hostedAPI), "-o", destination, "./cmd/tokenholic")
 	command.Env = replaceEnvironment(os.Environ(), map[string]string{
 		"CGO_ENABLED": "0",
 		"GOARCH":      target.goArch,
@@ -160,6 +175,36 @@ func build(destination, version string, target target) error {
 	})
 	if combined, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("build %s: %w: %s", target, err, strings.TrimSpace(string(combined)))
+	}
+	return nil
+}
+
+// linkerFlags strips debug data and sets the two values a release build
+// carries: its version and the hosted API address.
+func linkerFlags(version, api string) string {
+	return "-s -w -X " + versionKey + "=" + version + " -X " + apiKey + "=" + api
+}
+
+// validateOrigin accepts only a bare HTTPS origin, the form the client
+// requires of any API address that is not loopback.
+func validateOrigin(origin string) error {
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+		parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || strings.ContainsAny(origin, " \t\n") {
+		return fmt.Errorf("%q is not a bare https origin", origin)
+	}
+	return nil
+}
+
+// carries proves the address reached the binary: a misspelled linker key is
+// silently ignored and would ship a client that cannot claim.
+func carries(path, value string) error {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read release binary: %w", err)
+	}
+	if !bytes.Contains(contents, []byte(value)) {
+		return errors.New("release binary does not carry the hosted API address")
 	}
 	return nil
 }

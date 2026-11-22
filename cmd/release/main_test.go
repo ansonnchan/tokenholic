@@ -83,6 +83,42 @@ func TestReplaceEnvironment(t *testing.T) {
 	}
 }
 
+func TestHostedAPIAddressIsABareHTTPSOrigin(t *testing.T) {
+	if err := validateOrigin(hostedAPI); err != nil {
+		t.Fatal(err)
+	}
+	for _, origin := range []string{
+		"", "http://api.example.test", "https://api.example.test/", "https://api.example.test/v1",
+		"https://user:secret@api.example.test", "https://api.example.test?x=1", "api.example.test", "https://api.example.test -X y=z",
+	} {
+		if validateOrigin(origin) == nil {
+			t.Errorf("validateOrigin(%q) accepted it", origin)
+		}
+	}
+	flags := linkerFlags("1.2.3", "https://api.example.test")
+	for _, want := range []string{
+		"-X github.com/ansonnchan/tokenholic/internal/cli.version=1.2.3",
+		"-X github.com/ansonnchan/tokenholic/internal/cli.defaultAPIURL=https://api.example.test",
+	} {
+		if !strings.Contains(flags, want) {
+			t.Errorf("linker flags %q do not contain %q", flags, want)
+		}
+	}
+}
+
+func TestCarriesFindsAValueInABinary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "synthetic")
+	if err := os.WriteFile(path, []byte("\x00\x01https://api.example.test\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := carries(path, "https://api.example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := carries(path, "https://other.example.test"); err == nil {
+		t.Fatal("carries() found a value that is absent")
+	}
+}
+
 func TestTargetsNameEveryShippedPlatform(t *testing.T) {
 	var names []string
 	for _, target := range targets {

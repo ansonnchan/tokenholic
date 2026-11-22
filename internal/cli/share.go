@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/ansonnchan/tokenholic/internal/share"
@@ -72,13 +71,13 @@ func runShareCommand(args []string, stdout, stderr io.Writer, deps dependencies)
 // reason there is none. Every failure degrades to a text-only post: a card
 // is a nicety, and the draft is the user's own local totals either way.
 func shareCard(deps dependencies) (address, note string) {
-	apiURL := strings.TrimSpace(deps.getenv("TOKENHOLIC_API_URL"))
+	apiURL, _ := deps.apiOrigin()
 	if apiURL == "" || deps.groups == nil {
 		return "", "Text only. A card needs an account with a public profile."
 	}
 	manager, err := deps.groups(apiURL)
 	if err != nil {
-		return "", "Text only. A card needs a valid TOKENHOLIC_API_URL."
+		return "", "Text only. A card needs a valid API address."
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

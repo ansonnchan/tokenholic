@@ -24,8 +24,14 @@ const (
 type Config struct {
 	Home       string
 	Executable string
-	APIURL     string
-	CodexHome  string
+	// APIURL is the address the job will use, checked before anything is
+	// installed.
+	APIURL string
+	// PinAPIURL writes APIURL into the schedule. Set it only when the user
+	// overrode the address: without it the job uses the address built into
+	// the executable, so an upgrade that moves the hosted API is followed.
+	PinAPIURL bool
+	CodexHome string
 	// Getenv reads the environment of the command enabling autosync, for the
 	// platform directories a scheduler honors. It defaults to os.Getenv.
 	Getenv func(string) string
@@ -44,6 +50,7 @@ type Status struct {
 // system's own scheduler.
 type Manager struct {
 	executable, apiURL, codexHome string
+	pinAPIURL                     bool
 	scheduler                     scheduler
 }
 
@@ -67,7 +74,7 @@ func NewManager(config Config) (*Manager, error) {
 	}
 	return &Manager{
 		executable: config.Executable, apiURL: strings.TrimSpace(config.APIURL),
-		codexHome: config.CodexHome, scheduler: scheduler,
+		pinAPIURL: config.PinAPIURL, codexHome: config.CodexHome, scheduler: scheduler,
 	}, nil
 }
 
@@ -206,7 +213,10 @@ func (m *Manager) Status(ctx context.Context) (Status, error) {
 // job describes the scheduled command. The environment is a fixed, ordered
 // allowlist: no credential and nothing else from the caller's environment.
 func (m *Manager) job(installed installation) job {
-	environment := []variable{{"TOKENHOLIC_API_URL", m.apiURL}}
+	var environment []variable
+	if m.pinAPIURL {
+		environment = append(environment, variable{"TOKENHOLIC_API_URL", m.apiURL})
+	}
 	if m.codexHome != "" {
 		environment = append(environment, variable{"CODEX_HOME", m.codexHome})
 	}

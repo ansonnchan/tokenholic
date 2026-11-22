@@ -160,6 +160,25 @@ func TestUnsupportedParserVersionIsAnIssue(t *testing.T) {
 	}
 }
 
+func TestReportSaysWhereTheAPIAddressComesFromWithoutShowingIt(t *testing.T) {
+	t.Parallel()
+	for source, want := range map[APISource]string{
+		APIBuiltIn: "API address: built in", APIOverridden: "set by TOKENHOLIC_API_URL", APINone: "development build",
+	} {
+		report := Report{GOOS: "darwin", GOARCH: "arm64", API: source}
+		if output := report.Render(); !strings.Contains(output, want) || strings.Contains(output, "https://") {
+			t.Errorf("%s: %q", source, output)
+		}
+		// Where the address comes from is information, never a failure.
+		if report.ExitCode() != 0 {
+			t.Errorf("%s: exit %d", source, report.ExitCode())
+		}
+	}
+	if output := (Report{GOOS: "darwin", GOARCH: "arm64"}).Render(); strings.Contains(output, "API address") {
+		t.Errorf("a report without a source mentions the API: %q", output)
+	}
+}
+
 func TestUnsupportedPlatformIsNamed(t *testing.T) {
 	t.Parallel()
 	for goos, supported := range map[string]bool{"darwin": true, "linux": true, "windows": true, "plan9": false} {

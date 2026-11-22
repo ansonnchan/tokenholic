@@ -41,11 +41,11 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 		fmt.Fprintln(stderr, "could not resolve the current tokenholic executable")
 		return 1
 	}
-	apiURL := strings.TrimSpace(deps.getenv("TOKENHOLIC_API_URL"))
+	apiURL, overridden := deps.apiOrigin()
 	codexHome := strings.TrimSpace(deps.getenv("CODEX_HOME"))
 	if args[0] == "enable" {
 		if apiURL == "" {
-			fmt.Fprintln(stderr, "TOKENHOLIC_API_URL is required to enable autosync")
+			fmt.Fprintln(stderr, noAPIAddress)
 			return 1
 		}
 		if codexHome != "" && !filepath.IsAbs(codexHome) {
@@ -57,7 +57,8 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 		codexHome = ""
 	}
 	manager, err := deps.autosync(autosync.Config{
-		Home: home, Executable: executable, APIURL: apiURL, CodexHome: codexHome, Getenv: deps.getenv,
+		Home: home, Executable: executable, APIURL: apiURL, PinAPIURL: overridden,
+		CodexHome: codexHome, Getenv: deps.getenv,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "autosync configuration is invalid")

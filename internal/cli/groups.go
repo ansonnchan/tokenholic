@@ -152,9 +152,9 @@ func runGroupCommand(args []string, stdout, stderr io.Writer, deps dependencies)
 }
 
 func configuredGroupManager(stderr io.Writer, deps dependencies) (groupManager, bool) {
-	apiURL := strings.TrimSpace(deps.getenv("TOKENHOLIC_API_URL"))
+	apiURL, overridden := deps.apiOrigin()
 	if apiURL == "" {
-		fmt.Fprintln(stderr, "TOKENHOLIC_API_URL is required for group and global board commands")
+		fmt.Fprintln(stderr, noAPIAddress)
 		return nil, false
 	}
 	if deps.groups == nil {
@@ -163,7 +163,7 @@ func configuredGroupManager(stderr io.Writer, deps dependencies) (groupManager, 
 	}
 	manager, err := deps.groups(apiURL)
 	if err != nil {
-		fmt.Fprintln(stderr, "TOKENHOLIC_API_URL is invalid")
+		fmt.Fprintln(stderr, invalidAPIAddress(overridden))
 		return nil, false
 	}
 	return manager, true

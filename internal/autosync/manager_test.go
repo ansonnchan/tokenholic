@@ -232,6 +232,40 @@ func TestSchedulerCommands(t *testing.T) {
 	}
 }
 
+// The schedule names the API address only when the user chose one. Without
+// that, the job uses the address built into the executable it runs, so
+// re-enabling after an upgrade follows a moved service.
+func TestScheduleCarriesTheAPIAddressOnlyWhenPinned(t *testing.T) {
+	for _, name := range []string{"launchd", "systemd", "task scheduler"} {
+		for _, pinned := range []bool{false, true} {
+			home := t.TempDir()
+			manager, err := NewManager(Config{
+				Home: home, Executable: syntheticExecutable(t), APIURL: "https://api.example.test", PinAPIURL: pinned,
+				scheduler: schedulers(home, &fakeTools{})[name],
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.Enable(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			carried := false
+			for _, definition := range manager.scheduler.layout().definitions {
+				contents, err := os.ReadFile(definition)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The Windows task file is UTF-16; its job file is what would
+				// hold the variable.
+				carried = carried || strings.Contains(string(contents), "TOKENHOLIC_API_URL")
+			}
+			if carried != pinned {
+				t.Errorf("%s pinned=%t: schedule carries the address = %t", name, pinned, carried)
+			}
+		}
+	}
+}
+
 func TestManagerRejectsInvalidAPIOrigins(t *testing.T) {
 	home := t.TempDir()
 	for _, apiURL := range []string{"", "http://remote.example.test", "https://user:secret@api.example.test", "https://api.example.test?x=1"} {

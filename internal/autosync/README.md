@@ -41,8 +41,11 @@ stored sign-in.
 ## What the job runs
 
 The stable executable with the single argument `sync`, and a fixed
-environment: the API origin, `CODEX_HOME` when the user had it set,
-`NO_COLOR`, and on Linux `XDG_CONFIG_HOME` when the user had it set. A
+environment: `CODEX_HOME` when the user had it set, `NO_COLOR`, on Linux
+`XDG_CONFIG_HOME` when the user had it set, and the API address only when the
+user had overridden it with `TOKENHOLIC_API_URL`. Without an override the job
+uses the address built into the executable it runs, so re-enabling after an
+upgrade follows a hosted API that has moved. A
 scheduler does not inherit a shell's exports, and without the last one the
 job would look for the database and the lock somewhere else. Nothing else
 from the caller's environment is copied, and no credential is ever written:
