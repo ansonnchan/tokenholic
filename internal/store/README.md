@@ -12,15 +12,19 @@ architectures, and does not require CGO because it runs SQLite through wazero.
 Re-evaluate the driver and Go 1.25 toolchain together rather than upgrading the
 storage dependency implicitly.
 
-The application database lives at `tokenholic/tokenholic.db` under the operating
-system's user configuration directory. Existing databases created under the
-former capitalized directory remain readable. Callers may supply another
+The application database lives at `tokenholic/tokenholic.db` under the
+operating system's user configuration directory on macOS and Linux, and under
+the local application data folder (`%LOCALAPPDATA%`) on Windows. The Windows
+choice is deliberate: the database and its upload state belong to one device
+and must not follow a roaming profile to another. Existing databases created
+under the former capitalized directory remain readable. Callers may supply another
 absolute path for tests or explicit configuration.
 
 ## Lifecycle and migrations
 
-`Open` creates the application directory and database with owner-only
-permissions, enables WAL mode, foreign keys, a bounded busy timeout, and
+`Open` creates the application directory and database owner-only (permission
+bits on Unix, a protected single-user access-control list on Windows; see
+`internal/privatefs`), enables WAL mode, foreign keys, a bounded busy timeout, and
 `synchronous=NORMAL`, then applies embedded migrations. These connection-local
 settings are part of the open contract; callers must not open the file through
 another driver path.

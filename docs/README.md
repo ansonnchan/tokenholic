@@ -9,6 +9,7 @@ This directory owns decisions that cross package boundaries. Package-specific im
 - [Development guide](./development.md) explains prerequisites, commands, test boundaries, CI, and contribution workflow.
 - [Free demo deployment](./deployment.md) explains the optional Render and Supabase environment, secret setup, validation, limitations, and removal.
 - [Release artifacts](./releasing.md) defines reproducible native packaging, checksums, and tag publication.
+- [Release validation](./release-validation.md) lists the checks a person runs by hand before a release, starting with the Windows run.
 - [Roadmap](../ROADMAP.md) defines scope, delivery order, dependencies, and acceptance criteria.
 - [Contributor guidance](../AGENTS.md) defines implementation, documentation, review, privacy, and Git workflow rules.
 
@@ -16,6 +17,7 @@ This directory owns decisions that cross package boundaries. Package-specific im
 
 - [Internal package map](../internal/README.md)
 - [Source adapters](../internal/adapters/README.md)
+- [Autosync](../internal/autosync/README.md)
 - [Pinned ccusage contract](../internal/adapters/ccusage/README.md)
 - [Normalized usage contract](../internal/normalize/README.md)
 - [Collection semantics](../internal/collect/README.md)

@@ -1,6 +1,6 @@
 # Architecture
 
-Status: MVP and M6–M9 implemented; M10 in progress, with Linux support built (see "Planned target design")
+Status: MVP and M6–M9 implemented; M10 in progress, with Linux and Windows support built (see "Planned target design")
 Last updated: November 21, 2026
 
 ## System goals
@@ -39,6 +39,7 @@ internal/
   fixturecheck/            Fixture privacy enforcement
   modelcatalog/            Model resolution and pricing revisions
   normalize/               Canonical usage records
+  privatefs/               Owner-only files and the per-user application directory
   store/                   Local SQLite lifecycle and migrations
   sync/                    Allowlisted batches, retry, dry run, and acknowledgements
   tui/                     Bubble Tea application shell and local views
@@ -189,10 +190,14 @@ not have schema columns. Nullable token categories use decimal text to preserve
 both unknown values and the complete unsigned 64-bit range.
 
 The local database uses the CGO-free `github.com/ncruces/go-sqlite3` driver and
-lives under the platform user-configuration directory by default. Embedded,
+lives under the platform user-configuration directory by default; on Windows
+that is the local, non-roaming application data folder, because the database
+and its upload state belong to one device. Embedded,
 checksummed migrations are contiguous and run as one immediate transaction.
-Owner-only directory and file permissions are established before SQLite opens
-the database. Connection-local foreign-key and busy-timeout settings are
+The directory and file are made owner-only before SQLite opens the database:
+permission bits on Unix, and on Windows a protected access-control list
+holding one entry for the current user. `internal/privatefs` owns that
+difference so no other package branches on it. Connection-local foreign-key and busy-timeout settings are
 applied to every pooled connection.
 
 Local diagnostics read only allowlisted operational metadata from storage:
@@ -702,10 +707,26 @@ X crawler  -->  API share page (/s/...) with Open Graph tags + PNG card
 - Linux autosync is a user-level systemd timer, described under
   "Distribution architecture". Linux x64 and arm64 archives and npm packages
   ship with the macOS ones, and CI runs the Go suite on Linux.
-- Windows: discovery under the user profile, Windows Credential Manager,
-  ACL-restricted private files, a Windows-compatible single-instance lock,
-  and Task Scheduler autosync. CI runs on Windows; release validation needs
-  one manual run on a real Windows machine or VM.
+- Windows, implemented and CI-verified; the manual run on a real machine is
+  still to do and is written out in
+  [release validation](./release-validation.md).
+  - Discovery reads Claude Code and Codex under the user profile and Claude
+    Desktop's data folder under `%APPDATA%`, plus the packaged install's
+    redirected folder as an optional root.
+  - Credentials use Windows Credential Manager through the same keyring
+    library, with no file fallback.
+  - Private files carry a protected single-user access-control list instead
+    of permission bits, and tokenholic's own files live under
+    `%LOCALAPPDATA%`.
+  - The sync lock is `LockFileEx`, released by the system when the holder
+    exits, as `flock` is on Unix.
+  - Autosync is a Task Scheduler task that runs as the signed-in user with no
+    stored password. Task Scheduler cannot set an environment or redirect
+    output, so the task runs `tokenholic autosync run <job file>` and a
+    private job file carries an allowlisted environment and the log paths.
+  - A group created from Windows is created in UTC: Windows does not name
+    its timezone the way the server needs, and the client has no mapping
+    yet. The command prints the timezone it used.
 
 ## Distribution architecture
 
@@ -718,11 +739,12 @@ The core application is a native Go binary. pnpm manages npm package metadata an
        @tokenholic/darwin-x64
        @tokenholic/linux-arm64
        @tokenholic/linux-x64
-       future Windows packages
+       @tokenholic/win32-arm64
+       @tokenholic/win32-x64
 ```
 
 The user still runs `npx @tokenholic/cli`. Release automation cross-compiles the
-Go binary without CGO for every target, verifies each file's format and CPU
+Go binary without CGO for every target, verifies each file's format and CPU: Mach-O, ELF, or PE
 (and, for Linux, that it is statically linked, so one build serves glibc and
 musl systems), normalizes archive metadata, and publishes checksummed native
 artifacts. The build machine can execute only its own target, so a runner for
@@ -739,8 +761,9 @@ and missing optional packages fail explicitly.
 Autosync copies the current native executable to a stable private path only
 after explicit user consent. The operating system's own per-user scheduler
 runs it at login and hourly: a launch agent on macOS and a systemd user timer
-on Linux. One manager drives both; a scheduler supplies only its file
-locations, file contents, and commands, and is tested on every system. The
+on Linux, and a Task Scheduler task on Windows. One manager drives all
+three; a scheduler supplies only its file locations, file contents, and
+commands, and is tested on every system. The
 schedule stores no credentials and writes only the sync command's
 privacy-safe summary or stable failure message to private local logs. Manual
 and scheduled synchronization share a non-blocking advisory lock, so they

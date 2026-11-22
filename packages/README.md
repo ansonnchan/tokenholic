@@ -17,7 +17,9 @@ only the native binary and pinned parser contract, and assigns one exact version
 to every package. The native packages publish before the umbrella package so
 an install can never resolve a new launcher before its binaries. The Linux
 binaries are statically linked, so one package serves glibc and musl systems
-and no `libc` field is needed.
+and no `libc` field is needed. The Windows packages are named `win32`, as
+Node and npm name that system, and carry `tokenholic.exe`; the launcher
+appends the extension when it resolves the binary.
 
 `scripts/platforms.mjs` is the list of shipped platforms. The launcher's own
 table, the umbrella package's optional dependencies, and the package
