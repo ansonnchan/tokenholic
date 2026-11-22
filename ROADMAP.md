@@ -204,8 +204,9 @@ Go API + PostgreSQL (Render + Supabase)
 - Go CLI and collector.
 - Bubble Tea and Lip Gloss for the TUI.
 - SQLite in WAL mode for checkpoints, observations, buckets, and the outbox.
-- Pinned ccusage manifest and fixtures preserve the reviewed external contract.
-- Native adapters provide the implemented Claude and Codex collection paths.
+- Native adapters provide the Claude and Codex collection paths.
+- One pinned, digest-checked ccusage release is run for agents without a
+  native adapter; its manifest and fixtures hold the reviewed contract.
 
 ### Server technology
 
@@ -881,13 +882,16 @@ Constraints that shape this milestone:
   labelled so.
 - Its rows carry a combined cache-write total with no lifetime, so any cache
   write is priced at the base rate and marks the estimate a lower bound.
-- It is a Node program. It is available to `npx` installs and absent from a
-  standalone binary; an unavailable runner is reported, never shown as zero.
+- It is delivered through npm. Release 20 is a native executable per
+  platform behind a small Node launcher, so tokenholic runs the executable
+  directly and needs Node only for the install. It is available to `npx`
+  installs and absent from a standalone binary; an unavailable runner is
+  reported, never shown as zero.
 - It is third-party code that reads local agent data. Pin an exact version
-  and integrity hash, as `ccusage.lock.json` already pins 20.0.51, and never
-  a floating major.
+  and integrity hash, as `ccusage.lock.json` pins 20.0.51, and never a
+  floating major.
 
-- [ ] **TKH-110: Run a pinned ccusage** (`feat/ccusage-runner`)
+- [x] **TKH-110: Run a pinned ccusage** (`feat/ccusage-runner`)
   - Execute `<agent> daily --json --no-cost --offline --timezone UTC` for the
     pinned version with an argument array, no shell, a time limit, and no
     network. Refuse any other version.
@@ -899,6 +903,13 @@ Constraints that shape this milestone:
   - Acceptance: contract fixtures validate; a missing runner, an unpinned
     version, and malformed output each appear in `tokenholic doctor`.
   - Depends on: TKH-102.
+  - Decided November 21, 2026: on by default, with `tokenholic ccusage off`
+    as the saved switch. The pin is the executable's SHA-256 for each
+    platform, compiled in and checked before every run, beside the npm
+    integrity of each package. What each agent's report reads is listed in
+    `internal/adapters/ccusage/README.md`.
+  - Built: the runner, the contract, and their place in `tokenholic doctor`.
+    Nothing is collected from these agents until TKH-111 and TKH-112.
 
 - [ ] **TKH-111: Admit day-level sources** (`feat/day-level-sources`)
   - Add the sources and their surface to the allowlists that enumerate

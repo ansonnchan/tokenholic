@@ -149,13 +149,15 @@ Reducing the running total instead would count every replayed history again, onc
 
 Both parsers recover after malformed complete lines and defer an unterminated final line as a partial write. They keep missing token categories nil rather than inventing zeroes.
 
-## ccusage compatibility contract
+## Pinned ccusage runner
 
-The `ccusage` package validates the release manifest and supports the optional
-version probe shown by `tokenholic doctor`. Native collection does not execute
-ccusage. Synthetic fixtures preserve the reviewed external JSON contract for a
-future adapter without shipping an unwired collection path. See
-[ccusage/README.md](./ccusage/README.md).
+Agents without a native reader are read by running one pinned release of
+ccusage, a third-party program. The `ccusage` package holds the pin, runs the
+executable directly under a digest check, a time limit, and an allowlisted
+environment, and accepts only output that satisfies the pinned contract.
+Claude and Codex are never read this way. See
+[ccusage/README.md](./ccusage/README.md) for what it reads, how to turn it
+off, and where the executable comes from.
 
 ## Adding a source format
 

@@ -14,7 +14,7 @@ Only synthetic or explicitly approved sanitized source records belong here. Fixt
 | `claude-desktop/cowork` | Claude Desktop Cowork audit records |
 | `codex-cli` | Codex context attribution, per-request usage, service-tier settings events, prompt sizes on each side of the price ladder, a forked rollout replaying its parent, legacy cumulative snapshots, resets, and malformed-line recovery |
 | `codex-desktop` | Codex Desktop/shared records and full or midstream overlap |
-| `ccusage` | Pinned Claude and Codex daily JSON schemas |
+| `ccusage` | The pinned ccusage release's daily report for Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, and Qwen Code, produced from invented records, plus its two empty shapes. The Claude and Codex files are reference shapes tokenholic never requests |
 
 Model names, session IDs, dates, and token counts are synthetic test values. They are examples of record shape and semantics, not a list of models supported by tokenholic.
 

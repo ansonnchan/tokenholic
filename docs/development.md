@@ -12,9 +12,10 @@ does not participate in local collection builds.
 - Git for the repository hygiene check.
 - Docker or another PostgreSQL 18 installation only for hosted schema tests.
 
-ccusage is optional. CI validates only synthetic contract fixtures and the
-release lock, so verification never executes an installed binary or inspects
-real local agent data.
+ccusage is not needed to build or test. CI validates synthetic contract
+fixtures, the release lock, and the copies of the pin in the npm manifest and
+lockfile. The runner's tests start the test binary itself as a stand-in, so
+verification never executes ccusage or inspects real local agent data.
 
 ## Common commands
 

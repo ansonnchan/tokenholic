@@ -27,7 +27,7 @@ The native Go command currently provides:
 - read-only discovery for Claude Desktop Code, Agent, and Cowork sessions;
 - read-only discovery for Codex CLI and Codex Desktop/shared local storage;
 - native parsing of supported Claude and Codex JSONL evidence;
-- CI validation of the pinned ccusage compatibility contract;
+- a guarded runner for one pinned, digest-checked ccusage release, reported by `tokenholic doctor` and switched with `tokenholic ccusage on|off|status`;
 - deterministic per-model normalization, cumulative-counter reduction, recovery from partial records, and deduplication;
 - transactional local SQLite observations, checkpoints, health, and absolute usage buckets;
 - timezone-aware local totals with explicit complete, partial, unavailable, and empty states;
@@ -48,7 +48,7 @@ Model names are not allowlisted. A previously unseen, non-empty observed identif
 - Go 1.25 or newer.
 - macOS, Linux, or Windows 10 or later. On Linux, signing in needs a Secret Service keyring and autosync needs a systemd user session; local use needs neither. Windows support is verified in CI and has not yet had its manual run on a real machine.
 - PostgreSQL 18 only when exercising the hosted schema integration tests.
-- ccusage 20.0.51 only when manually checking the optional compatibility probe; native collection does not require it.
+- Nothing for ccusage: the pinned 20.0.51 executable is installed with the npm package. A build from source has none, and `tokenholic doctor` says so.
 
 The pnpm workspace owns npm distribution tooling; it is not needed to build the native command from source. Checksummed macOS, Linux, and Windows archives, each for arm64 and x64, are produced by the release workflow.
 
@@ -130,8 +130,20 @@ tokenholic profile public
 tokenholic profile private
 tokenholic share
 tokenholic share --period week
+tokenholic ccusage status
+tokenholic ccusage off
+tokenholic ccusage on
 tokenholic account delete --confirm DELETE
 ```
+
+`tokenholic ccusage` controls the one third-party program tokenholic runs:
+ccusage, at a pinned and digest-checked release, for agents tokenholic has
+no reader of its own for (GitHub Copilot CLI, Gemini CLI, Grok Build CLI,
+OpenCode, and Qwen Code). It is on by default, comes with the npm package,
+and reads those agents' local session records on this machine. `off` stops
+tokenholic from running it; the choice is saved. Claude and Codex are never
+read through it. The [runner guide](./internal/adapters/ccusage/README.md)
+lists exactly what it reads and how it is confined.
 
 `tokenholic share` drafts a post about your own local totals and prints an
 `x.com/intent/post` link. It posts nothing: the link opens X's compose page,
