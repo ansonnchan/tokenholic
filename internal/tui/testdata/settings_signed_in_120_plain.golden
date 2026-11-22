@@ -8,13 +8,13 @@
 │ NEVER STORED                                             │ │ DATABASE     schema 7 of 7 · integrity ok               │
 │ Prompts, responses, source code, command text, or        │ ╰─────────────────────────────────────────────────────────╯
 │ credentials.                                             │ ╭─ DISPLAY ───────────────────────────────────────────────╮
-│                                                          │ │ TOKENHOLIC_THEME                                        │
-│ NEVER STORED                                             │ │   light or dark, when the terminal's background is      │
-│ Paths, project names, repository names, or branch names. │ │   detected wrongly                                      │
-│                                                          │ │ NO_COLOR                                                │
-│ UPLOADED                                                 │ │   any value turns all styling off                       │
-│ Nothing, until you claim an account. Then the same       │ │ TOKENHOLIC_ASCII                                        │
-│ counts, and nothing else. `tokenholic show-data` prints  │ │   any value replaces symbols with ASCII                 │
-│ the exact payload.                                       │ ╰─────────────────────────────────────────────────────────╯
+│                                                          │ │ THEME        off; this terminal is not using color      │
+│ NEVER STORED                                             │ │                                                         │
+│ Paths, project names, repository names, or branch names. │ │ NO_COLOR                                                │
+│                                                          │ │   any value turns all styling off                       │
+│ UPLOADED                                                 │ │ TOKENHOLIC_ASCII                                        │
+│ Nothing, until you claim an account. Then the same       │ │   any value replaces symbols with ASCII                 │
+│ counts, and nothing else. `tokenholic show-data` prints  │ ╰─────────────────────────────────────────────────────────╯
+│ the exact payload.                                       │
 ╰──────────────────────────────────────────────────────────╯
 1–5 views · j/k scroll · r refresh · ? help · q quit

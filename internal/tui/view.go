@@ -12,8 +12,17 @@ import (
 var tabs = []string{"HOME", "BOARDS", "MODELS", "SOURCES", "SETTINGS"}
 
 // View renders the current frame. It reads only the model.
+//
+// A theme with color paints the frame onto its own canvas, covering the
+// whole terminal, so the TUI looks the same whatever colors the terminal
+// has. The painted frame is exactly as tall as the terminal and so ends
+// without a line break, which would push its first line off the top.
 func (m Model) View() string {
-	return strings.Join(m.frame(), "\n") + "\n"
+	lines := m.frame()
+	if !m.theme.Color || m.width <= 0 || m.height <= 0 {
+		return strings.Join(lines, "\n") + "\n"
+	}
+	return strings.Join(m.theme.Paint(lines, m.width, m.height), "\n")
 }
 
 // frame lays the view out as lines no wider than the terminal: the header,
@@ -260,6 +269,7 @@ func (m Model) helpView(width int) []string {
 		{"s", "draft a post of your totals to share"},
 		{"c", "claim your spot: sign in with GitHub, when signed out"},
 		{"r", "scan local usage again"},
+		{"t", "switch between the dark and light theme"},
 		{"?", "close help"},
 		{"q", "quit"},
 	}
@@ -274,6 +284,7 @@ func (m Model) helpView(width int) []string {
 			{"o", "join or leave the global board"},
 			{"s", "draft a post of your totals to share"},
 			{"r", "reload"},
+			{"t", "switch between the dark and light theme"},
 			{"?", "close help"},
 			{"q", "quit"},
 		}

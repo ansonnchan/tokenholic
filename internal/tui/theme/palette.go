@@ -2,12 +2,15 @@ package theme
 
 import "github.com/charmbracelet/lipgloss"
 
-// The palette. Each role has a value for dark and for light terminal
-// backgrounds, and each of those degrades from 24-bit to 256 and 16 colors.
-// The TUI never paints the viewport, so every foreground here must stay
-// readable on a background it does not control. docs/design.md records the
-// same values for the website and share cards.
+// The palette. Each role has a value for the dark and for the light mode,
+// and each of those degrades from 24-bit to 256 and 16 colors. The TUI
+// paints its own canvas, so every foreground is checked against the canvas
+// it will sit on; a test holds text roles to 4.5:1. docs/design.md records
+// the same values, and the dark canvas is the website's page color.
 var (
+	canvas   = tone("#FAF7F2", "231", "15", "#0B1120", "233", "0")
+	onCanvas = tone("#1B1F27", "234", "0", "#E8EAF0", "255", "15")
+
 	accent     = tone("#B4502F", "166", "1", "#D9805F", "209", "9")
 	onAccent   = tone("#FFFFFF", "231", "15", "#1B1210", "233", "0")
 	muted      = tone("#6A6F78", "242", "8", "#8D929B", "245", "8")

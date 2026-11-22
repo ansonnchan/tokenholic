@@ -76,11 +76,24 @@ func (m Model) accountText() string {
 	}
 }
 
+// themeText says which look is in use and how to change it.
+func (m Model) themeText() string {
+	switch {
+	case !m.theme.Color:
+		return "off; this terminal is not using color"
+	case m.themes == nil:
+		return m.theme.Mode.String()
+	case m.modeUnsaved:
+		return m.theme.Mode.String() + "; could not be saved, so it lasts until you quit"
+	default:
+		return m.theme.Mode.String() + "; press t for " + m.theme.Mode.Other().String()
+	}
+}
+
 func (m Model) displayLines(width int) []string {
 	t := m.theme
-	var lines []string
+	lines := []string{widget.PadRight(widget.Label(t, "theme"), 13) + widget.Truncate(t, m.themeText(), max(width-13, 1)), ""}
 	for _, setting := range [][2]string{
-		{"TOKENHOLIC_THEME", "light or dark, when the terminal's background is detected wrongly"},
 		{"NO_COLOR", "any value turns all styling off"},
 		{"TOKENHOLIC_ASCII", "any value replaces symbols with ASCII"},
 	} {

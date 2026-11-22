@@ -36,6 +36,8 @@ func TestWebsiteTokensMatchTheDarkPalette(t *testing.T) {
 	for name, color := range map[string]lipgloss.CompleteAdaptiveColor{
 		"accent": accent, "on-accent": onAccent, "muted": muted, "border": border, "current-row": currentRow,
 		"gold": gold, "silver": silver, "bronze": bronze, "up": up, "down": down, "warning": warning, "error": failure,
+		// The TUI's dark canvas is the website's page.
+		"bg": canvas, "text": onCanvas,
 	} {
 		if got, want := tokens[name], strings.ToUpper(color.Dark.TrueColor); got != want {
 			t.Errorf("web token --%s = %q, want the dark palette's %q", name, got, want)

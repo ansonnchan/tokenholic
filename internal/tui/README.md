@@ -9,7 +9,7 @@ storage, calls the API, ranks, or prices. The visual direction is specified in
 
 | Package | Role |
 | --- | --- |
-| `theme` | Design tokens: the palette for dark and light backgrounds, the text styles built from it, and the glyph set with its ASCII fallbacks |
+| `theme` | Design tokens: the light and dark looks (palette and painted canvas), the text styles built from them, and the glyph set with its ASCII fallbacks |
 | `widget` | Stateless building blocks drawn from a theme: chips, tabs, titled panels, dashed rules, tables, sparklines, movement marks, notices, and the key bar |
 | `tui` | The Bubble Tea model, key handling, and the views composed from widgets. `values.go` is the one place stored values become text, so an unknown value cannot turn into a zero in one view and not another |
 | `goldentest` | Test support for comparing rendered frames with golden snapshots |
@@ -29,7 +29,9 @@ so the share cards can apply the same rules.
 ## Golden snapshots
 
 Two sets of frames are fixed at 48, 88, and 120 columns, with color and
-without, plus a light background and ASCII:
+without, plus the light look and ASCII. They hold the frame's own lines; the
+canvas painted behind them at the terminal's full size is covered by tests
+of `theme.Paint` and of `Model.View`:
 
 - `widget/gallery_test.go` lays every component out in one frame.
 - `golden_test.go` renders each screen and state of the application from the

@@ -11,7 +11,8 @@
 │ o       join or leave the global board                   │ │         previous period.                                │
 │ s       draft a post of your totals to share             │ │ !       a daily total above the plausibility limit.     │
 │ r       reload                                           │ │         Usage is self-reported.                         │
-│ ?       close help                                       │ ╰─────────────────────────────────────────────────────────╯
+│ t       switch between the dark and light theme          │ ╰─────────────────────────────────────────────────────────╯
+│ ?       close help                                       │
 │ q       quit                                             │
 ╰──────────────────────────────────────────────────────────╯
 1–5 views · g scope · p period · m metric · j/k move · y invite · s share · c create · i join · ? help · q quit

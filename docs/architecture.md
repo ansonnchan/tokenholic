@@ -39,6 +39,7 @@ internal/
   fixturecheck/            Fixture privacy enforcement
   modelcatalog/            Model resolution and pricing revisions
   normalize/               Canonical usage records
+  preferences/             The user's saved choices, such as the TUI's look
   privatefs/               Owner-only files and the per-user application directory
   store/                   Local SQLite lifecycle and migrations
   sync/                    Allowlisted batches, retry, dry run, and acknowledgements

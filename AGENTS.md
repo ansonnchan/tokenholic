@@ -60,7 +60,7 @@ Costs are API-equivalent estimates, never spending.
 ## TUI direction
 
 - Follow the retro-terminal direction in `docs/design.md`: one coral accent, uppercase spaced labels, titled panels with dashed rules, solid coral chips for selection and primary actions, and a highlighted current-user row.
-- Keep the interface keyboard-first, dense, and aligned; use the terminal's own background.
+- Keep the interface keyboard-first, dense, and aligned. The TUI paints its own canvas, light by default with a saved dark alternative; with `NO_COLOR` it paints nothing.
 - Avoid neon palettes, gradients, glow, ASCII-art backgrounds, and idle animation.
 - Preserve meaning without color and on narrow terminals; every glyph used for meaning needs an ASCII fallback.
 - Cover layout changes with golden snapshots at the documented widths, with and without color.

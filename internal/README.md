@@ -34,6 +34,7 @@ multiplayer owns authenticated group and leaderboard HTTP calls
 | `numfmt` | Compact token counts, estimate amounts, and shares as every surface displays them | Deciding how an unknown or unavailable value is shown |
 | `share` | Compose links for a user's own post, and the draft text from stored totals | Sending anything, or calling a social network's API |
 | `store` | SQLite lifecycle, migrations, and local persistence | Source-specific behavior |
+| `preferences` | The user's own choices about tokenholic, such as the TUI's look, in one private file beside the database | Usage, accounts, or credentials |
 | `privatefs` | Owner-only files and directories on every system, and the per-user application directory | What is stored in them |
 | `sync` | Allowlisted absolute-bucket batches, retry, dry run, and acknowledgements | Raw local records or provider credentials |
 | `tui` | Keyboard-first presentation of committed local state | Collection, SQL, or synchronization logic |

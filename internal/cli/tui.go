@@ -14,6 +14,7 @@ import (
 	"github.com/ansonnchan/tokenholic/internal/collect"
 	"github.com/ansonnchan/tokenholic/internal/modelcatalog"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
+	"github.com/ansonnchan/tokenholic/internal/preferences"
 	"github.com/ansonnchan/tokenholic/internal/store"
 	"github.com/ansonnchan/tokenholic/internal/tui"
 	"github.com/ansonnchan/tokenholic/internal/tui/theme"
@@ -23,27 +24,24 @@ const localCloseTimeout = 5 * time.Second
 
 // displayOptions are the presentation switches a user can set.
 type displayOptions struct {
-	noColor    bool
-	ascii      bool
-	background theme.Background
+	noColor bool
+	ascii   bool
+	// mode is the look TOKENHOLIC_THEME names, when modeSet. It overrides the
+	// saved choice for this run; nobody needs it, since t switches in the TUI.
+	mode    theme.Mode
+	modeSet bool
 }
 
 // displayFromEnvironment reads the presentation switches. Color is on unless
-// NO_COLOR is set. TOKENHOLIC_THEME names the terminal background when
-// detection gets it wrong; any other value leaves detection on.
-// TOKENHOLIC_ASCII, or a terminal that declares itself dumb, selects the
-// ASCII glyph set.
+// NO_COLOR is set. TOKENHOLIC_THEME=light or dark starts in that look
+// whatever was saved; any other value is ignored. TOKENHOLIC_ASCII, or a
+// terminal that declares itself dumb, selects the ASCII glyph set.
 func displayFromEnvironment(getenv func(string) string) displayOptions {
 	options := displayOptions{
 		noColor: getenv("NO_COLOR") != "",
 		ascii:   getenv("TOKENHOLIC_ASCII") != "" || getenv("TERM") == "dumb",
 	}
-	switch strings.ToLower(strings.TrimSpace(getenv("TOKENHOLIC_THEME"))) {
-	case "dark":
-		options.background = theme.DarkBackground
-	case "light":
-		options.background = theme.LightBackground
-	}
+	options.mode, options.modeSet = theme.ParseMode(getenv("TOKENHOLIC_THEME"))
 	return options
 }
 
@@ -59,7 +57,21 @@ func launchLocalTUI(ctx context.Context, home, codexHome, apiURL string, input i
 			err = closeErr
 		}
 	}()
-	config := tui.Config{NoColor: display.noColor, ASCII: display.ascii, Background: display.background, OpenURL: openBrowser}
+	config := tui.Config{NoColor: display.noColor, ASCII: display.ascii, OpenURL: openBrowser}
+	// The look is the user's saved choice, light until they make one. A
+	// preferences file that cannot be read is not worth failing a launch.
+	if path, pathErr := preferences.DefaultPath(); pathErr == nil {
+		saved, _ := preferences.Load(path)
+		config.Mode, _ = theme.ParseMode(saved.Theme)
+		config.SaveMode = func(mode theme.Mode) error {
+			current, _ := preferences.Load(path)
+			current.Theme = mode.String()
+			return preferences.Save(path, current)
+		}
+	}
+	if display.modeSet {
+		config.Mode = display.mode
+	}
 	if apiURL != "" {
 		client, clientErr := multiplayer.NewClient(apiURL, nil)
 		if clientErr != nil {
