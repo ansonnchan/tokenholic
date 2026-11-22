@@ -32,6 +32,9 @@ var allowedKeys = normalizedSet(
 	"daily", "date", "inputTokens", "outputTokens", "cacheCreationTokens", "cacheReadTokens",
 	"reasoningOutputTokens", "totalTokens", "modelsUsed", "modelBreakdowns", "modelName",
 	"cacheCreation1hTokens", "missingPricing", "totals", "unpricedModels", "models", "isFallback",
+	// ccusage's count of the requests behind a daily row. Its session fields,
+	// which name a project location, stay off this list.
+	"messageCount",
 	// Pricing evidence. thread_settings is allowed only as a container: its
 	// other members name the workspace and stay off this list.
 	"service_tier", "speed", "thread_settings",

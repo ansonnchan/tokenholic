@@ -1,0 +1,66 @@
+{
+  "daily": [
+    {
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 400,
+      "date": "2026-01-02",
+      "inputTokens": 720,
+      "modelBreakdowns": [
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 400,
+          "inputTokens": 620,
+          "missingPricing": true,
+          "modelName": "gemini-synthetic-pro",
+          "outputTokens": 200
+        },
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 0,
+          "inputTokens": 100,
+          "missingPricing": true,
+          "modelName": "gemini-synthetic-flash",
+          "outputTokens": 20
+        }
+      ],
+      "modelsUsed": [
+        "gemini-synthetic-pro",
+        "gemini-synthetic-flash"
+      ],
+      "outputTokens": 220,
+      "totalTokens": 1440
+    },
+    {
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 100,
+      "date": "2026-01-03",
+      "inputTokens": 400,
+      "modelBreakdowns": [
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 100,
+          "inputTokens": 400,
+          "missingPricing": true,
+          "modelName": "gemini-synthetic-pro",
+          "outputTokens": 50
+        }
+      ],
+      "modelsUsed": [
+        "gemini-synthetic-pro"
+      ],
+      "outputTokens": 50,
+      "totalTokens": 575
+    }
+  ],
+  "totals": {
+    "cacheCreationTokens": 0,
+    "cacheReadTokens": 500,
+    "inputTokens": 1120,
+    "outputTokens": 270,
+    "totalTokens": 2015,
+    "unpricedModels": [
+      "gemini-synthetic-flash",
+      "gemini-synthetic-pro"
+    ]
+  }
+}

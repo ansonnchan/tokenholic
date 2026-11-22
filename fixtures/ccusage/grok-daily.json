@@ -1,0 +1,56 @@
+{
+  "daily": [
+    {
+      "cacheCreationTokens": 100,
+      "cacheReadTokens": 400,
+      "date": "2026-01-02",
+      "inputTokens": 500,
+      "modelBreakdowns": [
+        {
+          "cacheCreationTokens": 100,
+          "cacheReadTokens": 400,
+          "inputTokens": 500,
+          "missingPricing": true,
+          "modelName": "grok-synthetic-build",
+          "outputTokens": 200
+        }
+      ],
+      "modelsUsed": [
+        "grok-synthetic-build"
+      ],
+      "outputTokens": 200,
+      "totalTokens": 1200
+    },
+    {
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 0,
+      "date": "2026-01-03",
+      "inputTokens": 300,
+      "modelBreakdowns": [
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 0,
+          "inputTokens": 300,
+          "missingPricing": true,
+          "modelName": "grok-synthetic-build",
+          "outputTokens": 60
+        }
+      ],
+      "modelsUsed": [
+        "grok-synthetic-build"
+      ],
+      "outputTokens": 60,
+      "totalTokens": 360
+    }
+  ],
+  "totals": {
+    "cacheCreationTokens": 100,
+    "cacheReadTokens": 400,
+    "inputTokens": 800,
+    "outputTokens": 260,
+    "totalTokens": 1560,
+    "unpricedModels": [
+      "grok-synthetic-build"
+    ]
+  }
+}

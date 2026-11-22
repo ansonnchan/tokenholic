@@ -19,18 +19,9 @@ type DiscoveryProbe interface {
 	Discover(context.Context) []adapters.Finding
 }
 
-// ParserProbe checks compatibility of an optional external parser.
+// ParserProbe checks the pinned external parser and what it reports.
 type ParserProbe interface {
 	Check(context.Context) ParserStatus
-}
-
-// ParserStatus distinguishes absence, incompatibility, execution failure, and timeout.
-type ParserStatus struct {
-	Found      bool
-	Compatible bool
-	// Issue is empty, "timeout", or "execution_failed"; incompatibility is
-	// represented by Found without Compatible so no external output is retained.
-	Issue string
 }
 
 // Report is a path-redacted snapshot of platform, parser, and source health.
@@ -79,8 +70,13 @@ func (r Report) ExitCode() int {
 	if !platformSupported(r.GOOS) {
 		return 1
 	}
-	if r.Parser.Issue != "" || r.Parser.Found && !r.Parser.Compatible {
+	if r.Parser.State == RunnerUnpinned {
 		return 1
+	}
+	for _, agent := range r.Parser.Agents {
+		if agent.State != AgentValid {
+			return 1
+		}
 	}
 	for _, finding := range r.Findings {
 		switch finding.Status {
@@ -117,18 +113,7 @@ func (r Report) Render() string {
 	case APINone:
 		fmt.Fprintln(&output, "API address: none; this is a development build, so account commands need TOKENHOLIC_API_URL")
 	}
-	switch {
-	case r.Parser.Compatible:
-		fmt.Fprintf(&output, "ccusage: compatible (%s)\n", ccusage.PinnedVersion)
-	case r.Parser.Issue == "timeout":
-		fmt.Fprintln(&output, "ccusage: version check timed out")
-	case r.Parser.Issue == "execution_failed":
-		fmt.Fprintln(&output, "ccusage: found but could not execute")
-	case r.Parser.Found:
-		fmt.Fprintf(&output, "ccusage: unsupported (requires %s)\n", ccusage.PinnedVersion)
-	default:
-		fmt.Fprintf(&output, "ccusage: not found (optional pinned parser %s)\n", ccusage.PinnedVersion)
-	}
+	r.renderParser(&output)
 	fmt.Fprintln(&output, "Sources:")
 
 	findings := append([]adapters.Finding(nil), r.Findings...)
@@ -164,6 +149,51 @@ func (r Report) Render() string {
 		fmt.Fprintln(&output, "Result: issues found; review the warnings above")
 	}
 	return output.String()
+}
+
+// renderParser reports the ccusage runner and each agent's report. A runner
+// that is off or absent is stated as such: the agents it would read are not
+// counted, which is different from having no usage.
+func (r Report) renderParser(output *strings.Builder) {
+	names := make([]string, 0, len(ccusage.Agents()))
+	for _, agent := range ccusage.Agents() {
+		names = append(names, agent.Label())
+	}
+	covered := strings.Join(names, ", ")
+	switch r.Parser.State {
+	case RunnerReady:
+		fmt.Fprintf(output, "ccusage: ready (pinned %s, executable verified)\n", ccusage.PinnedVersion)
+	case RunnerOff:
+		fmt.Fprintf(output, "ccusage: turned off; not counted: %s\n", covered)
+		fmt.Fprintln(output, "  Run `tokenholic ccusage on` to count them.")
+	case RunnerUnpinned:
+		fmt.Fprintf(output, "ccusage: refused; the installed executable is not the pinned %s build and was not run\n", ccusage.PinnedVersion)
+		fmt.Fprintf(output, "  Not counted: %s. Reinstall @tokenholic/cli to restore the pinned build.\n", covered)
+	case RunnerUnavailable:
+		fmt.Fprintf(output, "ccusage: not available in this install; not counted: %s\n", covered)
+		fmt.Fprintf(output, "  The pinned ccusage %s comes with the npm package: `npm install -g @tokenholic/cli`.\n", ccusage.PinnedVersion)
+	default:
+		return
+	}
+	for _, agent := range r.Parser.Agents {
+		fmt.Fprintf(output, "  %-29s %s\n", agent.Agent.Label(), agentText(agent))
+	}
+}
+
+func agentText(agent AgentReport) string {
+	switch agent.State {
+	case AgentValid:
+		if agent.Days == 0 {
+			return "report valid (no usage found)"
+		}
+		return fmt.Sprintf("report valid (%d days of usage)", agent.Days)
+	case AgentMalformed:
+		return "malformed output; this agent is not counted"
+	case AgentTimedOut:
+		return "timed out; this agent is not counted"
+	default:
+		return "could not run; this agent is not counted"
+	}
 }
 
 // platformSupported reports whether default discovery knows any location on

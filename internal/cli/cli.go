@@ -17,6 +17,7 @@ import (
 	"github.com/ansonnchan/tokenholic/internal/autosync"
 	"github.com/ansonnchan/tokenholic/internal/doctor"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
+	"github.com/ansonnchan/tokenholic/internal/preferences"
 	"github.com/ansonnchan/tokenholic/internal/store"
 	usageSync "github.com/ansonnchan/tokenholic/internal/sync"
 )
@@ -43,7 +44,7 @@ type dependencies struct {
 	getenv  func(string) string
 	// defaultAPIURL is the address used when TOKENHOLIC_API_URL is unset.
 	defaultAPIURL string
-	diagnose      func(context.Context, string, string) doctor.Report
+	diagnose      func(context.Context, string, string, doctor.ParserProbe) doctor.Report
 	input         io.Reader
 	launch        func(context.Context, string, string, string, io.Reader, io.Writer, displayOptions) error
 	timeout       time.Duration
@@ -54,6 +55,8 @@ type dependencies struct {
 	autosync      func(autosync.Config) (autosyncManager, error)
 	// usage scans local records and returns the dashboard's totals.
 	usage func(ctx context.Context, home, codexHome string) (application.Dashboard, error)
+	// preferences is where the user's saved choices live.
+	preferences func() (string, error)
 }
 
 type accountManager interface {
@@ -118,20 +121,21 @@ func defaultDependencies() dependencies {
 			}
 			return multiplayer.NewService(client, account.NewKeyringStore(apiURL), localTimezone())
 		},
-		sync:  synchronizeLocal,
-		usage: loadLocalUsage,
+		sync:        synchronizeLocal,
+		usage:       loadLocalUsage,
+		preferences: preferences.DefaultPath,
 		autosync: func(config autosync.Config) (autosyncManager, error) {
 			return autosync.NewManager(config)
 		},
-		diagnose: func(ctx context.Context, home, codexHome string) doctor.Report {
+		diagnose: func(ctx context.Context, home, codexHome string, parser doctor.ParserProbe) doctor.Report {
 			discovery := adapters.Discoverer{Roots: defaultRoots(home, codexHome)}
 			path, err := store.DefaultPath()
 			if err != nil {
-				report := doctor.Diagnose(ctx, discovery, doctor.CCUsageProbe{}, nil)
+				report := doctor.Diagnose(ctx, discovery, parser, nil)
 				report.Database = doctor.DatabaseStatus{Location: "default application data", State: doctor.DatabaseError, SupportedVersion: store.SupportedSchemaVersion()}
 				return report
 			}
-			return doctor.Diagnose(ctx, discovery, doctor.CCUsageProbe{}, doctor.LocalDatabaseProbe{Path: path, Default: true})
+			return doctor.Diagnose(ctx, discovery, parser, doctor.LocalDatabaseProbe{Path: path, Default: true})
 		},
 	}
 }
@@ -164,6 +168,9 @@ func run(args []string, stdout, stderr io.Writer, deps dependencies) int {
 	}
 	if len(args) > 0 && args[0] == "share" {
 		return runShareCommand(args[1:], stdout, stderr, deps)
+	}
+	if len(args) > 0 && args[0] == "ccusage" {
+		return runCCUsageCommand(args[1:], stdout, stderr, deps)
 	}
 	flags := flag.NewFlagSet("tokenholic", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -373,7 +380,8 @@ func runDoctor(stdout, stderr io.Writer, deps dependencies) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), deps.timeout)
 	defer cancel()
-	report := deps.diagnose(ctx, home, codexHome)
+	runner, off := deps.ccusageRunner()
+	report := deps.diagnose(ctx, home, codexHome, doctor.CCUsageProbe{Runner: runner, Off: off})
 	switch apiURL, overridden := deps.apiOrigin(); {
 	case overridden:
 		report.API = doctor.APIOverridden
