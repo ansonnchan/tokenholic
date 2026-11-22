@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ansonnchan/tokenholic/internal/account"
 	"github.com/ansonnchan/tokenholic/internal/adapters"
 	"github.com/ansonnchan/tokenholic/internal/autosync"
 	"github.com/ansonnchan/tokenholic/internal/doctor"
@@ -331,6 +332,30 @@ func TestSyncCommandParsesDryRunAndRedactsFailure(t *testing.T) {
 	stderr.Reset()
 	if code := run([]string{"sync"}, &stdout, &stderr, deps); code != 1 || !strings.Contains(stderr.String(), "already running") {
 		t.Fatalf("overlapping sync = %d/%q", code, stderr.String())
+	}
+}
+
+func TestCommandsExplainAnUnavailableCredentialStore(t *testing.T) {
+	unavailable := fmt.Errorf("read /private/path: %w", account.ErrVaultUnavailable)
+	deps := dependencies{
+		homeDir: func() (string, error) { return "/synthetic/home", nil },
+		getenv: func(name string) string {
+			if name == "TOKENHOLIC_API_URL" {
+				return "https://api.example.test"
+			}
+			return ""
+		},
+		account: func(string) (accountManager, error) { return &fakeAccountManager{loginErr: unavailable}, nil },
+		sync: func(context.Context, string, string, string, bool, io.Writer) error {
+			return unavailable
+		},
+	}
+	for _, command := range []string{"login", "claim", "sync"} {
+		var stdout, stderr bytes.Buffer
+		code := run([]string{command}, &stdout, &stderr, deps)
+		if code != 1 || !strings.Contains(stderr.String(), account.VaultHelp()) || strings.Contains(stderr.String(), "/private/path") {
+			t.Fatalf("%s = %d/%q", command, code, stderr.String())
+		}
 	}
 }
 

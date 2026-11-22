@@ -57,6 +57,11 @@ func (m *Manager) Login(ctx context.Context, clientVersion string, output io.Wri
 // Begin starts GitHub device authorization and returns the code the user
 // enters at the verification page. Nothing is stored until Complete.
 func (m *Manager) Begin(ctx context.Context, clientVersion string) (DeviceStart, error) {
+	// A store that cannot hold the session is found out before the user is
+	// sent to GitHub, not after they approve a device nothing can remember.
+	if _, err := m.store.Load(); errors.Is(err, ErrVaultUnavailable) {
+		return DeviceStart{}, fmt.Errorf("check credential store: %w", err)
+	}
 	started, err := m.client.Start(ctx, clientVersion)
 	if err != nil {
 		return DeviceStart{}, fmt.Errorf("start login: %w", err)
