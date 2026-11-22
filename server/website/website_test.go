@@ -42,12 +42,14 @@ func TestLinksKeepTheBasePathAndEscapeTheirArgument(t *testing.T) {
 		t.Fatal(err)
 	}
 	for got, want := range map[string]string{
-		site.Invite("ovt_abc-DEF"): "https://pages.example/tokenholic/invite/#ovt_abc-DEF",
-		site.Profile("dana"):       "https://pages.example/tokenholic/u/?login=dana",
-		site.Profile("a&b=c#d"):    "https://pages.example/tokenholic/u/?login=a%26b%3Dc%23d",
-		site.Board("g-nightshift"): "https://pages.example/tokenholic/b/?slug=g-nightshift",
-		site.Invite("x/../y?z"):    "https://pages.example/tokenholic/invite/#x%2F..%2Fy%3Fz",
-		site.Home():                "https://pages.example/tokenholic/",
+		site.Invite("ovt_abc-DEF"):                             "https://pages.example/tokenholic/invite/#ovt_abc-DEF",
+		site.Profile("dana"):                                   "https://pages.example/tokenholic/u/?login=dana",
+		site.Profile("a&b=c#d"):                                "https://pages.example/tokenholic/u/?login=a%26b%3Dc%23d",
+		site.Board("g-nightshift", "", ""):                     "https://pages.example/tokenholic/b/?slug=g-nightshift",
+		site.Board("g-nightshift", "all_time", "total_tokens"): "https://pages.example/tokenholic/b/?metric=total_tokens&period=all_time&slug=g-nightshift",
+		site.Board("a&b", "x y", ""):                           "https://pages.example/tokenholic/b/?period=x+y&slug=a%26b",
+		site.Invite("x/../y?z"):                                "https://pages.example/tokenholic/invite/#x%2F..%2Fy%3Fz",
+		site.Home():                                            "https://pages.example/tokenholic/",
 	} {
 		if got != want {
 			t.Errorf("link = %q, want %q", got, want)

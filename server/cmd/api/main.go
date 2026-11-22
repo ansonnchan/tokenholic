@@ -23,6 +23,8 @@ import (
 	"github.com/ansonnchan/tokenholic/server/postgres"
 	serverpricing "github.com/ansonnchan/tokenholic/server/pricing"
 	"github.com/ansonnchan/tokenholic/server/ratelimit"
+	"github.com/ansonnchan/tokenholic/server/sharecard"
+	"github.com/ansonnchan/tokenholic/server/sharepage"
 	serversync "github.com/ansonnchan/tokenholic/server/sync"
 	"github.com/ansonnchan/tokenholic/server/website"
 )
@@ -135,7 +137,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	limited, err := rateLimited(handler, os.Getenv)
+	routes, err := withSharePages(handler, site, accountUsage, leaderboards)
+	if err != nil {
+		return err
+	}
+	limited, err := rateLimited(routes, os.Getenv)
 	if err != nil {
 		return err
 	}
@@ -233,6 +239,27 @@ func readableBy(site website.Site, handler http.Handler) (http.Handler, error) {
 		return handler, nil
 	}
 	return httpapi.AllowWebOrigin(handler, site.Origin())
+}
+
+// withSharePages adds the share pages and PNG cards under /s/ beside the
+// JSON API. A share page sends browsers on to the website, so without a
+// website address there are no share routes and /s/ is an ordinary 404.
+func withSharePages(api http.Handler, site website.Site, profiles sharepage.Profiles, boards sharepage.Boards) (http.Handler, error) {
+	if !site.Configured() {
+		return api, nil
+	}
+	cards, err := sharecard.New()
+	if err != nil {
+		return nil, err
+	}
+	share, err := sharepage.New(profiles, boards, cards, site)
+	if err != nil {
+		return nil, err
+	}
+	routes := http.NewServeMux()
+	routes.Handle(sharepage.Prefix, share)
+	routes.Handle("/", api)
+	return routes, nil
 }
 
 // trustedProxyHops reads how many reverse proxies in front of the API append

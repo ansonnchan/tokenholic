@@ -53,7 +53,7 @@ or `private` exactly.
 
 `TOKENHOLIC_WEB_ORIGIN` is the HTTPS address the static website is served
 from, such as `https://example.github.io/tokenholic`. It is optional and does
-two things:
+three things:
 
 - **Origin allowlist.** `httpapi.AllowWebOrigin` answers a public-route
   request whose `Origin` header is exactly the site's origin (scheme and
@@ -64,6 +64,8 @@ two things:
   wildcard. Unset, no browser origin can read the API at all. The public
   routes are plain GETs without custom headers, which browsers send without a
   preflight, so `OPTIONS` is not answered.
+- **Share routes.** The share pages under `/s/` are served; see
+  [Share routes](#share-routes).
 - **Links.** Each new invitation carries a link to the site's invite page.
   The code sits in the link's fragment and is never sent to the server
   hosting the site. `website` builds every link into the site and keeps the
@@ -74,6 +76,44 @@ The allowlist's headers depend only on the request's path prefix and
 missing one from any origin; a test compares complete responses. It wraps the
 rate limiter, so a `429` and its `Retry-After` are readable by the page. A
 value that is not a plain HTTPS address stops startup.
+
+## Share routes
+
+`sharepage` serves the links people post, and `sharecard` draws their images.
+They are mounted beside the JSON API only when `TOKENHOLIC_WEB_ORIGIN` is
+set, because a share page sends browsers on to the website.
+
+| Route | Returns |
+| --- | --- |
+| `GET /s/u/{login}` | HTML with Open Graph tags for a public profile; a browser is sent to the website's profile page |
+| `GET /s/u/{login}/card.png` | The profile's 1200×630 PNG card |
+| `GET /s/b/{slug}` | HTML with Open Graph tags for a public board; `period` and `metric` select the view and default to this week's estimate |
+| `GET /s/b/{slug}/card.png` | The board's card, for the same `period` and `metric` |
+
+- They read through `account.PublicProfile` and `leaderboard.PublicGroup`,
+  the services behind the public JSON routes, so they show nothing more.
+- Every miss under `/s/` is `404` with one fixed HTML body and
+  `Cache-Control: no-store`: a private, deleted, or nonexistent record, a
+  malformed name, an unknown path, for pages and cards alike. A test compares
+  complete responses. An unrecognized `period` or `metric` falls back to the
+  default instead of failing a link someone already posted.
+- `sharepage/view.go` is the one place a public value becomes the words on a
+  page or card. Unknown is `—`, a lower bound carries `≥`, and each estimate
+  is labelled one. `sharecard` draws the text it is given and formats nothing.
+- Pages are `no-store`. Cards are `public, max-age=300` with an `ETag` from
+  the card's content, answered with `304` on a match; the page links its card
+  as `card.png?v=<tag>`.
+- Absolute addresses come from the request's `Host`, HTTPS except on
+  loopback. A `Host` that is not a plain name gets the ordinary miss.
+- Pages run no script and carry a Content-Security-Policy that allows only
+  their own card and inline style. Owner-chosen text is escaped by
+  `html/template`, and control characters are dropped before it is drawn.
+- Cards carry no avatar: the API never fetches from another host.
+
+The card fonts are embedded and recorded in
+[`sharecard/fonts/README.md`](./sharecard/fonts/README.md). To look at cards
+while changing them, set `SHAREPAGE_PREVIEW` to a directory and run
+`go test ./server/sharepage -run TestWritePreviews`.
 
 `leaderboard` defines timezone-relative periods, the two ranking metrics, cost
 coverage, trends, and competition ties. Its PostgreSQL repository authorizes
