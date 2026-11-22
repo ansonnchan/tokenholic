@@ -12,6 +12,8 @@ packages/darwin-arm64/bin
 packages/darwin-x64/bin
 packages/linux-arm64/bin
 packages/linux-x64/bin
+packages/win32-arm64/bin
+packages/win32-x64/bin
 coverage.out
 *.db
 *.db-shm

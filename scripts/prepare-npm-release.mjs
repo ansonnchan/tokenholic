@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-import { archiveName as platformArchive, packageDirectory, platforms } from "./platforms.mjs";
+import { archiveName as platformArchive, binaryName, packageDirectory, platforms } from "./platforms.mjs";
 
 const semanticVersion = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
@@ -55,16 +55,17 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
       if (result.status !== 0) {
         throw new Error(`could not extract ${archiveName}: ${(result.stderr ?? "").trim()}`);
       }
+      const binary = binaryName(platform);
       const names = (await readdir(extracted)).sort();
-      if (names.join("\n") !== "ccusage.lock.json\ntokenholic") {
+      if (names.join("\n") !== `ccusage.lock.json\n${binary}`) {
         throw new Error(`${archiveName} contains unexpected files`);
       }
 
       const packageRoot = path.join(workspace, "packages", directory);
       const binaryDirectory = path.join(packageRoot, "bin");
       await mkdir(binaryDirectory, { recursive: true });
-      await copyFile(path.join(extracted, "tokenholic"), path.join(binaryDirectory, "tokenholic"));
-      await chmod(path.join(binaryDirectory, "tokenholic"), 0o755);
+      await copyFile(path.join(extracted, binary), path.join(binaryDirectory, binary));
+      await chmod(path.join(binaryDirectory, binary), 0o755);
       await copyFile(path.join(extracted, "ccusage.lock.json"), path.join(packageRoot, "ccusage.lock.json"));
       await setPackageVersion(path.join(packageRoot, "package.json"), version);
     }

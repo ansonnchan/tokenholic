@@ -22,6 +22,12 @@ importers:
       '@tokenholic/linux-x64':
         specifier: workspace:*
         version: link:../linux-x64
+      '@tokenholic/win32-arm64':
+        specifier: workspace:*
+        version: link:../win32-arm64
+      '@tokenholic/win32-x64':
+        specifier: workspace:*
+        version: link:../win32-x64
 
   packages/darwin-arm64: {}
 
@@ -30,3 +36,7 @@ importers:
   packages/linux-arm64: {}
 
   packages/linux-x64: {}
+
+  packages/win32-arm64: {}
+
+  packages/win32-x64: {}

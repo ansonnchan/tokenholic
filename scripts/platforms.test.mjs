@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { archiveName, packageDirectory, packageName, platforms } from "./platforms.mjs";
+import { archiveName, binaryName, packageDirectory, packageName, platforms } from "./platforms.mjs";
 
 const repository = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(import.meta.url);
@@ -40,6 +40,7 @@ test("every shipped platform has a matching native package and nothing else does
     assert.deepEqual(manifest.os, [platform.os]);
     assert.deepEqual(manifest.cpu, [platform.cpu]);
     assert.ok(manifest.description.includes(platform.label), manifest.description);
+    assert.deepEqual(manifest.files.sort(), [`bin/${binaryName(platform)}`, "ccusage.lock.json"]);
   }
 });
 
@@ -49,5 +50,7 @@ test("archive names follow the release tool's convention", () => {
     "tokenholic_1.2.3_darwin_x64.tar.gz",
     "tokenholic_1.2.3_linux_arm64.tar.gz",
     "tokenholic_1.2.3_linux_x64.tar.gz",
+    "tokenholic_1.2.3_windows_arm64.tar.gz",
+    "tokenholic_1.2.3_windows_x64.tar.gz",
   ]);
 });

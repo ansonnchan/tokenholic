@@ -35,6 +35,6 @@ test("publishes missing native packages before the umbrella and skips completed 
 
   const published = calls.filter((args) => args[0] === "publish").map((args) => path.basename(args[1]));
   // Every native package but the one already there, then the launcher last.
-  assert.deepEqual(published, ["darwin-x64", "linux-arm64", "linux-x64", "cli"]);
+  assert.deepEqual(published, ["darwin-x64", "linux-arm64", "linux-x64", "win32-arm64", "win32-x64", "cli"]);
   assert.match(output, /already published @tokenholic\/darwin-arm64@1.2.3/);
 });
