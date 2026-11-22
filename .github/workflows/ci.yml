@@ -16,14 +16,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on Windows, so one Makefile serves every runner.
+        shell: bash
+    env:
+      # Lets the Windows suite register its generated task with the real
+      # Task Scheduler and remove it again. It has no effect elsewhere.
+      TOKENHOLIC_TEST_TASK_SCHEDULER: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+      - name: Use Windows cache paths
+        if: runner.os == 'Windows'
+        # The Makefile's default caches live under /tmp, which is not an
+        # absolute path to a Windows program.
+        run: |
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_ENV"
+          echo "GOPATH=$(go env GOPATH)" >> "$GITHUB_ENV"
       - run: make check
       - run: make release VERSION=0.0.0-ci
 

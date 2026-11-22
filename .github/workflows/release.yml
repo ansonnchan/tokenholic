@@ -29,6 +29,8 @@ jobs:
 
   # Archives are cross-compiled on macOS, so the build can run only its own.
   # Each other system runs its archive here before anything is published.
+  # Windows arm64 has no runner here and is covered by the manual run in
+  # docs/release-validation.md.
   smoke:
     needs: artifacts
     permissions: {}
@@ -39,6 +41,8 @@ jobs:
             archive: linux_x64
           - os: ubuntu-24.04-arm
             archive: linux_arm64
+          - os: windows-latest
+            archive: windows_x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/download-artifact@v4
@@ -52,6 +56,7 @@ jobs:
           archive="tokenholic_${version}_${{ matrix.archive }}.tar.gz"
           (cd dist && grep "  ${archive}\$" SHA256SUMS | sha256sum --check --strict)
           mkdir run && tar -xzf "dist/${archive}" -C run
+          # Git Bash runs tokenholic.exe under this name too.
           test "$(./run/tokenholic --version)" = "${version}"
 
   release:
