@@ -67,6 +67,14 @@ key. Render prompts for the remaining secrets:
 - `DATABASE_URL`: the Supabase Session pooler URI from step 1;
 - `GITHUB_CLIENT_ID`: the OAuth app client ID from step 2.
 
+Render then deploys the service again on every push to `main`. There is no
+separate deploy step: merging a pull request that changes `server/`,
+`migrations/`, or a package the API imports puts it in front of users within
+minutes, and its migrations run as the service starts. GitHub records each
+deploy; `gh api 'repos/<owner>/<repository>/deployments?per_page=5'` lists
+them with their commits. To deploy by hand instead, turn auto-deploy off in
+the service's settings on Render.
+
 The container reads Render's `PORT` and binds to all container interfaces.
 `TOKENHOLIC_LISTEN_ADDR` remains available for an explicit override and takes
 precedence over `PORT`; do not set it on Render.
@@ -81,6 +89,29 @@ limit separates users. Set it only after confirming, from the platform's
 documentation or the headers a request actually arrives with, how many
 entries its proxies add. A value that is too high lets a client pick its own
 address. This has not been measured against a live Render service yet.
+
+To measure it, the API writes one log line the first time a request arrives
+with each number of `X-Forwarded-For` entries, with the count and never an
+address:
+
+```text
+tokenholic api: a request arrived with 2 X-Forwarded-For entries; TOKENHOLIC_TRUSTED_PROXY_HOPS is 0
+```
+
+Right after a deploy, send one request yourself without that header and read
+the service log:
+
+```sh
+curl --silent --output /dev/null https://<service>.onrender.com/v1/public/users/nobody
+```
+
+The count on the line that appears is the number of proxies in front of the
+API, and the value to set. `/healthz` is not counted, because the platform's
+own probes do not come through its proxies. A later line with a larger count
+is a client that sent its own header, not a longer chain. After setting the
+variable, the same request must log the same count with the new setting
+beside it; then confirm the limit keys on you and not on the proxy by
+checking that a request from a second network is not slowed by the first.
 
 `TOKENHOLIC_WEB_ORIGIN` is optional and belongs to
 [publishing the website](#6-publish-the-website). Without it the API returns
@@ -97,11 +128,20 @@ period, so the first request can take noticeably longer while it wakes.
 
 ## 4. Exercise the complete journey
 
-Point a release binary at the HTTPS origin without writing the value into the
-repository:
+Release builds carry one API address, `hostedAPI` in
+[`cmd/release/main.go`](../cmd/release/main.go). Users never set anything.
+When this deployment's origin differs from that constant, change the constant
+in a pull request before tagging the release; the release build refuses an
+address that is not a bare `https` origin and checks that every binary
+carries it.
+
+`TOKENHOLIC_API_URL` overrides the built-in address. It is for the operator
+and for development, for example to try a second deployment before moving
+the constant:
 
 ```sh
 export TOKENHOLIC_API_URL='https://<service>.onrender.com'
+tokenholic doctor   # reports "API address: set by TOKENHOLIC_API_URL"
 tokenholic login
 tokenholic sync --dry-run
 tokenholic sync
@@ -111,8 +151,10 @@ tokenholic
 
 Use a second GitHub identity or a second tester to validate invitations and
 ranking. Confirm that a repeated `sync` does not increase unchanged totals.
-Before enabling autosync, remember that it preserves the configured API origin
-in the private schedule definition.
+The full two-account checklist is in
+[release validation](./release-validation.md). Autosync enabled while the
+override is set keeps that address in its private schedule definition;
+enabled without it, the job uses the address built into its executable.
 
 ## 5. Operate or remove the demo
 

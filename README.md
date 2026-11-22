@@ -81,21 +81,24 @@ tokenholic autosync enable # explicitly enable hourly background sync
 ```
 
 `show-data` is the friendly alias for `sync --dry-run`; both work without a
-login or API configuration. `claim` is the onboarding form of `login` and runs
+login. `claim` is the onboarding form of `login` and runs
 the first sync after GitHub authorization. Existing `login` and `sync --dry-run`
 commands remain supported.
 
-Claiming and synchronization require a tokenholic API origin. To use the free
-hosted demo, export its origin once in the current shell:
+Claiming and synchronization talk to the hosted tokenholic API. A released
+build already knows its address, so there is nothing to configure:
 
 ```sh
-export TOKENHOLIC_API_URL='https://tokenholic-api.onrender.com'
-
 tokenholic claim
 tokenholic sync
 tokenholic group create "Demo group"
 tokenholic
 ```
+
+`TOKENHOLIC_API_URL` exists only to point the client somewhere else: at your
+own deployment, or at a local API during development. You never need to set
+it to use tokenholic. A build made from source with `go build` carries no
+address and does need it; `tokenholic doctor` says which case applies.
 
 The free demo API may take about a minute to wake after inactivity. Hourly
 synchronization is opt-in and is never silently installed by `sync`.
@@ -163,8 +166,9 @@ go build -o ./bin/tokenholic ./cmd/tokenholic
 The first launch scans local usage and shows what it found; nothing leaves
 the machine. Press `enter` for the dashboard, `r` to scan again, `1`–`5` to
 switch views, `p` to change the period, `d` for exact token categories, `s`
-to draft a post of your totals, `?` for help, and `q` to quit. With
-`TOKENHOLIC_API_URL` set, `c` claims an account from inside the TUI. The
+to draft a post of your totals, `?` for help, and `q` to quit. `c` claims an
+account from inside the TUI; a build from source offers it once
+`TOKENHOLIC_API_URL` names an API. The
 minimum supported width is 48 columns.
 
 The TUI is in color by default and picks its light or dark palette from the

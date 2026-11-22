@@ -15,6 +15,11 @@ application never downloads or replaces the optional ccusage executable at
 runtime. Keeping the contract beside the binary makes the parser requirement
 auditable without expanding the release's trust boundary.
 
+Every release build also carries the hosted API address, the `hostedAPI`
+constant in `cmd/release`, so a user never configures one. The build refuses
+an address that is not a bare `https` origin and checks that each binary
+holds it. A build made with plain `go build` carries none.
+
 Build artifacts from a clean checkout with:
 
 ```sh
@@ -55,10 +60,26 @@ To add a platform, add it to `targets` in `cmd/release`, to
 dependencies, and create its package directory. Tests fail until all five
 agree.
 
+Before tagging, work through [release validation](./release-validation.md).
+The server side needs no release step: Render deploys every push to `main`,
+so the hosted API already speaks the protocol a tagged client needs. That
+also means a merge that changes the server is live before any tag.
+
 ## Notes to include in the next release
 
 GitHub generates release notes from merged pull requests. Add these by hand,
 because users must act on them:
+
+- **Linux and Windows.** `npx @tokenholic/cli` now runs on Linux and Windows
+  as well as macOS, on x64 and arm64. On Linux, signing in needs a Secret
+  Service keyring and autosync needs a systemd user session. Windows is new:
+  report anything that looks wrong.
+- **Nothing to configure.** The client knows the hosted API's address.
+  `TOKENHOLIC_API_URL` is now only an override; remove it from your shell
+  profile unless you run your own API. If autosync was enabled with it set,
+  run `tokenholic autosync enable` again after unsetting it.
+- **Re-enable autosync after upgrading**, as always: the schedule runs its
+  own copy of the executable.
 
 - **Demo-data reset.** Sync protocol v2 replaces the server's uploaded usage.
   Every bucket uploaded before this release is discarded; accounts, devices,
