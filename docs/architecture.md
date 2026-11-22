@@ -1,6 +1,6 @@
 # Architecture
 
-Status: MVP and M6–M9 implemented; M10 design accepted (see "Planned target design")
+Status: MVP and M6–M9 implemented; M10 in progress, with Linux support built (see "Planned target design")
 Last updated: November 21, 2026
 
 ## System goals
@@ -33,6 +33,7 @@ internal/
   account/                 Native login and OS credential-vault storage
   adapters/                Source-specific discovery and parsing
   application/             Local refresh and dashboard orchestration
+  autosync/                Opt-in hourly schedule and the shared sync lock
   collect/                 Deduplication and counter reduction
   doctor/                  Privacy-safe source and storage diagnostics
   fixturecheck/            Fixture privacy enforcement
@@ -152,6 +153,8 @@ can probe an installed version, and CI validates synthetic report fixtures.
 Native collection does not invoke or download ccusage.
 
 Claude Desktop discovery is limited to Code sessions and local Agent/Cowork evidence. Ordinary Claude Desktop chat storage is never scanned. Default Codex storage is classified as shared local evidence when CLI and Desktop attribution cannot be proven.
+
+Where a provider keeps its records differs by operating system. Each layout is a plain function in the adapters package, tested on every system, and one build-tagged function picks the layout for the system the binary runs on. A location is added only with evidence from the provider's own documentation or source, cited in the [adapter guide](../internal/adapters/README.md); an operating system with no confirmed location has no roots and is reported as unsupported rather than guessed at.
 
 ### Normalization
 
@@ -686,7 +689,19 @@ X crawler  -->  API share page (/s/...) with Open Graph tags + PNG card
 
 ### Platforms
 
-- Linux: XDG-aware discovery and a user-level systemd timer for autosync.
+- Linux, implemented. Claude Code and Codex keep their records under the
+  home directory on Linux and ignore the XDG variables, so discovery reads
+  `~/.claude/projects` and `~/.codex` as on macOS. Two locations do follow
+  `XDG_CONFIG_HOME`: Claude Desktop's data folder, and the directory Claude
+  Code 1.0.28 to 1.0.30 briefly used, read as an optional root. tokenholic's
+  own database and lock stay in the user configuration directory, which is
+  `XDG_CONFIG_HOME` there.
+- Linux credentials use the Secret Service on the session D-Bus through the
+  same keyring library as macOS. A machine without one gets a message naming
+  it before any GitHub authorization starts; there is no file fallback.
+- Linux autosync is a user-level systemd timer, described under
+  "Distribution architecture". Linux x64 and arm64 archives and npm packages
+  ship with the macOS ones, and CI runs the Go suite on Linux.
 - Windows: discovery under the user profile, Windows Credential Manager,
   ACL-restricted private files, a Windows-compatible single-instance lock,
   and Task Scheduler autosync. CI runs on Windows; release validation needs
@@ -701,27 +716,40 @@ The core application is a native Go binary. pnpm manages npm package metadata an
     -> small platform selector
     -> @tokenholic/darwin-arm64
        @tokenholic/darwin-x64
-       future Linux/Windows packages
+       @tokenholic/linux-arm64
+       @tokenholic/linux-x64
+       future Windows packages
 ```
 
 The user still runs `npx @tokenholic/cli`. Release automation cross-compiles the
-Go binary without CGO, verifies its Mach-O architecture and embedded version,
-normalizes archive metadata, and publishes checksummed native artifacts. Each
+Go binary without CGO for every target, verifies each file's format and CPU
+(and, for Linux, that it is statically linked, so one build serves glibc and
+musl systems), normalizes archive metadata, and publishes checksummed native
+artifacts. The build machine can execute only its own target, so a runner for
+each other system runs its archive before anything is published. Each
 native archive includes the pinned ccusage contract but never downloads or
 bundles an unverified parser executable. Platform packages consume these
-artifacts, and the umbrella npm package is published only after both platform
-packages exist.
+artifacts, and the umbrella npm package is published only after every platform
+package exists. One list in `scripts/platforms.mjs` names the shipped
+platforms; tests hold the launcher, the manifests, and the release tool to it.
 The launcher resolves only the package matching the current operating system
 and CPU, then executes its binary directly without a shell. Unsupported targets
 and missing optional packages fail explicitly.
 
-Autosync copies the current native executable to a stable private
-application-support path only after explicit user consent. A per-user launch
-agent runs it at login and hourly, stores no credentials, and writes only the
-sync command's privacy-safe summary or stable failure message to private local
-logs. Manual and scheduled synchronization share a non-blocking advisory lock,
-so they cannot overlap. Disabling autosync unloads the agent and removes its
-binary, plist, and logs without touching SQLite usage or the OS-vault session.
+Autosync copies the current native executable to a stable private path only
+after explicit user consent. The operating system's own per-user scheduler
+runs it at login and hourly: a launch agent on macOS and a systemd user timer
+on Linux. One manager drives both; a scheduler supplies only its file
+locations, file contents, and commands, and is tested on every system. The
+schedule stores no credentials and writes only the sync command's
+privacy-safe summary or stable failure message to private local logs. Manual
+and scheduled synchronization share a non-blocking advisory lock, so they
+cannot overlap. Disabling autosync unloads the schedule and removes its
+binary, definition files, and logs without touching SQLite usage or the
+OS-vault session. A system whose scheduler cannot be reached, such as a
+container or WSL without systemd, is told what is missing and nothing is
+installed. The [autosync guide](../internal/autosync/README.md) lists each
+platform's files.
 
 ## Security and privacy invariants
 
