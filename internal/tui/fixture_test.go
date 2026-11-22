@@ -572,3 +572,89 @@ func emptyDashboard() application.Dashboard {
 	dashboard.Diagnostics.PendingOutbox = 0
 	return dashboard
 }
+
+// addSource adds one more source to a summary and to its totals, so the
+// shares still add up.
+func addSource(summary *store.UsageSummary, name string, input, read, output, perMille uint64) {
+	scale := func(value uint64) uint64 { return value * perMille / 1000 }
+	tokens := store.TokenBreakdown{
+		InputUncached: known(scale(input)), InputCacheRead: known(scale(read)),
+		// A day-level source that records no cache writes.
+		InputCacheWrite: unavailable, InputCacheWrite5m: unavailable, InputCacheWrite1h: unavailable,
+		Output: known(scale(output)), ReasoningOutput: unavailable,
+	}
+	grow := func(total *store.AggregateValue, by uint64) {
+		value := *total.Value + by
+		total.Value = &value
+	}
+	grow(&summary.Tokens.InputUncached, scale(input))
+	grow(&summary.Tokens.InputCacheRead, scale(read))
+	grow(&summary.Tokens.Output, scale(output))
+	summary.Sources = append(summary.Sources, store.NamedBreakdown{
+		Name: name, Tokens: tokens, APIEstimate: partial(scale(input) / 4), Coverage: coverage(6400),
+	})
+}
+
+// agentsDashboard is the sample machine with three of the agents read
+// through ccusage in use: two read by day, one whose report was refused, and
+// two that are not installed.
+func agentsDashboard() application.Dashboard {
+	dashboard := sampleDashboard()
+	scanned := *dashboard.Diagnostics.LastSuccessfulCollection
+	days := func(count uint64) *uint64 { return &count }
+	agent := func(source normalize.Source, status normalize.HealthStatus, count *uint64, reason string) store.StoredAdapterHealth {
+		record := store.StoredAdapterHealth{Health: normalize.SourceHealth{Source: source, Surface: normalize.SurfaceCLI, Status: status, RecordCount: count}}
+		if count != nil {
+			record.LastSuccessAt = &scanned
+		}
+		if reason != "" {
+			record.Health.Warnings = []normalize.Warning{{Code: reason}}
+		}
+		return record
+	}
+	dashboard.Diagnostics.AdapterHealth = append(dashboard.Diagnostics.AdapterHealth,
+		agent(normalize.SourceCopilot, normalize.HealthNotFound, nil, ""),
+		agent(normalize.SourceGemini, normalize.HealthDetected, days(41), ""),
+		agent(normalize.SourceGrok, normalize.HealthNotFound, nil, ""),
+		agent(normalize.SourceOpenCode, normalize.HealthError, nil, "ccusage_malformed_output"),
+		agent(normalize.SourceQwen, normalize.HealthDetected, days(6), ""),
+	)
+	for _, period := range []struct {
+		summary  *store.UsageSummary
+		perMille uint64
+	}{{&dashboard.Today, 31}, {&dashboard.Week, 212}, {&dashboard.Last30Days, 1000}, {&dashboard.AllTime, 3140}} {
+		addSource(period.summary, "gemini", 61_000_000, 148_000_000, 9_400_000, period.perMille)
+		addSource(period.summary, "qwen", 8_200_000, 3_100_000, 1_300_000, period.perMille)
+	}
+	return dashboard
+}
+
+// agentsUnreadDashboard is the same machine on an install without ccusage:
+// the agents are in use, and nothing can read them.
+func agentsUnreadDashboard() application.Dashboard {
+	dashboard := sampleDashboard()
+	for _, source := range normalize.DayLevelSources() {
+		record := store.StoredAdapterHealth{Health: normalize.SourceHealth{Source: source, Surface: normalize.SurfaceCLI, Status: normalize.HealthNotFound}}
+		if source == normalize.SourceGemini || source == normalize.SourceQwen {
+			record.Health.Status = normalize.HealthUnavailable
+			record.Health.Warnings = []normalize.Warning{{Code: "ccusage_not_installed"}}
+		}
+		dashboard.Diagnostics.AdapterHealth = append(dashboard.Diagnostics.AdapterHealth, record)
+	}
+	return dashboard
+}
+
+// dayLevelRemote is sampleRemote where the viewer's week includes usage a
+// day-level agent reported.
+func dayLevelRemote() *fakeMultiplayer {
+	remote := sampleRemote()
+	board := remote.boards["group-night"]
+	for index := range board.Rows {
+		if !board.Rows[index].CurrentUser {
+			continue
+		}
+		board.Rows[index].SourceMix = append(board.Rows[index].SourceMix, multiplayer.SourceMix{Source: "gemini", TotalTokens: decimal(46_300_000)})
+		board.Rows[index].Limitations.DayLevelBuckets = 7
+	}
+	return remote
+}

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"github.com/ansonnchan/tokenholic/internal/application"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -132,21 +133,34 @@ func TestWritePaintedPreviews(t *testing.T) {
 	if directory == "" {
 		t.Skip("set TOKENHOLIC_TUI_PREVIEW to a directory to write previews")
 	}
+	previews := []struct {
+		name      string
+		dashboard func() application.Dashboard
+		remote    func() *fakeMultiplayer
+		keys      []string
+		// height is tall enough to show the whole view.
+		height int
+	}{
+		{name: "home", dashboard: sampleDashboard, height: 26},
+		{name: "settings", dashboard: sampleDashboard, keys: []string{"5"}, height: 44},
+		{name: "sources_agents", dashboard: agentsDashboard, keys: []string{"4"}, height: 40},
+		{name: "sources_agents_unread", dashboard: agentsUnreadDashboard, keys: []string{"4"}, height: 40},
+		{name: "board_day_level", dashboard: agentsDashboard, remote: dayLevelRemote, keys: []string{"2"}, height: 36},
+	}
 	for _, mode := range []theme.Mode{theme.Dark, theme.Light} {
 		for _, width := range []int{120, 88, 48} {
-			for name, keys := range map[string][]string{"home": nil, "settings": {"5"}} {
-				// SETTINGS is the tall view; show all of it.
-				height := 26
-				if name == "settings" {
-					height = 44
-				}
+			for _, preview := range previews {
 				tokens := theme.Fixed(true, mode == theme.Dark, false)
-				model := start(t, &fakeApplication{dashboard: sampleDashboard()}, Config{
+				config := Config{
 					Theme:  &tokens,
 					Themes: func(mode theme.Mode) theme.Theme { return theme.Fixed(true, mode == theme.Dark, false) },
-				}, width, height)
-				path := filepath.Join(directory, name+"_"+mode.String()+"_"+"w"+strconv.Itoa(width)+".ansi")
-				if err := os.WriteFile(path, []byte(press(model, keys...).View()+"\n"), 0o600); err != nil {
+				}
+				if preview.remote != nil {
+					config.Multiplayer = preview.remote()
+				}
+				model := start(t, &fakeApplication{dashboard: preview.dashboard()}, config, width, preview.height)
+				path := filepath.Join(directory, preview.name+"_"+mode.String()+"_"+"w"+strconv.Itoa(width)+".ansi")
+				if err := os.WriteFile(path, []byte(press(model, preview.keys...).View()+"\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}

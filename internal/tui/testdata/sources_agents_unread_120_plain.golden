@@ -1,0 +1,21 @@
+>_ TOKENHOLIC    HOME  BOARDS  MODELS [SOURCES] SETTINGS                                    scanned 4m ago · 3 to upload
+
+╭─ LOCAL SOURCES ──────────────────────────────────────────╮ ╭─ USAGE BY SOURCE ───────────────────────────────────────╮
+│ SOURCE               STATUS           RECORDS  LAST READ │ │  TODAY  THIS WEEK [30 DAYS] ALL-TIME                    │
+│ Claude · CLI         detected          13,916     4m ago │ │                                                         │
+│ Claude · Desktop C…  detected             212     4m ago │ │ SOURCE                       TOKENS        $ EST  SHARE │
+│ Claude · Desktop C…  not found              —      never │ │ Claude                        2.92B      $820.40  68.4% │
+│ Codex · CLI and De…  detected           4,014     4m ago │ │ Codex                        ≥1.34B     ≥$360.02  31.5% │
+│ Copilot CLI · by d…  not found              —      never │ │                                                         │
+│ Gemini CLI · by day  unavailable            —      never │ │ SURFACE                      TOKENS        $ EST  SHARE │
+│ Grok Build · by day  not found              —      never │ │ CLI                           2.51B      $701.15  58.8% │
+│ OpenCode · by day    not found              —      never │ │ Desktop Code                   410M      $119.25   9.6% │
+│ Qwen Code · by day   unavailable            —      never │ │ CLI and Desktop              ≥1.34B     ≥$360.02  31.5% │
+│                                                          │ ╰─────────────────────────────────────────────────────────╯
+│ Gemini CLI, Qwen Code not counted: this install has no   │
+│ ccusage. It comes with the npm package.                  │
+│                                                          │
+│ Run `tokenholic doctor` for path-redacted detail on any  │
+│ source.                                                  │
+╰──────────────────────────────────────────────────────────╯
+1–5 views · p period · j/k scroll · r refresh · ? help · q quit
