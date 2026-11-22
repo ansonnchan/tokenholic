@@ -21,6 +21,8 @@ type Lock struct {
 }
 
 // AcquireDefault acquires the per-user synchronization lock without waiting.
+// The lock lives beside the usage database, under the user configuration
+// directory, so every command and the scheduled job address the same file.
 func AcquireDefault() (*Lock, error) {
 	root, err := os.UserConfigDir()
 	if err != nil {
@@ -30,26 +32,28 @@ func AcquireDefault() (*Lock, error) {
 }
 
 func acquireDefault(root string) (*Lock, error) {
-	preferredPath := filepath.Join(root, applicationDirectory, "sync.lock")
-	preferred, err := Acquire(preferredPath)
-	if err != nil {
-		return nil, err
+	held := &Lock{}
+	var first os.FileInfo
+	for index, directory := range lockDirectories() {
+		path := filepath.Join(root, directory, "sync.lock")
+		if index > 0 {
+			// On a case-insensitive volume the spellings name one file, which
+			// is already held.
+			if info, err := os.Lstat(path); err == nil && first != nil && os.SameFile(first, info) {
+				continue
+			}
+		}
+		lock, err := Acquire(path)
+		if err != nil {
+			_ = held.Close()
+			return nil, err
+		}
+		held.files = append(held.files, lock.files...)
+		if index == 0 {
+			first, _ = os.Lstat(path)
+		}
 	}
-	legacyPath := filepath.Join(root, legacyApplicationDirectory(), "sync.lock")
-	preferredInfo, preferredErr := os.Lstat(preferredPath)
-	legacyInfo, legacyErr := os.Lstat(legacyPath)
-	if preferredErr == nil && legacyErr == nil && os.SameFile(preferredInfo, legacyInfo) {
-		return preferred, nil
-	}
-	// Lock both directory spellings while older scheduled binaries may still run.
-	legacy, err := Acquire(legacyPath)
-	if err != nil {
-		_ = preferred.Close()
-		return nil, err
-	}
-	preferred.files = append(preferred.files, legacy.files...)
-	legacy.files = nil
-	return preferred, nil
+	return held, nil
 }
 
 // Acquire takes a non-blocking exclusive lock at an explicit path.

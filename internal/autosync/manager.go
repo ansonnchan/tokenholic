@@ -1,61 +1,52 @@
 package autosync
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
+	"time"
 
 	usageSync "github.com/ansonnchan/tokenholic/internal/sync"
 )
 
 const (
 	applicationDirectory = "tokenholic"
-	launchLabel          = "io.tokenholic.autosync"
-	interval             = 60 * 60
+	interval             = time.Hour
 )
 
-var errNotLoaded = errors.New("autosync launch agent is not loaded")
-
-type launcher interface {
-	Run(context.Context, ...string) error
-}
-
-// Config supplies the local values written into the launch agent.
+// Config supplies the local values written into the schedule.
 type Config struct {
 	Home       string
 	Executable string
 	APIURL     string
 	CodexHome  string
-	platform   string
-	uid        int
-	launcher   launcher
+	// Getenv reads the environment of the command enabling autosync, for the
+	// platform directories a scheduler honors. It defaults to os.Getenv.
+	Getenv func(string) string
+	// scheduler replaces the operating system's scheduler in tests.
+	scheduler scheduler
 }
 
 // Status reports whether the persistent configuration exists and whether
-// launchd currently has it loaded.
+// the scheduler currently has it loaded.
 type Status struct {
 	Installed bool
 	Loaded    bool
 }
 
-// Manager installs and removes one per-user macOS launch agent.
+// Manager installs and removes one per-user schedule through the operating
+// system's own scheduler.
 type Manager struct {
-	home, executable, apiURL, codexHome string
-	platform                            string
-	uid                                 int
-	launcher                            launcher
+	executable, apiURL, codexHome string
+	scheduler                     scheduler
 }
 
-// NewManager validates paths and constructs the macOS autosync boundary.
+// NewManager validates paths and binds the platform scheduler.
 func NewManager(config Config) (*Manager, error) {
 	if !filepath.IsAbs(config.Home) || !filepath.IsAbs(config.Executable) {
 		return nil, errors.New("autosync home and executable must be absolute")
@@ -63,30 +54,26 @@ func NewManager(config Config) (*Manager, error) {
 	if config.CodexHome != "" && !filepath.IsAbs(config.CodexHome) {
 		return nil, errors.New("autosync Codex home must be absolute")
 	}
-	platform := config.platform
-	if platform == "" {
-		platform = runtime.GOOS
+	if config.Getenv == nil {
+		config.Getenv = os.Getenv
 	}
-	uid := config.uid
-	if uid == 0 {
-		uid = os.Getuid()
-	}
-	launcher := config.launcher
-	if launcher == nil {
-		launcher = commandLauncher{}
+	scheduler := config.scheduler
+	if scheduler == nil {
+		scheduler = platformScheduler(config)
 	}
 	return &Manager{
-		home: config.Home, executable: config.Executable, apiURL: strings.TrimSpace(config.APIURL),
-		codexHome: config.CodexHome, platform: platform, uid: uid, launcher: launcher,
+		executable: config.Executable, apiURL: strings.TrimSpace(config.APIURL),
+		codexHome: config.CodexHome, scheduler: scheduler,
 	}, nil
 }
 
-// Enable installs a stable executable copy and loads an hourly launch agent.
-// Re-enabling atomically refreshes both files from the current release.
+// Requirement names what the operating system must provide for autosync, in
+// words that are safe to show.
+func (m *Manager) Requirement() string { return m.scheduler.requirement() }
+
+// Enable installs a stable executable copy and loads an hourly schedule.
+// Re-enabling atomically refreshes every file from the current release.
 func (m *Manager) Enable(ctx context.Context) error {
-	if err := m.supported(); err != nil {
-		return err
-	}
 	if m.apiURL == "" {
 		return errors.New("autosync requires an API origin")
 	}
@@ -97,16 +84,22 @@ func (m *Manager) Enable(ctx context.Context) error {
 	if err != nil || parsedAPI.User != nil || parsedAPI.RawQuery != "" || parsedAPI.Fragment != "" {
 		return errors.New("autosync API origin must not contain credentials, a query, or a fragment")
 	}
+	// Inspecting first also proves the scheduler is reachable before any file
+	// is written.
 	status, err := m.Status(ctx)
 	if err != nil {
 		return err
 	}
+	paths := m.scheduler.layout()
+	definitions, err := m.scheduler.definitions(m.job(paths.installation))
+	if err != nil {
+		return fmt.Errorf("describe autosync schedule: %w", err)
+	}
 	if status.Loaded {
-		if err := m.launcher.Run(ctx, "bootout", m.domain()+"/"+launchLabel); err != nil {
-			return fmt.Errorf("unload existing autosync launch agent: %w", err)
+		if err := m.scheduler.unload(ctx); err != nil {
+			return fmt.Errorf("unload existing autosync schedule: %w", err)
 		}
 	}
-	paths := m.paths()
 	for _, directory := range []string{filepath.Dir(paths.binary), paths.logs} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			return fmt.Errorf("create autosync private directory: %w", err)
@@ -115,75 +108,113 @@ func (m *Manager) Enable(ctx context.Context) error {
 			return fmt.Errorf("secure autosync private directory: %w", err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(paths.plist), 0o755); err != nil {
-		return fmt.Errorf("create launch agents directory: %w", err)
+	// The scheduler would create the logs itself, readable by anyone the
+	// directory lets in; creating them first keeps them owner-only.
+	for _, log := range []string{paths.stdout, paths.stderr} {
+		file, err := os.OpenFile(log, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("create autosync log: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			return fmt.Errorf("create autosync log: %w", err)
+		}
 	}
 	if err := copyExecutable(m.executable, paths.binary); err != nil {
 		return err
 	}
-	plist := m.plist(paths)
-	if err := writeAtomic(paths.plist, plist, 0o600); err != nil {
-		return fmt.Errorf("write autosync launch agent: %w", err)
+	for _, definition := range definitions {
+		if err := os.MkdirAll(filepath.Dir(definition.path), 0o755); err != nil {
+			return fmt.Errorf("create scheduler directory: %w", err)
+		}
+		if err := writeAtomic(definition.path, definition.contents, 0o600); err != nil {
+			return fmt.Errorf("write autosync schedule: %w", err)
+		}
 	}
-
-	if err := m.launcher.Run(ctx, "bootstrap", m.domain(), paths.plist); err != nil {
-		return fmt.Errorf("load autosync launch agent: %w", err)
+	if err := m.scheduler.load(ctx); err != nil {
+		return fmt.Errorf("load autosync schedule: %w", err)
 	}
 	return nil
 }
 
-// Disable unloads the launch agent and removes only autosync-owned files. It
-// never deletes the local usage database or OS-vault credential.
+// Disable unloads the schedule and removes only autosync-owned files. It
+// never deletes the local usage database or OS-vault credential. Files are
+// removed even when the scheduler is unreachable, since nothing can then be
+// running them.
 func (m *Manager) Disable(ctx context.Context) error {
-	if err := m.supported(); err != nil {
-		return err
+	loaded, err := m.scheduler.loaded(ctx)
+	reachable := !errors.Is(err, ErrSchedulerUnavailable)
+	if err != nil && reachable {
+		return fmt.Errorf("inspect autosync schedule: %w", err)
 	}
-	status, err := m.Status(ctx)
-	if err != nil {
-		return err
-	}
-	if status.Loaded {
-		if err := m.launcher.Run(ctx, "bootout", m.domain()+"/"+launchLabel); err != nil {
-			return fmt.Errorf("unload autosync launch agent: %w", err)
+	if loaded {
+		if err := m.scheduler.unload(ctx); err != nil {
+			return fmt.Errorf("unload autosync schedule: %w", err)
 		}
 	}
-	for _, paths := range []managerPaths{m.paths(), m.legacyPaths()} {
-		for _, path := range []string{paths.plist, paths.binary, paths.stdout, paths.stderr} {
+	paths := m.scheduler.layout()
+	for _, definition := range paths.definitions {
+		if err := os.Remove(definition); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove autosync-owned file: %w", err)
+		}
+	}
+	for _, installed := range append([]installation{paths.installation}, paths.legacy...) {
+		for _, path := range []string{installed.binary, installed.stdout, installed.stderr} {
 			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("remove autosync-owned file: %w", err)
 			}
 		}
-		_ = os.Remove(filepath.Dir(paths.binary))
-		_ = os.Remove(paths.logs)
+		// Directories go only when autosync left them empty; the application
+		// directory may also hold the usage database.
+		binaries := filepath.Dir(installed.binary)
+		for _, directory := range []string{binaries, filepath.Dir(binaries), installed.logs} {
+			_ = os.Remove(directory)
+		}
+	}
+	if reachable {
+		if err := m.scheduler.forget(ctx); err != nil {
+			return fmt.Errorf("refresh the scheduler after removal: %w", err)
+		}
 	}
 	return nil
 }
 
-// Status inspects persistent configuration and the current launchd domain.
+// Status inspects persistent configuration and the scheduler's current view.
 func (m *Manager) Status(ctx context.Context) (Status, error) {
-	if err := m.supported(); err != nil {
-		return Status{}, err
-	}
-	paths := m.paths()
-	plistReady, err := regularFile(paths.plist, false)
-	if err != nil {
-		return Status{}, fmt.Errorf("inspect autosync launch agent: %w", err)
-	}
-	binaryReady, err := regularFile(paths.binary, true)
-	if err != nil {
-		return Status{}, fmt.Errorf("inspect stable autosync executable: %w", err)
-	}
-	if !binaryReady {
-		binaryReady, err = regularFile(m.legacyPaths().binary, true)
+	paths := m.scheduler.layout()
+	definitionsReady := len(paths.definitions) > 0
+	for _, definition := range paths.definitions {
+		ready, err := regularFile(definition, false)
 		if err != nil {
-			return Status{}, fmt.Errorf("inspect legacy autosync executable: %w", err)
+			return Status{}, fmt.Errorf("inspect autosync schedule file: %w", err)
 		}
+		definitionsReady = definitionsReady && ready
 	}
-	launchErr := m.launcher.Run(ctx, "print", m.domain()+"/"+launchLabel)
-	if launchErr != nil && !errors.Is(launchErr, errNotLoaded) {
-		return Status{}, fmt.Errorf("inspect loaded autosync launch agent: %w", launchErr)
+	binaryReady := false
+	for _, installed := range append([]installation{paths.installation}, paths.legacy...) {
+		ready, err := regularFile(installed.binary, true)
+		if err != nil {
+			return Status{}, fmt.Errorf("inspect stable autosync executable: %w", err)
+		}
+		binaryReady = binaryReady || ready
 	}
-	return Status{Installed: plistReady && binaryReady, Loaded: launchErr == nil}, nil
+	status := Status{Installed: definitionsReady && binaryReady}
+	loaded, err := m.scheduler.loaded(ctx)
+	if err != nil {
+		return status, fmt.Errorf("inspect loaded autosync schedule: %w", err)
+	}
+	status.Loaded = loaded
+	return status, nil
+}
+
+// job describes the scheduled command. The environment is a fixed, ordered
+// allowlist: no credential and nothing else from the caller's environment.
+func (m *Manager) job(installed installation) job {
+	environment := []variable{{"TOKENHOLIC_API_URL", m.apiURL}}
+	if m.codexHome != "" {
+		environment = append(environment, variable{"CODEX_HOME", m.codexHome})
+	}
+	environment = append(environment, variable{"NO_COLOR", "1"})
+	return job{installation: installed, environment: environment}
 }
 
 func regularFile(path string, executable bool) (bool, error) {
@@ -198,84 +229,6 @@ func regularFile(path string, executable bool) (bool, error) {
 		return false, nil
 	}
 	return !executable || info.Mode().Perm()&0o111 != 0, nil
-}
-
-func (m *Manager) supported() error {
-	if m.platform != "darwin" {
-		return errors.New("autosync is supported only on macOS")
-	}
-	return nil
-}
-
-type managerPaths struct {
-	plist, binary, logs, stdout, stderr string
-}
-
-func (m *Manager) paths() managerPaths {
-	return m.pathsFor(applicationDirectory)
-}
-
-func (m *Manager) legacyPaths() managerPaths {
-	return m.pathsFor(legacyApplicationDirectory())
-}
-
-func (m *Manager) pathsFor(directory string) managerPaths {
-	logs := filepath.Join(m.home, "Library", "Logs", directory)
-	return managerPaths{
-		plist:  filepath.Join(m.home, "Library", "LaunchAgents", launchLabel+".plist"),
-		binary: filepath.Join(m.home, "Library", "Application Support", directory, "bin", "tokenholic"),
-		logs:   logs, stdout: filepath.Join(logs, "autosync.log"), stderr: filepath.Join(logs, "autosync-error.log"),
-	}
-}
-
-func (m *Manager) domain() string {
-	return "gui/" + strconv.Itoa(m.uid)
-}
-
-func (m *Manager) plist(paths managerPaths) []byte {
-	environment := "\t<key>EnvironmentVariables</key>\n\t<dict>\n" +
-		"\t\t<key>TOKENHOLIC_API_URL</key>\n\t\t<string>" + escapeXML(m.apiURL) + "</string>\n"
-	if m.codexHome != "" {
-		environment += "\t\t<key>CODEX_HOME</key>\n\t\t<string>" + escapeXML(m.codexHome) + "</string>\n"
-	}
-	environment += "\t\t<key>NO_COLOR</key>\n\t\t<string>1</string>\n\t</dict>\n"
-	contents := `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Label</key>
-	<string>` + launchLabel + `</string>
-	<key>ProgramArguments</key>
-	<array>
-		<string>` + escapeXML(paths.binary) + `</string>
-		<string>sync</string>
-	</array>
-` + environment + `	<key>RunAtLoad</key>
-	<true/>
-	<key>StartInterval</key>
-	<integer>` + strconv.Itoa(interval) + `</integer>
-	<key>ProcessType</key>
-	<string>Background</string>
-	<key>StandardOutPath</key>
-	<string>` + escapeXML(paths.stdout) + `</string>
-	<key>StandardErrorPath</key>
-	<string>` + escapeXML(paths.stderr) + `</string>
-</dict>
-</plist>
-`
-	return []byte(contents)
-}
-
-func escapeXML(value string) string {
-	var escaped bytes.Buffer
-	_ = xmlEscape(&escaped, value)
-	return escaped.String()
-}
-
-func xmlEscape(output io.Writer, value string) error {
-	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;")
-	_, err := io.WriteString(output, replacer.Replace(value))
-	return err
 }
 
 func copyExecutable(source, destination string) error {
@@ -342,22 +295,4 @@ func writeAtomic(destination string, contents []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(temporaryPath, destination)
-}
-
-type commandLauncher struct{}
-
-func (commandLauncher) Run(ctx context.Context, arguments ...string) error {
-	command := exec.CommandContext(ctx, "launchctl", arguments...)
-	output, err := command.CombinedOutput()
-	if err == nil {
-		return nil
-	}
-	if len(arguments) > 0 && arguments[0] == "print" {
-		var exitErr *exec.ExitError
-		lower := bytes.ToLower(output)
-		if (errors.As(err, &exitErr) && exitErr.ExitCode() == 113) || bytes.Contains(lower, []byte("could not find service")) {
-			return errNotLoaded
-		}
-	}
-	return errors.New("launchctl command failed")
 }

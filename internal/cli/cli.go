@@ -40,7 +40,7 @@ type dependencies struct {
 	groups     func(string) (groupManager, error)
 	sync       func(context.Context, string, string, string, bool, io.Writer) error
 	executable func() (string, error)
-	autosync   func(string, string, string, string) (autosyncManager, error)
+	autosync   func(autosync.Config) (autosyncManager, error)
 	// usage scans local records and returns the dashboard's totals.
 	usage func(ctx context.Context, home, codexHome string) (application.Dashboard, error)
 }
@@ -70,6 +70,8 @@ type autosyncManager interface {
 	Enable(context.Context) error
 	Disable(context.Context) error
 	Status(context.Context) (autosync.Status, error)
+	// Requirement names what the operating system must provide.
+	Requirement() string
 }
 
 func defaultDependencies() dependencies {
@@ -96,10 +98,8 @@ func defaultDependencies() dependencies {
 		},
 		sync:  synchronizeLocal,
 		usage: loadLocalUsage,
-		autosync: func(home, executable, apiURL, codexHome string) (autosyncManager, error) {
-			return autosync.NewManager(autosync.Config{
-				Home: home, Executable: executable, APIURL: apiURL, CodexHome: codexHome,
-			})
+		autosync: func(config autosync.Config) (autosyncManager, error) {
+			return autosync.NewManager(config)
 		},
 		diagnose: func(ctx context.Context, home, codexHome string) doctor.Report {
 			discovery := adapters.Discoverer{Roots: defaultRoots(home, codexHome)}
