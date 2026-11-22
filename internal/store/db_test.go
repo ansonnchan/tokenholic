@@ -3,10 +3,13 @@ package store
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/ansonnchan/tokenholic/internal/privatefs"
 )
 
 func TestOpenCreatesConfiguredPrivateDatabase(t *testing.T) {
@@ -24,14 +27,43 @@ func TestOpenCreatesConfiguredPrivateDatabase(t *testing.T) {
 	assertPragma(t, db, "journal_mode", "wal")
 	assertPragma(t, db, "foreign_keys", "1")
 	assertPragma(t, db, "busy_timeout", "5000")
-	if runtime.GOOS != "windows" {
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatal(err)
+	// Owner-only on every system: permission bits on Unix, a protected
+	// single-user access-control list on Windows.
+	for _, private := range []string{path, filepath.Dir(path)} {
+		if ok, err := privatefs.IsPrivate(private); err != nil || !ok {
+			t.Fatalf("IsPrivate(%s) = %t, %v", filepath.Base(private), ok, err)
 		}
-		if got := info.Mode().Perm(); got != 0o600 {
-			t.Fatalf("database permissions = %o, want 600", got)
+	}
+}
+
+func TestFileURIsSurviveSQLiteParsing(t *testing.T) {
+	t.Parallel()
+	query := url.Values{"_txlock": {"immediate"}}
+	for _, test := range []struct{ path, want string }{
+		{"/home/synthetic/.config/tokenholic/tokenholic.db", "file:/home/synthetic/.config/tokenholic/tokenholic.db?_txlock=immediate"},
+		{"/Users/synthetic user/Library/tokenholic.db", "file:/Users/synthetic%20user/Library/tokenholic.db?_txlock=immediate"},
+		// A drive letter must not land where a host name would be read.
+		{"C:/Users/synthetic/AppData/Local/tokenholic/tokenholic.db", "file:C:/Users/synthetic/AppData/Local/tokenholic/tokenholic.db?_txlock=immediate"},
+		{"C:/Users/a b/100%#?/tokenholic.db", "file:C:/Users/a%20b/100%25%23%3F/tokenholic.db?_txlock=immediate"},
+	} {
+		if got := fileURI(test.path, query); got != test.want {
+			t.Errorf("fileURI(%q) = %q, want %q", test.path, got, test.want)
 		}
+	}
+}
+
+func TestOpenAcceptsPathsThatNeedEscaping(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "two words 100%", databaseFileName)
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Size() == 0 {
+		t.Fatalf("database was not written at the requested path: %v", err)
 	}
 }
 
