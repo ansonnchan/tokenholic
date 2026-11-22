@@ -48,7 +48,31 @@ go build -o ./bin/tokenholic ./cmd/tokenholic
 ./bin/tokenholic --version
 ./bin/tokenholic             # interactive local TUI
 ./bin/tokenholic doctor
+./bin/tokenholic demo        # the same interface on invented data
 ```
+
+### Recording the demo
+
+`tokenholic demo` shows invented usage and boards and touches nothing on the
+machine, so it is the thing to record or screenshot. Never record the real
+interface for the repository: it shows your own usage and your groups' names.
+
+The README's animation is scripted, so it can be redone exactly. The steps
+and captions are `demoStory` in `internal/tui/demo_story_test.go`:
+
+```sh
+TOKENHOLIC_DEMO_STORY=/tmp/story go test ./internal/tui -run TestWriteDemoStory -count=1
+```
+
+That writes one painted frame per step (`NN.ansi`) with its hold time and
+caption (`NN.txt`). Turning them into `docs/images/demo.gif` is done with
+whatever renders ANSI text to images; nothing in the repository depends on
+such a tool. Keep it to about ten seconds and under a megabyte.
+
+To record by hand instead, size the terminal to 120 by 26, start a recorder
+such as [asciinema](https://asciinema.org) (`asciinema rec demo.cast -c
+"./bin/tokenholic demo"`), walk through the views, and convert the cast with
+[agg](https://github.com/asciinema/agg).
 
 ## Local account API
 

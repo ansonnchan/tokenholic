@@ -15,9 +15,12 @@ This directory owns decisions that cross package boundaries. Package-specific im
 - [Contributor guidance](../AGENTS.md) defines implementation, documentation, review, privacy, and Git workflow rules.
 - [Contributing](../CONTRIBUTING.md) says how to report a bug, ask for a feature, and send a pull request.
 
-`images/` holds the pictures the root README shows. They are renders of the
-terminal interface's own frames with the synthetic sample data the snapshot
-tests use, written by `TestWritePaintedPreviews` in `internal/tui`.
+`images/demo.gif` is the animation the root README shows: a walk through
+`tokenholic demo`, whose every name and number is invented. Its frames are the
+terminal interface's own, written by `TestWriteDemoStory` in `internal/tui`
+and rendered to pixels outside the repository; the
+[development guide](./development.md#recording-the-demo) says how to redo it
+or record your own.
 
 ## Subsystem documentation
 
