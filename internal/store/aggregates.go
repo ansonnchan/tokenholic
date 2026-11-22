@@ -121,6 +121,10 @@ type UsageBucket struct {
 	// evidence existed and is never uploaded again.
 	ServiceTier normalize.ServiceTier `json:"service_tier,omitempty"`
 	PromptBand  normalize.PromptBand  `json:"prompt_band,omitempty"`
+	// Granularity is "day" when the value is a whole UTC day filed at its
+	// start, as a day-level source reports it. It is omitted for ordinary
+	// minute buckets, which keeps their key, JSON, and content hash unchanged.
+	Granularity normalize.Granularity `json:"granularity,omitempty"`
 	Tokens      TokenBreakdown        `json:"tokens"`
 	Revision    uint64                `json:"revision"`
 	// Preview never leaves the machine; the server derives its own values.
@@ -676,8 +680,18 @@ func newBucketAccumulator(start time.Time, observation StoredObservation, revisi
 		Start: start, Source: observation.Source, Surface: observation.Surface,
 		ObservedModelID: observation.ObservedModelID, ModelEvidence: modelEvidence(observation),
 		Measurement: observation.Measurement, NormalizationVersion: observation.NormalizationVersion,
-		ServiceTier: observation.ServiceTier, PromptBand: promptBand(observation), Revision: revision,
+		ServiceTier: observation.ServiceTier, PromptBand: promptBand(observation),
+		Granularity: granularity(observation), Revision: revision,
 	}}
+}
+
+// granularity says how coarse an observation's time is. A day total is a
+// whole UTC day; everything else is placed at its minute.
+func granularity(observation StoredObservation) normalize.Granularity {
+	if observation.CountSemantics == normalize.CountDayTotal {
+		return normalize.GranularityDay
+	}
+	return normalize.GranularityMinute
 }
 
 func (a bucketAccumulator) bucket(previewer Previewer) (UsageBucket, error) {
@@ -835,6 +849,10 @@ func validateBucket(bucket UsageBucket) error {
 	if !bucket.ServiceTier.Valid() || !bucket.PromptBand.Valid() {
 		return errors.New("usage bucket has invalid pricing evidence")
 	}
+	if err := normalize.ValidateGranularity(bucket.Granularity, bucket.Source, bucket.Start,
+		bucket.ServiceTier != normalize.ServiceTierUnknown || bucket.PromptBand != normalize.PromptBandUnknown); err != nil {
+		return fmt.Errorf("usage bucket: %w", err)
+	}
 	tokens := bucket.Tokens
 	for _, value := range []AggregateValue{
 		tokens.InputUncached, tokens.InputCacheRead, tokens.InputCacheWrite, tokens.InputCacheWrite5m,
@@ -865,6 +883,7 @@ func usageBucketKey(bucket UsageBucket) string {
 		string(bucket.ModelEvidence), string(bucket.Measurement), bucket.NormalizationVersion,
 	}
 	parts = append(parts, pricingEvidenceKey(bucket.ServiceTier, bucket.PromptBand)...)
+	parts = append(parts, granularityKey(bucket.Granularity)...)
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(sum[:])
 }
@@ -875,7 +894,18 @@ func bucketGroupKey(start time.Time, observation StoredObservation) string {
 		string(modelEvidence(observation)), string(observation.Measurement), observation.NormalizationVersion,
 	}
 	parts = append(parts, pricingEvidenceKey(observation.ServiceTier, promptBand(observation))...)
+	parts = append(parts, granularityKey(granularity(observation))...)
 	return strings.Join(parts, "\x00")
+}
+
+// granularityKey returns the identity parts for a coarse value. Like pricing
+// evidence it adds nothing in the ordinary case, so every minute bucket keeps
+// the key it always had. internal/sync derives the same key.
+func granularityKey(value normalize.Granularity) []string {
+	if value == normalize.GranularityMinute {
+		return nil
+	}
+	return []string{"granularity", string(value)}
 }
 
 // pricingEvidenceKey returns the identity parts for pricing evidence. It adds

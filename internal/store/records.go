@@ -60,8 +60,8 @@ type ObservationBatch struct {
 	Health       AdapterHealth
 }
 
-// CommitResult reports how many observations were newly inserted or had their
-// usage replaced by a newer adapter revision.
+// CommitResult reports how many observations were newly inserted, had their
+// usage replaced by a newer adapter revision, or were day totals that grew.
 type CommitResult struct {
 	InsertedObservations int64
 }
@@ -279,7 +279,12 @@ func validateBatch(batch ObservationBatch) error {
 // insertObservation stores one observation. Rescanning the same evidence is a
 // no-op; only a different adapter revision replaces the usage values and
 // pricing evidence, so a corrected parser repairs records whose source files
-// still exist. Model attribution, measurement, and normalization version stay
+// still exist.
+//
+// A day total is the exception. It is the absolute value of one agent, day,
+// and model, and it grows until the day ends, so a later reading that
+// differs replaces the stored one. It is never a second record: the identity
+// is the same and the values are overwritten, not added. Model attribution, measurement, and normalization version stay
 // as first stored. Pricing evidence is part of the usage-bucket identity too,
 // so replacing it moves the record to another bucket; the rebuild that follows
 // retracts the bucket it left.
@@ -312,6 +317,13 @@ func insertObservation(ctx context.Context, tx *sql.Tx, observation normalize.Ob
 			service_tier = excluded.service_tier,
 			prompt_tokens = excluded.prompt_tokens
 		WHERE excluded.adapter_version <> observations.adapter_version
+		   OR (observations.count_semantics = 'day_total' AND (
+			excluded.input_uncached_tokens IS NOT observations.input_uncached_tokens OR
+			excluded.input_cache_read_tokens IS NOT observations.input_cache_read_tokens OR
+			excluded.input_cache_write_tokens IS NOT observations.input_cache_write_tokens OR
+			excluded.output_tokens IS NOT observations.output_tokens OR
+			excluded.reasoning_output_tokens IS NOT observations.reasoning_output_tokens OR
+			excluded.warnings_json IS NOT observations.warnings_json))
 	`,
 		observationIdentity(observation), observation.Source, observation.Surface,
 		observation.SourceVersion, sessionFingerprint(observation), formatTime(observation.OccurredAt),
@@ -561,7 +573,7 @@ func validSourceIdentity(source SourceIdentity) bool {
 		return source.Surface == normalize.SurfaceCLI || source.Surface == normalize.SurfaceDesktop ||
 			source.Surface == normalize.SurfaceSharedLocal
 	default:
-		return false
+		return source.Source.DayLevel() && source.Surface == normalize.SurfaceCLI
 	}
 }
 
