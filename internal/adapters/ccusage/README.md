@@ -4,7 +4,7 @@ tokenholic has its own readers for Claude and Codex. For other coding agents
 it runs [ccusage](https://github.com/ccusage/ccusage), a third-party program
 that already understands their local records, and treats its output as an
 external contract. This package is that boundary: what is pinned, how it is
-run, and what is accepted back.
+run, what is accepted back, and how a report becomes stored usage.
 
 Claude and Codex are never read this way. Their native readers give
 per-minute usage and cache-write lifetimes, and reading them twice would count
@@ -97,6 +97,13 @@ executable they installed themselves; the digest check applies all the same.
 
 tokenholic never downloads ccusage itself.
 
+A scheduled run does not start through the launcher. `tokenholic autosync
+enable` therefore writes the location into the schedule, beside the other
+variables a scheduled run needs. The location is the npm install's own, so
+after an upgrade, or once an `npx` cache is cleared, the scheduled run
+reports the agents as unavailable until autosync is enabled again. Their
+stored usage is kept meanwhile.
+
 ## The output contract
 
 `ParseDailyReport` accepts exactly the daily report of the pinned release and
@@ -119,13 +126,84 @@ Three properties of the report shape what a caller may conclude:
 - **`unknown` is a placeholder.** ccusage writes the model name `unknown`
   when a record names no model.
 
+## From a report to stored usage
+
+`Profile.Observations` turns a validated report into day totals: one record
+per agent, UTC day, and model, filed at 00:00 UTC of that day and holding the
+day's whole value so far. The identity is the agent, the day, and the model,
+so a later report for the same day replaces the record instead of adding to
+it. Every record is marked `derived`: a day total is a sum ccusage computed,
+never a number the agent wrote.
+
+Usage that has no model to belong to is kept as one record per day with an
+unknown model, so every token ccusage counted is counted and none is credited
+on a guess: usage under the placeholder name `unknown`, any part of a day no
+model breakdown accounts for, and the day's extra tokens when more than one
+model shared the day. When exactly one model used the day, its extra tokens
+are that model's and are added to its output, where reasoning belongs.
+
+### What each agent's totals cover
+
+These are the capability declarations in `Profiles`, read from how the pinned
+release maps each agent's records (its guide and parser for each agent at
+<https://github.com/ccusage/ccusage/tree/v20.0.51>, retrieved 2026-11-21).
+
+| Agent | Uncached input | Cache read | Cache write | Output | Limits |
+| --- | --- | --- | --- | --- | --- |
+| GitHub Copilot CLI | Derived: input less both cache buckets | Reported | Reported | Reported, reasoning inside | Usage is known when a session shuts down or checkpoints. ccusage drops a `-1m` suffix from model names, so the name is ccusage's, not the record's. Copilot's dotted model names are not on a provider price list and stay unpriced |
+| Gemini CLI | Derived: input less cached tokens, plus tool tokens | Reported | Not recorded: unknown, never zero | Reported; thought tokens join it only on a single-model day | A record that names no model is dropped by ccusage and is not counted |
+| Grok Build CLI | Derived: input less cache reads and writes | Reported | Reported | Reported, reasoning inside | Only completed turns are recorded. A session killed mid-turn is not counted. Its model names, such as `grok-4.5-build`, are not on xAI's price list and stay unpriced |
+| OpenCode | Reported | Reported | Reported | Reported; reasoning joins it only on a single-model day | Turns OpenCode ran through Claude Code are left out, because Claude Code recorded them and the native reader counts them. Model names carry no provider |
+| Qwen Code | Reported | Reported | Not recorded: unknown, never zero | Reported; thought tokens join it only on a single-model day | ccusage reports the prompt count as input and the cached count as cache read without subtracting. If Qwen's prompt count includes cached tokens, they are counted in both. This was not verified against real records |
+
+Shared by all five:
+
+- **Day-level.** One total per UTC day. Where usage fell against a local
+  midnight is approximate, and in a timezone behind UTC it shows under the
+  previous local date until the UTC date changes.
+- **No cache-write lifetimes, service tier, or prompt size.** A cache write is
+  priced at the base rate and makes the estimate a lower bound. A model whose
+  price depends on prompt length stays unpriced.
+- **Reasoning is never reported per model.** It is unsupported as a category
+  everywhere: inside output where the agent counts it there, and otherwise
+  handled as above.
+- **A day that shrinks is still the day's value.** If an agent prunes old
+  sessions, a day that is still reported reads lower and the stored value
+  follows it. A day that is no longer reported at all keeps its stored value.
+- **Coding agents only.** Each entry is the terminal coding agent of that
+  name. Nothing here reads Gemini, Copilot, Grok, or Qwen chat products.
+
+None of the five was installed on the machine this was built on. The
+fixtures prove what the pinned release emits for records in the shapes its own
+parsers and tests describe; they do not prove that a current release of each
+agent still writes those shapes. A first run against real records should end
+in a newly built sanitized fixture.
+
+## Reading an agent
+
+`collect.DayLevel` reads the agents during a scan, and `tokenholic doctor`
+uses the same reader:
+
+1. It looks for each agent's record folder (`adapters.DayLevelRoots`). An
+   agent with no folder is `not found`, and ccusage is not run for it.
+2. For an agent that is present, it runs the pinned report. A valid report is
+   `detected`, with the number of days reported.
+3. An agent that is present but cannot be read is `unavailable` with its
+   reason (ccusage is turned off, this install has none, or the executable
+   is not the pinned build) or `error` (malformed output, time limit,
+   failure to run). Either way its stored usage is left as it was. It is
+   never replaced by zero.
+
+One agent's outcome never affects another's, or the native sources.
+
 ## Fixtures
 
 `fixtures/ccusage/<agent>-daily.json` is the pinned release's real output for
 hand-built synthetic records: a temporary home directory was filled with
 invented sessions, and the pinned executable was run against it. No real
-usage was read. The expected numbers in `report_test.go` are worked out from
-those invented records, not copied from the report. `empty-daily.json` and
+usage was read. The expected numbers in `report_test.go` and the expected day
+totals in `observe_test.go` are worked out from those invented records, not
+copied from the report. `empty-daily.json` and
 `qwen-empty-daily.json` are the two shapes of a report with no usage.
 
 `claude-daily.json` and `codex-daily.json` predate the runner. They record the
@@ -141,7 +219,12 @@ tests start the test binary itself as a stand-in.
 
 | Line | Meaning |
 | --- | --- |
-| `ccusage: ready (pinned 20.0.51, executable verified)` | The digest matched. Each agent's report follows: valid, malformed output, timed out, or could not run |
+| `ccusage: ready (pinned 20.0.51, executable verified)` | The digest matched |
 | `ccusage: not available in this install` | No executable came with this install |
 | `ccusage: refused` | A file exists but is not the pinned build. It was not run |
 | `ccusage: turned off` | The user's choice. Nothing was read or run |
+
+Each agent then has a line under `Sources:`: `detected (N days of usage)`,
+`not found`, `unavailable: <reason>; not counted`, or `error: <reason>; not
+counted`. The SOURCES view shows the same states, names the agents `by day`,
+and explains below the table why an agent is not counted.

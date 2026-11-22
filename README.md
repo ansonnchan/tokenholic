@@ -27,7 +27,7 @@ The native Go command currently provides:
 - read-only discovery for Claude Desktop Code, Agent, and Cowork sessions;
 - read-only discovery for Codex CLI and Codex Desktop/shared local storage;
 - native parsing of supported Claude and Codex JSONL evidence;
-- a guarded runner for one pinned, digest-checked ccusage release, reported by `tokenholic doctor` and switched with `tokenholic ccusage on|off|status`;
+- daily totals for GitHub Copilot CLI, Gemini CLI, Grok Build CLI, OpenCode, and Qwen Code, read through one pinned, digest-checked ccusage release that comes with the npm package, is reported by `tokenholic doctor`, and is switched with `tokenholic ccusage on|off|status`;
 - deterministic per-model normalization, cumulative-counter reduction, recovery from partial records, and deduplication;
 - transactional local SQLite observations, checkpoints, health, and absolute usage buckets;
 - timezone-aware local totals with explicit complete, partial, unavailable, and empty states;

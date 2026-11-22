@@ -208,6 +208,13 @@ on two Macs. Steps 5 to 7 were left for later.
   nothing was lost or counted twice. It needs either a message that says the
   upload is continuing, more time for a first sync, or a faster batch on the
   server. Not fixed yet.
+- **Not yet checked, added by M11:** any of the five agents read through
+  ccusage on a machine that uses one. They were built against invented
+  records only. On such a machine, `tokenholic doctor` should show the agent
+  as detected with a count of days, SOURCES should list it `by day`, and its
+  total should match `npx ccusage@20.0.51 <agent> daily --json` for the same
+  days. Keep nothing from that run but the numbers; a fixture is built by
+  hand from the shape, never copied.
 - **Not yet checked:** a public group's board page, a card for an account
   that has usage (the public one had none, so its card showed dashes),
   autosync over an hour, revoking a device, and deleting an account.
