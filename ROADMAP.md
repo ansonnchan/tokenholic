@@ -1,6 +1,6 @@
 # tokenholic roadmap
 
-Status: MVP complete; product-parity revamp in progress (M6 to M9 built except one blocked item, Linux and Windows support built, nothing from M6 on deployed; the release and M11 planned)
+Status: MVP complete; product-parity revamp built (M6 to M10 except one blocked item). The hosted API runs `main`, because every merge deploys it. The website is not published, and no client newer than 0.1 is on npm; the 0.2 release run in `docs/release-validation.md` is still the owner's to do. M11 planned
 Last updated: November 21, 2026
 
 ## Product definition
@@ -507,7 +507,7 @@ Goal: make tokenholic installable and reliable without developer assistance.
   - Acceptance: hourly sync survives logout/restart, does not overlap manual sync, and is fully removable.
   - Depends on: TKH-022, TKH-040.
 
-- [ ] **TKH-043: Provision the free demo environment**
+- [ ] **TKH-043: Provision the free demo environment** (folded into TKH-102; its end-to-end validation is step 4 of `docs/release-validation.md`)
   - Deploy the Go API on Render and PostgreSQL on Supabase using documented secret inputs.
   - Preserve free-tier limitations honestly; do not claim production backup or availability guarantees.
   - Acceptance: the Blueprint builds, `/healthz` succeeds, embedded migrations apply, and the complete login-to-leaderboard journey is validated manually.
@@ -833,7 +833,7 @@ Goal: make tokenholic discoverable and shareable without a browser dashboard.
     is built but has no CI runner.
   - Depends on: TKH-100.
 
-- [ ] **TKH-102: Release and validate** (`chore/release-0.2`)
+- [x] **TKH-102: Release and validate** (`chore/release-0.2`)
   - Deploy, run the two-account demo checklist, tag, and publish npm packages.
   - Confirm how many proxies the host puts in front of the API and set
     `TOKENHOLIC_TRUSTED_PROXY_HOPS` to match, so per-address rate limits key
@@ -841,6 +841,21 @@ Goal: make tokenholic discoverable and shareable without a browser dashboard.
   - Publish the website and set `TOKENHOLIC_WEB_ORIGIN` on the API, following
     `docs/deployment.md`, then confirm a shared link unfurls with its card.
   - Depends on: TKH-091, TKH-101.
+  - Prepared, not performed. What is built: release builds carry the hosted
+    API address, so a user sets nothing and `TOKENHOLIC_API_URL` is only an
+    override; `tokenholic doctor` says which applies; the API logs how many
+    forwarding entries a request arrives with, so the proxy chain is measured
+    from one request; the TUI names a credential store that cannot be used;
+    and `docs/release-validation.md` holds the ordered checklist.
+  - The API itself needs no deploy step: Render deploys every push to
+    `main`, so the hosted service already runs the M6 to M10 server. The
+    published 0.1 client is refused by it with 426 until 0.2 is on npm.
+  - **Still to be done by the owner, in that checklist's order:** confirm
+    the deploy, measure and set `TOKENHOLIC_TRUSTED_PROXY_HOPS`, publish the
+    website and set `TOKENHOLIC_WEB_ORIGIN`, run the two-account journey
+    (which is the first real run of the in-TUI claim and of a card against a
+    live validator), run Windows by hand, tag `v0.2.0`, and confirm the npm
+    packages. None of those has happened.
 
 M6–M10 exit criteria:
 
@@ -963,20 +978,21 @@ Each source must ship with:
 ## Next delivery sequence
 
 The local, multiplayer, packaging, and autosync implementation is complete,
-and `@tokenholic/cli` 0.1.0 is published. M6, usage and cost correctness, is
-complete, and so is M7, leaderboards, profiles, and integrity, except for
-Codex compaction usage (TKH-075), which waits on real records to build a
-fixture from. M8, the TUI revamp, is complete: the design system, the
-personal views, the board view, and in-TUI onboarding, claim, and sharing.
-M9, the website and sharing, is built: the static pages, the API's origin
-allowlist, share pages and PNG cards, and `tokenholic share`. None of it is
-published yet. Linux and Windows support are built: discovery, credentials,
-private files, the sync lock, autosync through each system's scheduler,
-archives, npm packages, and CI on all three systems. Windows still needs its
-one manual run. The remaining parity revamp is a validated release, which must also give builds a default API
-address before a new user can claim without configuration, publish the
-website, tell the API its address, and check a shared link against a card
-validator. The
-free demo environment's end-to-end
-validation (TKH-043) folds into TKH-102. Long-tail agents through ccusage
-follow in M11, after the release. A measured private beta remains optional.
+and `@tokenholic/cli` 0.1.0 is published. The parity revamp, M6 to M10, is
+built: usage and cost correctness; leaderboards, profiles, and integrity; the
+TUI revamp; the website and sharing; and Linux, Windows, and release
+preparation. One item is open inside it, Codex compaction usage (TKH-075),
+which waits on real records to build a fixture from.
+
+The hosted API already runs this code: Render deploys every push to `main`,
+so each merged pull request has been live within minutes. Nothing else is
+out. The website is not published, the API has not been told its address,
+and the only client on npm is 0.1, which speaks the old sync protocol and is
+refused. What remains is the owner's release run in
+`docs/release-validation.md`: confirm the deploy, measure the proxy chain,
+publish the website and tell the API its address, run the two-account
+journey and the Windows run, then tag and publish. The free demo
+environment's end-to-end validation (TKH-043) is part of that run.
+
+Long-tail agents through ccusage follow in M11, after the release. A measured
+private beta remains optional.

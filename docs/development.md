@@ -65,7 +65,9 @@ export TOKENHOLIC_LISTEN_ADDR='127.0.0.1:8080'
 go run ./server/cmd/api
 ```
 
-Then point the native client at the loopback API:
+A build from source carries no API address, so it can never reach the hosted
+service by accident. Point the native client at the loopback API with the
+override that release builds leave unset:
 
 ```sh
 TOKENHOLIC_API_URL='http://127.0.0.1:8080' go run ./cmd/tokenholic login

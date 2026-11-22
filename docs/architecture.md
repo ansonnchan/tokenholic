@@ -1,6 +1,6 @@
 # Architecture
 
-Status: MVP and M6–M9 implemented; M10 in progress, with Linux and Windows support built (see "Planned target design")
+Status: MVP and M6–M10 implemented. The hosted API runs `main`; the website is not published and the 0.2 client is not tagged or on npm (see `docs/release-validation.md`)
 Last updated: November 21, 2026
 
 ## System goals
@@ -550,11 +550,18 @@ differ without affecting uploads.
 The optional demo environment uses one stateless Go API deployment on Render
 and one Supabase PostgreSQL database. A root Blueprint and a production
 container make that environment reproducible without introducing application
-dependencies on either provider. Local collection remains the primary product
+dependencies on either provider. Render deploys the service on every push to
+`main`, so merging a pull request that changes the server is a production
+deploy, and embedded migrations run when it starts. Local collection remains the primary product
 and does not require the hosted service. The static website is served
 separately by GitHub Pages and depends on the API only for public JSON. A
 workflow publishes `web/` as it is and writes one value into it, the API
 origin; it stays skipped until a repository variable supplies that origin.
+
+How many proxies sit in front of the API decides which `X-Forwarded-For`
+entry is the client. The API logs the entry count it sees, once per distinct
+count and without any address, so the operator measures the chain instead of
+guessing it.
 
 The free environment exists for end-to-end personal testing and interviews,
 not for a production availability or durability claim. Free-tier sleeping,
@@ -757,6 +764,14 @@ platforms; tests hold the launcher, the manifests, and the release tool to it.
 The launcher resolves only the package matching the current operating system
 and CPU, then executes its binary directly without a shell. Unsupported targets
 and missing optional packages fail explicitly.
+
+A release build carries the hosted API's address, set at link time from one
+constant in `cmd/release`, so no user configures one. `TOKENHOLIC_API_URL`
+overrides it for self-hosting and development. A build from source carries no
+address and cannot reach the hosted service by accident. `tokenholic doctor`
+reports which of the three applies and never prints an overridden address.
+Autosync writes the address into its schedule only when it was overridden;
+otherwise the scheduled copy uses its own built-in address.
 
 Autosync copies the current native executable to a stable private path only
 after explicit user consent. The operating system's own per-user scheduler
