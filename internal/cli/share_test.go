@@ -25,7 +25,7 @@ func shareSummary(period store.Period, tokens, estimate uint64, state store.Avai
 
 func shareDependencies(manager *fakeGroupManager, apiURL string) dependencies {
 	return dependencies{
-		homeDir: func() (string, error) { return "/synthetic/home", nil },
+		homeDir: func() (string, error) { return syntheticHome, nil },
 		getenv: func(key string) string {
 			if key == "TOKENHOLIC_API_URL" {
 				return apiURL

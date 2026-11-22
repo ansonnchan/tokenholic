@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,6 +14,10 @@ import (
 )
 
 func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependencies) int {
+	// `run` is what a schedule invokes; it is not offered to users.
+	if len(args) == 2 && args[0] == "run" {
+		return runScheduledSync(args[1], deps)
+	}
 	if len(args) != 1 || (args[0] != "enable" && args[0] != "disable" && args[0] != "status") {
 		fmt.Fprintln(stderr, "autosync requires enable, disable, or status")
 		return 2
@@ -124,4 +129,39 @@ func reportSchedulerProblem(stderr io.Writer, manager autosyncManager, err error
 		return false
 	}
 	return true
+}
+
+// runScheduledSync is one scheduled run on a system whose scheduler starts a
+// bare program: it takes the job's environment and log files from the job
+// file, then synchronizes exactly as `tokenholic sync` does. The job file's
+// variables are an allowlist and take precedence over the process's own.
+func runScheduledSync(jobPath string, deps dependencies) int {
+	// A scheduled run has nobody watching a console.
+	detachConsole()
+	job, err := autosync.LoadScheduledJob(jobPath)
+	if err != nil {
+		return 1
+	}
+	open := func(path string) (*os.File, error) {
+		return os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	}
+	stdout, err := open(job.Stdout)
+	if err != nil {
+		return 1
+	}
+	defer stdout.Close()
+	stderr, err := open(job.Stderr)
+	if err != nil {
+		return 1
+	}
+	defer stderr.Close()
+
+	inherited := deps.getenv
+	deps.getenv = func(name string) string {
+		if value, ok := job.Environment[name]; ok {
+			return value
+		}
+		return inherited(name)
+	}
+	return runSynchronization(false, stdout, stderr, deps)
 }

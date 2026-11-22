@@ -3,11 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	usageSync "github.com/ansonnchan/tokenholic/internal/sync"
 	"github.com/ansonnchan/tokenholic/internal/tui/theme"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +21,16 @@ import (
 	"github.com/ansonnchan/tokenholic/internal/doctor"
 	"github.com/ansonnchan/tokenholic/internal/multiplayer"
 	"github.com/ansonnchan/tokenholic/internal/normalize"
+)
+
+// Synthetic locations are absolute on every system and name nothing real:
+// /synthetic/... on Unix and <drive>:\synthetic\... on Windows.
+var (
+	syntheticRoot        = filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "synthetic")
+	syntheticHome        = filepath.Join(syntheticRoot, "home")
+	syntheticPrivateHome = filepath.Join(syntheticRoot, "private-home")
+	syntheticCodexHome   = filepath.Join(syntheticRoot, "codex")
+	syntheticBinary      = filepath.Join(syntheticRoot, "bin", "tokenholic")
 )
 
 func TestRun(t *testing.T) {
@@ -58,11 +71,11 @@ func TestRootCommandLaunchesLocalTUIWithEnvironment(t *testing.T) {
 	t.Parallel()
 	input := strings.NewReader("q")
 	deps := dependencies{
-		homeDir: func() (string, error) { return "/synthetic/home", nil },
+		homeDir: func() (string, error) { return syntheticHome, nil },
 		getenv: func(name string) string {
 			switch name {
 			case "CODEX_HOME":
-				return "/synthetic/codex"
+				return syntheticCodexHome
 			case "NO_COLOR", "TOKENHOLIC_ASCII":
 				return "1"
 			case "TOKENHOLIC_THEME":
@@ -74,7 +87,7 @@ func TestRootCommandLaunchesLocalTUIWithEnvironment(t *testing.T) {
 		input: input,
 		launch: func(ctx context.Context, home, codexHome, apiURL string, gotInput io.Reader, _ io.Writer, display displayOptions) error {
 			want := displayOptions{noColor: true, ascii: true, background: theme.LightBackground}
-			if ctx == nil || home != "/synthetic/home" || codexHome != "/synthetic/codex" || apiURL != "" || gotInput != input || display != want {
+			if ctx == nil || home != syntheticHome || codexHome != syntheticCodexHome || apiURL != "" || gotInput != input || display != want {
 				t.Fatalf("launch inputs = %v %q %q %q %v %+v", ctx, home, codexHome, apiURL, gotInput, display)
 			}
 			return nil
@@ -103,7 +116,7 @@ func TestOpenBrowserRefusesAnythingButHTTPS(t *testing.T) {
 func TestRootCommandRedactsStartupFailure(t *testing.T) {
 	t.Parallel()
 	deps := dependencies{
-		homeDir: func() (string, error) { return "/synthetic/home", nil },
+		homeDir: func() (string, error) { return syntheticHome, nil },
 		getenv:  func(string) string { return "" },
 		input:   strings.NewReader("q"),
 		launch: func(context.Context, string, string, string, io.Reader, io.Writer, displayOptions) error {
@@ -130,7 +143,7 @@ func TestLocalTimezoneResolvesLoadableLocation(t *testing.T) {
 func TestDoctorCommandUsesBoundedInjectedDiagnostics(t *testing.T) {
 	t.Parallel()
 
-	privateHome := "/synthetic/private-home"
+	privateHome := syntheticPrivateHome
 	deps := dependencies{
 		homeDir: func() (string, error) { return privateHome, nil },
 		getenv:  func(string) string { return "" },
@@ -161,7 +174,7 @@ func TestDoctorCommandRejectsRelativeCodexHome(t *testing.T) {
 	t.Parallel()
 
 	deps := dependencies{
-		homeDir: func() (string, error) { return "/synthetic/home", nil },
+		homeDir: func() (string, error) { return syntheticHome, nil },
 		getenv:  func(string) string { return "relative" },
 		timeout: time.Second,
 		diagnose: func(context.Context, string, string) doctor.Report {
@@ -240,7 +253,7 @@ func TestClaimLogsInAndPerformsInitialSync(t *testing.T) {
 	manager := &fakeAccountManager{}
 	syncCalls := 0
 	deps := dependencies{
-		homeDir: func() (string, error) { return "/synthetic/home", nil },
+		homeDir: func() (string, error) { return syntheticHome, nil },
 		getenv: func(name string) string {
 			if name == "TOKENHOLIC_API_URL" {
 				return "https://api.example.test"
@@ -267,7 +280,7 @@ func TestClaimLogsInAndPerformsInitialSync(t *testing.T) {
 func TestSyncCommandTellsAnOutdatedClientToUpgrade(t *testing.T) {
 	t.Parallel()
 	deps := dependencies{
-		homeDir: func() (string, error) { return "/synthetic/home", nil },
+		homeDir: func() (string, error) { return syntheticHome, nil },
 		getenv: func(name string) string {
 			if name == "TOKENHOLIC_API_URL" {
 				return "https://api.example.test"
@@ -290,7 +303,7 @@ func TestSyncCommandParsesDryRunAndRedactsFailure(t *testing.T) {
 	var gotDryRun bool
 	apiURL := ""
 	deps := dependencies{
-		homeDir: func() (string, error) { return "/synthetic/home", nil },
+		homeDir: func() (string, error) { return syntheticHome, nil },
 		getenv: func(name string) string {
 			if name == "TOKENHOLIC_API_URL" {
 				return apiURL
@@ -298,7 +311,7 @@ func TestSyncCommandParsesDryRunAndRedactsFailure(t *testing.T) {
 			return ""
 		},
 		sync: func(_ context.Context, home, codexHome, gotAPIURL string, dryRun bool, output io.Writer) error {
-			if home != "/synthetic/home" || codexHome != "" || gotAPIURL != apiURL {
+			if home != syntheticHome || codexHome != "" || gotAPIURL != apiURL {
 				t.Fatalf("sync inputs = %q/%q/%q", home, codexHome, gotAPIURL)
 			}
 			gotDryRun = dryRun
@@ -338,7 +351,7 @@ func TestSyncCommandParsesDryRunAndRedactsFailure(t *testing.T) {
 func TestCommandsExplainAnUnavailableCredentialStore(t *testing.T) {
 	unavailable := fmt.Errorf("read /private/path: %w", account.ErrVaultUnavailable)
 	deps := dependencies{
-		homeDir: func() (string, error) { return "/synthetic/home", nil },
+		homeDir: func() (string, error) { return syntheticHome, nil },
 		getenv: func(name string) string {
 			if name == "TOKENHOLIC_API_URL" {
 				return "https://api.example.test"
@@ -363,14 +376,14 @@ func TestAutosyncCommandsUseExplicitManagerBoundary(t *testing.T) {
 	manager := &fakeAutosyncManager{status: autosync.Status{Installed: true, Loaded: true}}
 	managerCalls := 0
 	deps := dependencies{
-		homeDir:    func() (string, error) { return "/synthetic/home", nil },
-		executable: func() (string, error) { return "/synthetic/bin/tokenholic", nil },
+		homeDir:    func() (string, error) { return syntheticHome, nil },
+		executable: func() (string, error) { return syntheticBinary, nil },
 		getenv: func(name string) string {
 			switch name {
 			case "TOKENHOLIC_API_URL":
 				return "https://api.example.test"
 			case "CODEX_HOME":
-				return "/synthetic/codex"
+				return syntheticCodexHome
 			default:
 				return ""
 			}
@@ -378,13 +391,13 @@ func TestAutosyncCommandsUseExplicitManagerBoundary(t *testing.T) {
 		autosync: func(config autosync.Config) (autosyncManager, error) {
 			home, executable, apiURL, codexHome := config.Home, config.Executable, config.APIURL, config.CodexHome
 			managerCalls++
-			if config.Getenv == nil || config.Getenv("CODEX_HOME") != "/synthetic/codex" {
+			if config.Getenv == nil || config.Getenv("CODEX_HOME") != syntheticCodexHome {
 				t.Fatal("autosync did not receive the command's environment")
 			}
-			if home != "/synthetic/home" || executable != "/synthetic/bin/tokenholic" {
+			if home != syntheticHome || executable != syntheticBinary {
 				t.Fatalf("autosync inputs = %q/%q/%q/%q", home, executable, apiURL, codexHome)
 			}
-			if managerCalls == 1 && (apiURL != "https://api.example.test" || codexHome != "/synthetic/codex") {
+			if managerCalls == 1 && (apiURL != "https://api.example.test" || codexHome != syntheticCodexHome) {
 				t.Fatalf("enable autosync inputs = %q/%q", apiURL, codexHome)
 			}
 			if managerCalls > 1 && (apiURL != "" || codexHome != "") {
@@ -414,8 +427,8 @@ func TestAutosyncCommandsUseExplicitManagerBoundary(t *testing.T) {
 
 func TestAutosyncEnableRequiresAPIAndRedactsFailure(t *testing.T) {
 	base := dependencies{
-		homeDir:    func() (string, error) { return "/synthetic/home", nil },
-		executable: func() (string, error) { return "/synthetic/bin/tokenholic", nil },
+		homeDir:    func() (string, error) { return syntheticHome, nil },
+		executable: func() (string, error) { return syntheticBinary, nil },
 		getenv:     func(string) string { return "" },
 		autosync: func(autosync.Config) (autosyncManager, error) {
 			return &fakeAutosyncManager{}, nil
@@ -436,11 +449,81 @@ func TestAutosyncEnableRequiresAPIAndRedactsFailure(t *testing.T) {
 	}
 }
 
+// A schedule that starts a bare program hands it a job file. The run takes
+// its environment and log files from that file and nothing else.
+func TestScheduledRunUsesTheJobFile(t *testing.T) {
+	directory := t.TempDir()
+	stdout, stderr := filepath.Join(directory, "autosync.log"), filepath.Join(directory, "autosync-error.log")
+	writeJob := func(t *testing.T, job autosync.ScheduledJob) string {
+		t.Helper()
+		encoded, err := json.Marshal(job)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(directory, "job.json")
+		if err := os.WriteFile(path, encoded, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	var failure error
+	deps := dependencies{
+		homeDir: func() (string, error) { return syntheticHome, nil },
+		// The process environment loses to the job file and fills the rest.
+		getenv: func(name string) string {
+			return map[string]string{"TOKENHOLIC_API_URL": "https://stale.example.test", "CODEX_HOME": syntheticCodexHome}[name]
+		},
+		sync: func(_ context.Context, _, codexHome, apiURL string, dryRun bool, output io.Writer) error {
+			if dryRun || apiURL != "https://api.example.test" || codexHome != syntheticCodexHome {
+				t.Fatalf("scheduled sync inputs = %q/%q/dryRun=%t", apiURL, codexHome, dryRun)
+			}
+			fmt.Fprintln(output, "Synchronized 2 buckets in 1 batches.")
+			return failure
+		},
+	}
+	job := writeJob(t, autosync.ScheduledJob{
+		Environment: map[string]string{"TOKENHOLIC_API_URL": "https://api.example.test", "NO_COLOR": "1"},
+		Stdout:      stdout, Stderr: stderr,
+	})
+	var terminalOut, terminalErr bytes.Buffer
+	if code := run([]string{"autosync", "run", job}, &terminalOut, &terminalErr, deps); code != 0 {
+		t.Fatalf("scheduled run = %d", code)
+	}
+	failure = fmt.Errorf("read /private/path: %w", account.ErrVaultUnavailable)
+	if code := run([]string{"autosync", "run", job}, &terminalOut, &terminalErr, deps); code != 1 {
+		t.Fatalf("failing scheduled run = %d, want 1", code)
+	}
+	logged, err := os.ReadFile(stdout)
+	if err != nil || strings.Count(string(logged), "Synchronized 2 buckets") != 2 {
+		t.Fatalf("output log = %q, %v; want both runs appended", logged, err)
+	}
+	problems, err := os.ReadFile(stderr)
+	if err != nil || !strings.Contains(string(problems), "nothing was uploaded") || strings.Contains(string(problems), "/private/path") {
+		t.Fatalf("error log = %q, %v", problems, err)
+	}
+	// Nothing reaches a console nobody is watching.
+	if terminalOut.Len() != 0 || terminalErr.Len() != 0 {
+		t.Fatalf("scheduled run wrote to the terminal: %q/%q", terminalOut.String(), terminalErr.String())
+	}
+
+	// A job file that sets anything outside the allowlist runs nothing.
+	deps.sync = func(context.Context, string, string, string, bool, io.Writer) error {
+		t.Fatal("an invalid job file reached synchronization")
+		return nil
+	}
+	invalid := writeJob(t, autosync.ScheduledJob{Environment: map[string]string{"PATH": syntheticRoot}, Stdout: stdout, Stderr: stderr})
+	for _, path := range []string{invalid, filepath.Join(directory, "missing.json"), "relative.json"} {
+		if code := run([]string{"autosync", "run", path}, &terminalOut, &terminalErr, deps); code != 1 {
+			t.Fatalf("scheduled run with %s = %d, want 1", filepath.Base(path), code)
+		}
+	}
+}
+
 func TestAutosyncExplainsAMissingScheduler(t *testing.T) {
 	manager := &fakeAutosyncManager{err: fmt.Errorf("inspect /private/path: %w", autosync.ErrSchedulerUnavailable)}
 	deps := dependencies{
-		homeDir:    func() (string, error) { return "/synthetic/home", nil },
-		executable: func() (string, error) { return "/synthetic/bin/tokenholic", nil },
+		homeDir:    func() (string, error) { return syntheticHome, nil },
+		executable: func() (string, error) { return syntheticBinary, nil },
 		getenv: func(name string) string {
 			if name == "TOKENHOLIC_API_URL" {
 				return "https://api.example.test"

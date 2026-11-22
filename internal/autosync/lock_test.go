@@ -3,8 +3,11 @@ package autosync
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/ansonnchan/tokenholic/internal/privatefs"
 )
 
 func TestLockPreventsOverlapAndCanBeReacquired(t *testing.T) {
@@ -13,8 +16,10 @@ func TestLockPreventsOverlapAndCanBeReacquired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("lock mode = %v, %v", info, err)
+	for _, private := range []string{path, filepath.Dir(path)} {
+		if ok, err := privatefs.IsPrivate(private); err != nil || !ok {
+			t.Fatalf("IsPrivate(%s) = %t, %v", filepath.Base(private), ok, err)
+		}
 	}
 	if _, err := Acquire(path); !errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("second Acquire() = %v", err)
@@ -73,9 +78,55 @@ func TestLockRejectsSymbolicLink(t *testing.T) {
 	}
 	link := filepath.Join(root, "sync.lock")
 	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
+		// Windows lets only privileged accounts create symbolic links.
+		t.Skipf("cannot create a symbolic link here: %v", err)
 	}
 	if _, err := Acquire(link); err == nil {
 		t.Fatal("Acquire() accepted symbolic link")
+	}
+}
+
+// A lock held by one process must stop another process, not only another
+// handle in the same one: that is what keeps a manual sync and the scheduled
+// job apart. The test re-runs itself as the second process.
+func TestLockIsHeldAcrossProcesses(t *testing.T) {
+	const pathVariable = "TOKENHOLIC_TEST_LOCK_PATH"
+	if path := os.Getenv(pathVariable); path != "" {
+		lock, err := Acquire(path)
+		switch {
+		case errors.Is(err, ErrAlreadyRunning):
+			os.Exit(3)
+		case err != nil:
+			os.Exit(4)
+		}
+		_ = lock.Close()
+		os.Exit(0)
+	}
+	path := filepath.Join(t.TempDir(), "sync.lock")
+	attempt := func() int {
+		command := exec.Command(os.Args[0], "-test.run=^TestLockIsHeldAcrossProcesses$")
+		command.Env = append(os.Environ(), pathVariable+"="+path)
+		err := command.Run()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return exit.ExitCode()
+		}
+		if err != nil {
+			t.Fatalf("run the second process: %v", err)
+		}
+		return 0
+	}
+	held, err := Acquire(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := attempt(); code != 3 {
+		t.Fatalf("second process exited %d while the lock was held, want 3 (already running)", code)
+	}
+	if err := held.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if code := attempt(); code != 0 {
+		t.Fatalf("second process exited %d after release, want 0", code)
 	}
 }
