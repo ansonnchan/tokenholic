@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { archiveName, packageDirectory, packageName, platforms } from "./platforms.mjs";
+import { archiveName, binaryName, packageDirectory, packageName, platforms } from "./platforms.mjs";
 import { parseChecksums, prepareNpmRelease } from "./prepare-npm-release.mjs";
 
 test("parses strict checksum manifests", () => {
@@ -31,12 +31,13 @@ async function syntheticRelease(t, { optionalDependencies } = {}) {
     const directory = packageDirectory(platform);
     const input = path.join(root, `input-${directory}`);
     await mkdir(input);
-    await writeFile(path.join(input, "tokenholic"), `synthetic-${directory}`);
-    await chmod(path.join(input, "tokenholic"), 0o755);
+    const binary = binaryName(platform);
+    await writeFile(path.join(input, binary), `synthetic-${directory}`);
+    await chmod(path.join(input, binary), 0o755);
     await writeFile(path.join(input, "ccusage.lock.json"), "synthetic-lock");
     const name = archiveName(platform, "1.2.3");
     const archive = path.join(artifacts, name);
-    const packed = spawnSync("tar", ["-czf", archive, "-C", input, "tokenholic", "ccusage.lock.json"], { shell: false });
+    const packed = spawnSync("tar", ["-czf", archive, "-C", input, binary, "ccusage.lock.json"], { shell: false });
     assert.equal(packed.status, 0);
     const hash = createHash("sha256").update(await readFile(archive)).digest("hex");
     sums.push(`${hash}  ${name}`);
@@ -69,10 +70,12 @@ test("prepares exact platform and umbrella packages", async (t) => {
     ["@tokenholic/darwin-x64", "1.2.3"],
     ["@tokenholic/linux-arm64", "1.2.3"],
     ["@tokenholic/linux-x64", "1.2.3"],
+    ["@tokenholic/win32-arm64", "1.2.3"],
+    ["@tokenholic/win32-x64", "1.2.3"],
   ]);
   for (const platform of platforms) {
     const directory = packageDirectory(platform);
-    const binary = path.join(workspace, "packages", directory, "bin", "tokenholic");
+    const binary = path.join(workspace, "packages", directory, "bin", binaryName(platform));
     assert.equal(await readFile(binary, "utf8"), `synthetic-${directory}`);
     assert.notEqual((await stat(binary)).mode & 0o111, 0);
     const manifest = JSON.parse(await readFile(path.join(workspace, "packages", directory, "package.json"), "utf8"));

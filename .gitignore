@@ -5,4 +5,6 @@ node_modules/
 /packages/darwin-*/ccusage.lock.json
 /packages/linux-*/bin/
 /packages/linux-*/ccusage.lock.json
+/packages/win32-*/bin/
+/packages/win32-*/ccusage.lock.json
 coverage.out

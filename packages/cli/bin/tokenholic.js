@@ -10,13 +10,15 @@ const packageByTarget = Object.freeze({
   "darwin-x64": "@tokenholic/darwin-x64",
   "linux-arm64": "@tokenholic/linux-arm64",
   "linux-x64": "@tokenholic/linux-x64",
+  "win32-arm64": "@tokenholic/win32-arm64",
+  "win32-x64": "@tokenholic/win32-x64",
 });
 
 function targetPackage(platform, arch) {
   const packageName = packageByTarget[`${platform}-${arch}`];
   if (!packageName) {
     throw new Error(
-      `tokenholic does not support ${platform}/${arch}. Supported targets: macOS and Linux, each on arm64 and x64.`,
+      `tokenholic does not support ${platform}/${arch}. Supported targets: macOS, Linux, and Windows, each on arm64 and x64.`,
     );
   }
   return packageName;
@@ -32,7 +34,9 @@ function resolveExecutable(platform, arch, resolver = require.resolve) {
       `The native package ${packageName} is missing. Reinstall @tokenholic/cli for this platform.`,
     );
   }
-  const executable = path.join(path.dirname(manifest), "bin", "tokenholic");
+  // Windows runs a program only when its name says it is one.
+  const binary = platform === "win32" ? "tokenholic.exe" : "tokenholic";
+  const executable = path.join(path.dirname(manifest), "bin", binary);
   if (!fs.existsSync(executable)) {
     throw new Error(`The native package ${packageName} is incomplete. Reinstall @tokenholic/cli.`);
   }

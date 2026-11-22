@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -12,7 +14,9 @@ test("selects each supported platform package", () => {
   assert.equal(targetPackage("linux", "arm64"), "@tokenholic/linux-arm64");
   assert.equal(targetPackage("linux", "x64"), "@tokenholic/linux-x64");
   assert.throws(() => targetPackage("linux", "riscv64"), /does not support linux\/riscv64/);
-  assert.throws(() => targetPackage("freebsd", "x64"), /Supported targets: macOS and Linux/);
+  assert.equal(targetPackage("win32", "arm64"), "@tokenholic/win32-arm64");
+  assert.equal(targetPackage("win32", "x64"), "@tokenholic/win32-x64");
+  assert.throws(() => targetPackage("freebsd", "x64"), /Supported targets: macOS, Linux, and Windows/);
 });
 
 test("resolves the binary beside the platform manifest", () => {
@@ -20,6 +24,17 @@ test("resolves the binary beside the platform manifest", () => {
     path.join(__dirname, "fixture", "package.json"),
   );
   assert.equal(executable, path.join(__dirname, "fixture", "bin", "tokenholic"));
+});
+
+test("resolves the Windows binary by its own name", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tokenholic-launcher-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "bin"));
+  fs.writeFileSync(path.join(root, "bin", "tokenholic.exe"), "synthetic");
+  const resolve = () => path.join(root, "package.json");
+  assert.equal(resolveExecutable("win32", "x64", resolve), path.join(root, "bin", "tokenholic.exe"));
+  // A package holding only the other system's file name is incomplete.
+  assert.throws(() => resolveExecutable("linux", "x64", resolve), /is incomplete/);
 });
 
 test("forwards arguments without a shell", () => {
@@ -42,11 +57,11 @@ test("forwards arguments without a shell", () => {
 test("reports unsupported targets without spawning", () => {
   let message = "";
   const status = run([], {
-    platform: "win32",
+    platform: "freebsd",
     arch: "x64",
     stderr: { write: (value) => (message += value) },
     spawn: () => assert.fail("spawn should not run"),
   });
   assert.equal(status, 1);
-  assert.match(message, /does not support win32\/x64/);
+  assert.match(message, /does not support freebsd\/x64/);
 });
