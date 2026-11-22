@@ -1,0 +1,51 @@
+name: Website
+
+# Publishes web/ to GitHub Pages. Publishing is opt-in: the job is skipped
+# until the repository variable TOKENHOLIC_API_ORIGIN names the API the pages
+# read from, and GitHub Pages must be set to deploy from GitHub Actions.
+# docs/deployment.md lists the steps.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "scripts/assemble-website.mjs"
+      - ".github/workflows/pages.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.TOKENHOLIC_API_ORIGIN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: pages
+        uses: actions/configure-pages@v5
+      - name: Assemble the site
+        env:
+          TOKENHOLIC_API_ORIGIN: ${{ vars.TOKENHOLIC_API_ORIGIN }}
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: node scripts/assemble-website.mjs "$TOKENHOLIC_API_ORIGIN" _site "$BASE_PATH"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
