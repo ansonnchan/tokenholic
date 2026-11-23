@@ -259,6 +259,28 @@ on two Macs. Steps 5 to 7 were left for later.
   that Enter prints the enabled line, and that `tokenholic autosync status`
   then reports it installed and loaded; and once in the terminal interface,
   that the board's confirmation ends in `hourly sync on`.
+- **0.4.1, the same day.** `v0.4.1` adds `--help`, a line from `show-data`
+  when nothing is pending, reading Claude Code records from
+  `CLAUDE_CONFIG_DIR`, an upload count in the claim screen, and a README in
+  every npm package. The server change that stores a batch in 4 database
+  round trips was merged and deployed first; the deployment succeeded, and
+  afterwards the health check answered 200, the sync route 401 without a
+  sign-in, and the retired v1 route 426. The release workflow passed every
+  job. The seven packages took about three minutes to all appear on the
+  registry, and an install during that window got a launcher without its
+  native package. Checked on macOS arm64 from a clean install with an empty
+  home once they had: `--version` printed `0.4.1`; `--help` listed the
+  commands; an unknown command pointed to it; `show-data` said nothing was
+  waiting; `doctor` showed the built-in address and the verified ccusage;
+  `demo` ran and quit cleanly; and both installed packages carried
+  `README.md`. Not exercised: a real upload after the server change, a
+  real claim watching the count, a real install that sets
+  `CLAUDE_CONFIG_DIR`, and a scheduled run on Windows. To time a real
+  upload, run `tokenholic show-data > /dev/null` and then `tokenholic sync`
+  under `time` with buckets pending; the difference is the upload. A public
+  lookup that makes three database round trips took about 180 ms longer
+  than the health check on the live API, so a round trip there costs about
+  60 ms and a sync request, at seven, should take under half a second.
 - **The website's publish workflow can fail on a GitHub artifact error.** On
   one merge the deploy step found no artifact right after uploading it, and
   re-running the same run then found two. Starting a fresh run from the
