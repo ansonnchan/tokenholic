@@ -24,14 +24,21 @@ The native package directories intentionally do not contain committed
 binaries. During a tagged release, `scripts/prepare-npm-release.mjs` verifies
 the GitHub artifact checksums, extracts the matching release archives, copies
 only the native binary and pinned parser contract, adds the repository's
-`LICENSE` to every package, and assigns one exact version
-to every tokenholic package. The ccusage packages keep the exact version they
+`LICENSE` to every package, writes each package's `README.md`, and assigns
+one exact version to every tokenholic package. The ccusage packages keep the exact version they
 were reviewed at, and preparation refuses a range. The native packages publish before the umbrella package so
 an install can never resolve a new launcher before its binaries. The Linux
 binaries are statically linked, so one package serves glibc and musl systems
 and no `libc` field is needed. The Windows packages are named `win32`, as
 Node and npm name that system, and carry `tokenholic.exe`; the launcher
 appends the extension when it resolves the binary.
+
+The package pages on npm show those generated READMEs, which are not
+committed. The launcher's is the repository `README.md` with every relative
+link and image pinned to the released tag, so a version's page always matches
+its source; edit the repository README, never a copy. Each native package
+gets a short page that names its platform and sends a reader to
+`@tokenholic/cli`.
 
 `scripts/platforms.mjs` is the list of shipped platforms. The launcher's own
 table, the umbrella package's optional dependencies, and the package

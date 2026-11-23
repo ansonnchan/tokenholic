@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-import { archiveName as platformArchive, binaryName, ccusagePackageName, packageDirectory, platforms } from "./platforms.mjs";
+import { archiveName as platformArchive, binaryName, ccusagePackageName, packageDirectory, packageName, platforms } from "./platforms.mjs";
 
 const semanticVersion = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
@@ -22,6 +22,50 @@ export function parseChecksums(contents) {
     checksums.set(match[2], match[1]);
   }
   return checksums;
+}
+
+// npm shows a package's README on its page but cannot follow links into the
+// repository, so each relative link is pinned to the tag being released.
+// Images point at the file itself; everything else points at its page.
+export function npmReadme(readme, repository, version) {
+  const page = `${repository}/blob/v${version}/`;
+  const file = `${repository.replace("https://github.com/", "https://raw.githubusercontent.com/")}/v${version}/`;
+  const pin = (base) => (match, before, target, after) =>
+    /^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(target) ? match : `${before}${base}${target.replace(/^\.?\//, "")}${after}`;
+  return readme
+    .replace(/(!\[[^\]]*\]\()([^)\s]+)(\))/g, pin(file))
+    .replace(/(\bsrc=")([^"]+)(")/g, pin(file))
+    .replace(/(\]\()([^)\s]+)(\))/g, pin(page))
+    .replace(/(\bhref=")([^"]+)(")/g, pin(page));
+}
+
+// A native package is installed for the user by the launcher; its page says
+// so and sends a reader there.
+export function platformReadme(platform, repository) {
+  return [
+    `# ${packageName(platform)}`,
+    "",
+    `The tokenholic program built for ${platform.label}.`,
+    "",
+    "This package is not meant to be installed on its own. Install",
+    "[`@tokenholic/cli`](https://www.npmjs.com/package/@tokenholic/cli), which",
+    "picks the package that matches your machine:",
+    "",
+    "```sh",
+    "npx @tokenholic/cli",
+    "```",
+    "",
+    `Source, documentation, and issues: ${repository}`,
+    "",
+  ].join("\n");
+}
+
+function repositoryPage(manifest) {
+  const match = /^git\+(https:\/\/github\.com\/[\w.-]+\/[\w.-]+?)\.git$/.exec(manifest.repository?.url ?? "");
+  if (!match) {
+    throw new Error("@tokenholic/cli must name its GitHub repository so the README links can be pinned");
+  }
+  return match[1];
 }
 
 export async function prepareNpmRelease(version, artifactDirectory, workspaceRoot) {
@@ -42,6 +86,17 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
   } catch {
     throw new Error("the workspace has no LICENSE to ship in the npm packages");
   }
+  // Every package page shows a README, which npm also packs whatever "files"
+  // says: the repository's own for the launcher, a pointer for the rest.
+  let readme;
+  try {
+    readme = await readFile(path.join(workspace, "README.md"), "utf8");
+  } catch {
+    throw new Error("the workspace has no README.md to ship in the npm packages");
+  }
+  const umbrellaPath = path.join(workspace, "packages", "cli", "package.json");
+  const umbrella = JSON.parse(await readFile(umbrellaPath, "utf8"));
+  const repository = repositoryPage(umbrella);
   const temporary = await mkdtemp(path.join(tmpdir(), "tokenholic-npm-"));
   try {
     for (const platform of platforms) {
@@ -79,11 +134,10 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
       await chmod(path.join(binaryDirectory, binary), 0o755);
       await copyFile(path.join(extracted, "ccusage.lock.json"), path.join(packageRoot, "ccusage.lock.json"));
       await writeFile(path.join(packageRoot, "LICENSE"), license);
+      await writeFile(path.join(packageRoot, "README.md"), platformReadme(platform, repository), "utf8");
       await setPackageVersion(path.join(packageRoot, "package.json"), version);
     }
 
-    const umbrellaPath = path.join(workspace, "packages", "cli", "package.json");
-    const umbrella = JSON.parse(await readFile(umbrellaPath, "utf8"));
     const native = platforms.map((platform) => `@tokenholic/${packageDirectory(platform)}`);
     const pinned = platforms.map(ccusagePackageName);
     const dependencies = umbrella.optionalDependencies ?? {};
@@ -103,6 +157,7 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
     );
     await writeManifest(umbrellaPath, umbrella);
     await writeFile(path.join(workspace, "packages", "cli", "LICENSE"), license);
+    await writeFile(path.join(workspace, "packages", "cli", "README.md"), npmReadme(readme, repository, version), "utf8");
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
