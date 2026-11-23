@@ -302,3 +302,107 @@ func TestDefaultRootsMatchThePlatform(t *testing.T) {
 		t.Fatalf("DefaultRoots() without a lookup = %d roots", len(got))
 	}
 }
+
+func TestClaudeConfigDirMovesTheClaudeCodeRoot(t *testing.T) {
+	t.Parallel()
+
+	home := filepath.Join(t.TempDir(), "home")
+	moved := filepath.Join(t.TempDir(), "moved")
+	earlier := filepath.Join(home, ".config", "claude")
+	projects := func(directory string) string { return filepath.Join(directory, "projects") }
+	type root struct {
+		path     string
+		optional bool
+	}
+	defaultOnly := []root{{projects(filepath.Join(home, ".claude")), false}}
+	for _, test := range []struct {
+		name  string
+		roots []RootSpec
+		value string
+		want  []root
+	}{
+		{name: "unset", roots: MacRoots(home, ""), want: defaultOnly},
+		{name: "relative", roots: MacRoots(home, ""), value: filepath.Join("claude", "moved"), want: defaultOnly},
+		{name: "the default itself", roots: MacRoots(home, ""), value: filepath.Join(home, ".claude") + string(filepath.Separator), want: defaultOnly},
+		{
+			name: "moved", roots: WindowsRoots(home, "", "", ""), value: moved,
+			want: []root{{projects(moved), false}, {projects(filepath.Join(home, ".claude")), true}},
+		},
+		{
+			// Linux already reads this directory as optional; chosen by the
+			// user it is the source, and it is listed once.
+			name: "moved to a directory already read", roots: LinuxRoots(home, "", ""), value: earlier,
+			want: []root{{projects(earlier), false}, {projects(filepath.Join(home, ".claude")), true}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := withClaudeConfigDir(test.roots, home, test.value)
+			var cli []root
+			others := 0
+			for _, spec := range got {
+				if spec.Kind == RootClaudeCLI {
+					cli = append(cli, root{spec.Path, spec.Optional})
+				} else {
+					others++
+				}
+			}
+			if len(cli) != len(test.want) {
+				t.Fatalf("Claude Code roots = %v, want %v", cli, test.want)
+			}
+			for index, want := range test.want {
+				if cli[index] != want {
+					t.Errorf("Claude Code root %d = %v, want %v", index, cli[index], want)
+				}
+			}
+			// No other source moves with it.
+			before := 0
+			for _, spec := range test.roots {
+				if spec.Kind != RootClaudeCLI {
+					before++
+				}
+			}
+			if others != before {
+				t.Errorf("other roots = %d, want %d", others, before)
+			}
+		})
+	}
+}
+
+func TestDefaultRootsFindSessionsInAMovedClaudeConfigDir(t *testing.T) {
+	t.Parallel()
+	if len(DefaultRoots(Environment{Home: t.TempDir()})) == 0 {
+		t.Skip("this system has no default roots")
+	}
+
+	home, moved := t.TempDir(), t.TempDir()
+	// The variable names the configuration directory; the second variable
+	// Claude Code documents only names a directory inside its projects.
+	writeSyntheticFile(t, filepath.Join(moved, "projects", "synthetic-name", "session.jsonl"))
+	discover := func() []Finding {
+		roots := DefaultRoots(Environment{Home: home, Getenv: func(name string) string {
+			if name == ClaudeConfigDirVariable {
+				return moved
+			}
+			return ""
+		}})
+		var cli []Finding
+		for _, finding := range (Discoverer{Roots: roots}).Discover(context.Background()) {
+			if finding.Kind == RootClaudeCLI {
+				cli = append(cli, finding)
+			}
+		}
+		return cli
+	}
+
+	// The default directory does not exist, and that is not a missing source.
+	cli := discover()
+	if len(cli) != 1 || cli[0].Status != normalize.HealthDetected || cli[0].RecordCount != 1 {
+		t.Fatalf("Claude Code findings = %#v, want the moved directory alone", cli)
+	}
+	// Sessions left in the default directory are still read.
+	writeSyntheticFile(t, filepath.Join(home, ".claude", "projects", "synthetic", "earlier.jsonl"))
+	cli = discover()
+	if len(cli) != 2 || cli[1].Status != normalize.HealthDetected || cli[1].RecordCount != 1 {
+		t.Fatalf("Claude Code findings with the default directory = %#v", cli)
+	}
+}

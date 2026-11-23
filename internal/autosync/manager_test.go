@@ -92,7 +92,8 @@ func TestManagerInstallsInspectsAndRemovesSchedule(t *testing.T) {
 			manager, err := NewManager(Config{
 				Home: home, Executable: syntheticExecutable(t), APIURL: "https://api.example.test",
 				CodexHome: filepath.Join(home, "codex"), CCUsagePath: filepath.Join(home, "synthetic-ccusage"),
-				scheduler: schedulers(home, tools)[name],
+				ClaudeConfigDir: filepath.Join(home, "synthetic-claude"),
+				scheduler:       schedulers(home, tools)[name],
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -131,6 +132,11 @@ func TestManagerInstallsInspectsAndRemovesSchedule(t *testing.T) {
 			// the schedule itself says where the pinned ccusage is.
 			if !strings.Contains(scheduled.String(), CCUsagePathVariable) || !strings.Contains(scheduled.String(), "synthetic-ccusage") {
 				t.Fatalf("the schedule does not carry the ccusage location: %s", scheduled.String())
+			}
+			// Nor through the user's shell, so it also says where Claude
+			// Code's records were moved to.
+			if !strings.Contains(scheduled.String(), ClaudeConfigDirVariable) || !strings.Contains(scheduled.String(), "synthetic-claude") {
+				t.Fatalf("the schedule does not carry the Claude configuration directory: %s", scheduled.String())
 			}
 			for _, private := range []string{paths.stdout, paths.stderr, filepath.Dir(paths.binary), paths.logs} {
 				if ok, err := privatefs.IsPrivate(private); err != nil || !ok {
@@ -300,6 +306,7 @@ func TestManagerRejectsRelativePaths(t *testing.T) {
 		{Home: t.TempDir(), Executable: "tokenholic"},
 		{Home: t.TempDir(), Executable: syntheticExecutable(t), CodexHome: "codex"},
 		{Home: t.TempDir(), Executable: syntheticExecutable(t), CCUsagePath: "ccusage"},
+		{Home: t.TempDir(), Executable: syntheticExecutable(t), ClaudeConfigDir: "claude"},
 	} {
 		if _, err := NewManager(config); err == nil {
 			t.Fatalf("NewManager(%#v) succeeded", config)

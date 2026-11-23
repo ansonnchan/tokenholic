@@ -20,7 +20,9 @@ type ScheduledJob struct {
 
 // scheduledVariables is every variable a job file may set. Anything else in
 // the file is refused, so the file cannot be used to steer the process.
-var scheduledVariables = map[string]bool{"TOKENHOLIC_API_URL": true, "CODEX_HOME": true, "NO_COLOR": true, CCUsagePathVariable: true}
+var scheduledVariables = map[string]bool{
+	"TOKENHOLIC_API_URL": true, "CODEX_HOME": true, ClaudeConfigDirVariable: true, "NO_COLOR": true, CCUsagePathVariable: true,
+}
 
 // LoadScheduledJob reads and validates a job file written by Enable.
 func LoadScheduledJob(path string) (ScheduledJob, error) {

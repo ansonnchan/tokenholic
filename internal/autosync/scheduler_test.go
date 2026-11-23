@@ -343,6 +343,7 @@ func TestScheduledJobFilesAreAnAllowlist(t *testing.T) {
 	}{
 		{"complete", `{"environment":{"TOKENHOLIC_API_URL":"https://api.example.test","CODEX_HOME":"/synthetic","NO_COLOR":"1"},"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, true},
 		{"the ccusage location", `{"environment":{"TOKENHOLIC_CCUSAGE_PATH":"/synthetic/ccusage"},"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, true},
+		{"the Claude configuration directory", `{"environment":{"CLAUDE_CONFIG_DIR":"/synthetic/claude"},"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, true},
 		{"no environment", `{"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, true},
 		{"another variable", `{"environment":{"PATH":"/synthetic"},"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, false},
 		{"a credential-shaped variable", `{"environment":{"TOKENHOLIC_CREDENTIAL":"synthetic"},"stdout":"` + quoted + `","stderr":"` + quoted + `"}`, false},

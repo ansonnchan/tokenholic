@@ -83,8 +83,6 @@ is token counts by category, the model ID, which agent, and a UTC time bucket.
   progress; the TUI's claim step shows only a spinner.
 - **Codex compaction usage** is not counted yet; it waits on real records to
   build a fixture from.
-- **`CLAUDE_CONFIG_DIR` is ignored.** Claude records are read from the default
-  location only.
 - **Group timezone on Windows** falls back to UTC.
 - **Cold starts.** The hosted API is on a free tier and can take about a
   minute to wake.

@@ -19,6 +19,9 @@ import (
 // the two install the same thing.
 type scheduleSettings struct {
 	home, executable, apiURL, codexHome, ccusagePath string
+	// claudeConfigDir is where the user moved Claude Code's configuration
+	// directory, when they did.
+	claudeConfigDir string
 	// pinAPIURL is whether the user chose the address themselves.
 	pinAPIURL bool
 	getenv    func(string) string
@@ -27,8 +30,18 @@ type scheduleSettings struct {
 func (s scheduleSettings) config() autosync.Config {
 	return autosync.Config{
 		Home: s.home, Executable: s.executable, APIURL: s.apiURL, PinAPIURL: s.pinAPIURL,
-		CodexHome: s.codexHome, CCUsagePath: s.ccusagePath, Getenv: s.getenv,
+		CodexHome: s.codexHome, ClaudeConfigDir: s.claudeConfigDir, CCUsagePath: s.ccusagePath, Getenv: s.getenv,
 	}
+}
+
+// absoluteOrNone keeps a location a schedule can carry. One that is not
+// absolute is dropped rather than refused: the scheduled run then reads the
+// default location, exactly as a run from the terminal would.
+func absoluteOrNone(location string) string {
+	if !filepath.IsAbs(location) {
+		return ""
+	}
+	return location
 }
 
 // scheduleSettingsFrom reads what a schedule needs from this run. It
@@ -49,16 +62,14 @@ func scheduleSettingsFrom(home, apiURL string, overridden bool, getenv func(stri
 	if codexHome != "" && !filepath.IsAbs(codexHome) {
 		return scheduleSettings{}, false
 	}
-	// The scheduled copy runs outside the npm install, so it is told where
-	// the pinned ccusage was installed. A location that is not absolute is
-	// dropped rather than refused: it only means no ccusage for the schedule.
-	ccusagePath := strings.TrimSpace(getenv(ccusagePathVariable))
-	if !filepath.IsAbs(ccusagePath) {
-		ccusagePath = ""
-	}
 	return scheduleSettings{
-		home: home, executable: path, apiURL: apiURL, pinAPIURL: overridden,
-		codexHome: codexHome, ccusagePath: ccusagePath, getenv: getenv,
+		home: home, executable: path, apiURL: apiURL, pinAPIURL: overridden, codexHome: codexHome,
+		// The scheduled copy runs outside the npm install and outside the
+		// user's shell, so it is told where the pinned ccusage was
+		// installed and where Claude Code's records were moved to.
+		ccusagePath:     absoluteOrNone(strings.TrimSpace(getenv(ccusagePathVariable))),
+		claudeConfigDir: absoluteOrNone(getenv(autosync.ClaudeConfigDirVariable)),
+		getenv:          getenv,
 	}, true
 }
 
@@ -185,13 +196,11 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 	}
 	apiURL, overridden := deps.apiOrigin()
 	codexHome := strings.TrimSpace(deps.getenv("CODEX_HOME"))
-	// The scheduled copy runs outside the npm install, so it is told where
-	// the pinned ccusage was installed. A location that is not absolute is
-	// dropped rather than refused: it only means no ccusage for the schedule.
-	ccusagePath := strings.TrimSpace(deps.getenv(ccusagePathVariable))
-	if !filepath.IsAbs(ccusagePath) {
-		ccusagePath = ""
-	}
+	// The scheduled copy runs outside the npm install and outside the user's
+	// shell, so it is told where the pinned ccusage was installed and where
+	// Claude Code's records were moved to.
+	ccusagePath := absoluteOrNone(strings.TrimSpace(deps.getenv(ccusagePathVariable)))
+	claudeConfigDir := absoluteOrNone(deps.getenv(autosync.ClaudeConfigDirVariable))
 	if args[0] == "enable" {
 		if apiURL == "" {
 			fmt.Fprintln(stderr, noAPIAddress)
@@ -205,10 +214,11 @@ func runAutosyncCommand(args []string, stdout, stderr io.Writer, deps dependenci
 		apiURL = ""
 		codexHome = ""
 		ccusagePath = ""
+		claudeConfigDir = ""
 	}
 	manager, err := deps.autosync(scheduleSettings{
 		home: home, executable: executable, apiURL: apiURL, pinAPIURL: overridden,
-		codexHome: codexHome, ccusagePath: ccusagePath, getenv: deps.getenv,
+		codexHome: codexHome, claudeConfigDir: claudeConfigDir, ccusagePath: ccusagePath, getenv: deps.getenv,
 	}.config())
 	if err != nil {
 		fmt.Fprintln(stderr, "autosync configuration is invalid")
@@ -307,6 +317,16 @@ func runScheduledSync(jobPath string, deps dependencies) int {
 	}
 	defer stderr.Close()
 
+	// Provider locations are read from the process environment, where
+	// launchd and systemd put them; this scheduler cannot, so they are put
+	// there now. The names were checked against the allowlist on load.
+	if deps.setenv != nil {
+		for name, value := range job.Environment {
+			if err := deps.setenv(name, value); err != nil {
+				return 1
+			}
+		}
+	}
 	inherited := deps.getenv
 	deps.getenv = func(name string) string {
 		if value, ok := job.Environment[name]; ok {
