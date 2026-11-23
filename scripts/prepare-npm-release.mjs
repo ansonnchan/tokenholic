@@ -24,21 +24,6 @@ export function parseChecksums(contents) {
   return checksums;
 }
 
-// npm shows a package's README on its page but cannot follow links into the
-// repository, so each relative link is pinned to the tag being released.
-// Images point at the file itself; everything else points at its page.
-export function npmReadme(readme, repository, version) {
-  const page = `${repository}/blob/v${version}/`;
-  const file = `${repository.replace("https://github.com/", "https://raw.githubusercontent.com/")}/v${version}/`;
-  const pin = (base) => (match, before, target, after) =>
-    /^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(target) ? match : `${before}${base}${target.replace(/^\.?\//, "")}${after}`;
-  return readme
-    .replace(/(!\[[^\]]*\]\()([^)\s]+)(\))/g, pin(file))
-    .replace(/(\bsrc=")([^"]+)(")/g, pin(file))
-    .replace(/(\]\()([^)\s]+)(\))/g, pin(page))
-    .replace(/(\bhref=")([^"]+)(")/g, pin(page));
-}
-
 // A native package is installed for the user by the launcher; its page says
 // so and sends a reader there.
 export function platformReadme(platform, repository) {
@@ -63,7 +48,7 @@ export function platformReadme(platform, repository) {
 function repositoryPage(manifest) {
   const match = /^git\+(https:\/\/github\.com\/[\w.-]+\/[\w.-]+?)\.git$/.exec(manifest.repository?.url ?? "");
   if (!match) {
-    throw new Error("@tokenholic/cli must name its GitHub repository so the README links can be pinned");
+    throw new Error("@tokenholic/cli must name its GitHub repository for the native package pages to link to");
   }
   return match[1];
 }
@@ -87,12 +72,11 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
     throw new Error("the workspace has no LICENSE to ship in the npm packages");
   }
   // Every package page shows a README, which npm also packs whatever "files"
-  // says: the repository's own for the launcher, a pointer for the rest.
-  let readme;
+  // says: the launcher's is committed, the native packages' are written here.
   try {
-    readme = await readFile(path.join(workspace, "README.md"), "utf8");
+    await readFile(path.join(workspace, "packages", "cli", "README.md"));
   } catch {
-    throw new Error("the workspace has no README.md to ship in the npm packages");
+    throw new Error("@tokenholic/cli has no README.md to show on its npm page");
   }
   const umbrellaPath = path.join(workspace, "packages", "cli", "package.json");
   const umbrella = JSON.parse(await readFile(umbrellaPath, "utf8"));
@@ -157,7 +141,6 @@ export async function prepareNpmRelease(version, artifactDirectory, workspaceRoo
     );
     await writeManifest(umbrellaPath, umbrella);
     await writeFile(path.join(workspace, "packages", "cli", "LICENSE"), license);
-    await writeFile(path.join(workspace, "packages", "cli", "README.md"), npmReadme(readme, repository, version), "utf8");
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

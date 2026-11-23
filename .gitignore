@@ -3,10 +3,12 @@
 node_modules/
 /packages/darwin-*/bin/
 /packages/darwin-*/ccusage.lock.json
+/packages/darwin-*/README.md
 /packages/linux-*/bin/
 /packages/linux-*/ccusage.lock.json
+/packages/linux-*/README.md
 /packages/win32-*/bin/
 /packages/win32-*/ccusage.lock.json
+/packages/win32-*/README.md
 /packages/*/LICENSE
-/packages/*/README.md
 coverage.out
