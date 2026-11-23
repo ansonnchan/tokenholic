@@ -71,8 +71,8 @@ func (a *deviceAccount) Complete(ctx context.Context, started account.DeviceStar
 }
 
 // Sync uploads pending buckets under the lock the scheduled sync uses, so
-// the two never upload at once.
-func (a *deviceAccount) Sync(ctx context.Context) (uploaded int64, err error) {
+// the two never upload at once. report, when given, hears how far it has got.
+func (a *deviceAccount) Sync(ctx context.Context, report func(tui.UploadProgress)) (uploaded int64, err error) {
 	lock, err := autosync.AcquireDefault()
 	if errors.Is(err, autosync.ErrAlreadyRunning) {
 		return 0, tui.ErrSyncBusy
@@ -85,7 +85,13 @@ func (a *deviceAccount) Sync(ctx context.Context) (uploaded int64, err error) {
 			err = closeErr
 		}
 	}()
-	summary, err := uploadPending(ctx, a.database, a.apiURL, nil)
+	var progress func(usageSync.Progress)
+	if report != nil {
+		progress = func(step usageSync.Progress) {
+			report(tui.UploadProgress{Uploaded: step.Acknowledged, Pending: step.Pending, Batches: step.Batches})
+		}
+	}
+	summary, err := uploadPending(ctx, a.database, a.apiURL, progress)
 	if errors.Is(err, usageSync.ErrUpgradeRequired) {
 		return 0, tui.ErrUpgradeRequired
 	}

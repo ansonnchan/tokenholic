@@ -58,6 +58,9 @@ func firstLaunch(found application.Dashboard) *fakeApplication {
 // the model waiting as it would be.
 var errHeld = errors.New("synthetic: not finished yet")
 
+// longUpload is a first upload of a long history, three batches in.
+var longUpload = []UploadProgress{{Pending: 1240, Batches: 13}, {Uploaded: 300, Pending: 1240, Batches: 13}}
+
 // fakeAccount is a device that can be claimed.
 type fakeAccount struct {
 	login       string
@@ -66,10 +69,12 @@ type fakeAccount struct {
 	completeErr error
 	syncErr     error
 	uploaded    int64
-	begun       int
-	completed   int
-	synced      int
-	cancelled   bool
+	// progress is what the upload reports before it returns.
+	progress  []UploadProgress
+	begun     int
+	completed int
+	synced    int
+	cancelled bool
 }
 
 func (f *fakeAccount) Login(context.Context) (string, error) { return f.login, f.loginErr }
@@ -98,8 +103,11 @@ func (f *fakeAccount) Complete(ctx context.Context, _ account.DeviceStart) (stri
 	return f.login, nil
 }
 
-func (f *fakeAccount) Sync(context.Context) (int64, error) {
+func (f *fakeAccount) Sync(_ context.Context, report func(UploadProgress)) (int64, error) {
 	f.synced++
+	for _, step := range f.progress {
+		report(step)
+	}
 	return f.uploaded, f.syncErr
 }
 

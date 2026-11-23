@@ -405,3 +405,43 @@ func TestClaimSurvivesASchedulerThatRefuses(t *testing.T) {
 		t.Fatalf("after continuing = %q", after)
 	}
 }
+
+// The claim says how far its first upload has got, and how far it got when
+// it stops, without the cause.
+func TestClaimShowsHowFarTheUploadHasGot(t *testing.T) {
+	t.Parallel()
+	flat := func(model Model) string { return strings.Join(strings.Fields(view(model)), " ") }
+
+	// Before the upload reports, there is nothing to count.
+	model, _, _ := claimable(t, &fakeAccount{syncErr: errHeld}, nil)
+	if got := flat(press(model, "c", "enter")); !strings.Contains(got, "Uploading your usage") || strings.Contains(got, "UPLOADED") {
+		t.Fatalf("an upload that has not reported = %q", got)
+	}
+
+	// One request is over quickly: the count, and no talk of minutes.
+	model, _, _ = claimable(t, &fakeAccount{syncErr: errHeld, progress: []UploadProgress{{Pending: 37, Batches: 1}}}, nil)
+	if got := flat(press(model, "c", "enter")); !strings.Contains(got, "UPLOADED 0 of 37 buckets") || strings.Contains(got, "minutes") {
+		t.Fatalf("a short upload = %q", got)
+	}
+
+	model, _, _ = claimable(t, &fakeAccount{syncErr: errHeld, progress: longUpload}, nil)
+	got := flat(press(model, "c", "enter"))
+	for _, want := range []string{"UPLOADED 300 of 1,240 buckets", "several minutes", "what is uploaded is kept"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a long upload = %q, want %q", got, want)
+		}
+	}
+
+	device := &fakeAccount{syncErr: errors.New("PUT https://api.example.test/v2/sync: synthetic outage"), progress: longUpload}
+	model, _, _ = claimable(t, device, nil)
+	stopped := press(model, "c", "enter")
+	got = flat(stopped)
+	if !strings.Contains(got, "300 of 1,240 buckets uploaded before the upload stopped") || !strings.Contains(got, "a retry sends the rest") || strings.Contains(got, "api.example.test") {
+		t.Fatalf("a stopped upload = %q", got)
+	}
+	// The retry starts its own count: what the last one sent is not pending.
+	device.syncErr, device.progress = errHeld, []UploadProgress{{Uploaded: 100, Pending: 940, Batches: 10}}
+	if got := flat(press(stopped, "enter")); !strings.Contains(got, "UPLOADED 100 of 940 buckets") {
+		t.Fatalf("the retry = %q", got)
+	}
+}
