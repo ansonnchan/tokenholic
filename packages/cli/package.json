@@ -1,7 +1,19 @@
 {
   "name": "@tokenholic/cli",
   "version": "0.0.0-development",
-  "description": "Native tokenholic coding-agent usage tracker launcher",
+  "description": "Terminal leaderboard for your AI coding-agent token usage",
+  "keywords": [
+    "ai",
+    "claude-code",
+    "cli",
+    "codex",
+    "coding-agent",
+    "leaderboard",
+    "tokens",
+    "tui",
+    "usage"
+  ],
+  "homepage": "https://ansonnchan.github.io/tokenholic/",
   "license": "MIT",
   "repository": {
     "type": "git",
