@@ -310,7 +310,7 @@ func clientBatch(t *testing.T, usages []clientUsage) protocol.Batch {
 	return batch
 }
 
-func registerSyncDevice(t *testing.T, pool *pgxpool.Pool, githubID int64, prefix string) serverauth.Principal {
+func registerSyncDevice(t testing.TB, pool *pgxpool.Pool, githubID int64, prefix string) serverauth.Principal {
 	t.Helper()
 	authRepository, err := NewAuthRepository(pool)
 	if err != nil {

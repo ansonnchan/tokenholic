@@ -28,11 +28,36 @@ func NewUsageRepository(pool *pgxpool.Pool) (*UsageRepository, error) {
 	return &UsageRepository{pool: pool}, nil
 }
 
+// storedRevision is what the server already holds for one bucket key.
+type storedRevision struct {
+	revision uint64
+	hash     []byte
+}
+
 // ApplyUsageBuckets applies a batch atomically. Equal revisions are no-ops,
 // older revisions are stale, and only newer absolute values replace storage.
 // Conflict detection compares client evidence alone, so a catalog update on
 // the server can never turn a retry into a conflict.
+//
+// The database is a network hop away, so the batch waits on it a fixed
+// number of times however many buckets it holds: one read that locks every
+// stored row the batch names, then one pipelined write of the rows that
+// change. A wait per bucket made a full batch take seconds.
 func (r *UsageRepository) ApplyUsageBuckets(ctx context.Context, principal serverauth.Principal, buckets []serversync.Bucket) (acknowledgements []protocol.Acknowledgement, err error) {
+	ordered := append([]serversync.Bucket(nil), buckets...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Envelope.BucketKey < ordered[j].Envelope.BucketKey })
+	keys := make([]string, len(ordered))
+	hashes := make([][32]byte, len(ordered))
+	for index, bucket := range ordered {
+		keys[index] = bucket.Envelope.BucketKey
+		if index > 0 && keys[index] == keys[index-1] {
+			return nil, fmt.Errorf("%w: bucket %q is duplicated", serversync.ErrInvalidBatch, keys[index])
+		}
+		if _, hashes[index], err = protocol.CanonicalEnvelope(bucket.Envelope); err != nil {
+			return nil, err
+		}
+	}
+
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("begin usage synchronization: %w", err)
@@ -42,65 +67,36 @@ func (r *UsageRepository) ApplyUsageBuckets(ctx context.Context, principal serve
 			_ = tx.Rollback(context.WithoutCancel(ctx))
 		}
 	}()
-	var active int
-	if err = tx.QueryRow(ctx, `
-		SELECT 1
-		FROM devices d JOIN users u ON u.id = d.user_id
-		WHERE d.id = $1::uuid AND d.user_id = $2::uuid
-		  AND d.revoked_at IS NULL AND u.deleted_at IS NULL
-		FOR SHARE OF d, u
-	`, principal.DeviceID, principal.UserID).Scan(&active); errors.Is(err, pgx.ErrNoRows) {
-		return nil, serverauth.ErrUnauthorized
-	} else if err != nil {
-		return nil, fmt.Errorf("verify active usage device: %w", err)
+	stored, err := lockStoredRevisions(ctx, tx, principal, keys)
+	if err != nil {
+		return nil, err
 	}
-	ordered := append([]serversync.Bucket(nil), buckets...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Envelope.BucketKey < ordered[j].Envelope.BucketKey })
+
 	acknowledgements = make([]protocol.Acknowledgement, 0, len(ordered))
-	for _, bucket := range ordered {
+	writes := &pgx.Batch{}
+	for index, bucket := range ordered {
 		envelope := bucket.Envelope
-		_, payloadHash, hashErr := protocol.CanonicalEnvelope(envelope)
-		if hashErr != nil {
-			return nil, hashErr
-		}
-		var currentRevisionText string
-		var currentHash []byte
-		readErr := tx.QueryRow(ctx, `
-			SELECT revision::text, payload_hash
-			FROM usage_buckets
-			WHERE device_id = $1::uuid AND bucket_key = $2
-			FOR UPDATE
-		`, principal.DeviceID, envelope.BucketKey).Scan(&currentRevisionText, &currentHash)
 		status := protocol.AckApplied
+		current, exists := stored[envelope.BucketKey]
 		switch {
-		case errors.Is(readErr, pgx.ErrNoRows):
-			if err = upsertUsageBucket(ctx, tx, principal.DeviceID, bucket, payloadHash); err != nil {
-				return nil, err
-			}
-		case readErr != nil:
-			return nil, fmt.Errorf("read server usage revision: %w", readErr)
+		case !exists || envelope.Bucket.Revision > current.revision:
+			queueUsageBucket(writes, principal.DeviceID, bucket, hashes[index])
+		case envelope.Bucket.Revision < current.revision:
+			status = protocol.AckStale
+		case !bytes.Equal(current.hash, hashes[index][:]):
+			return nil, serversync.ErrRevisionConflict
 		default:
-			currentRevision, parseErr := strconv.ParseUint(currentRevisionText, 10, 64)
-			if parseErr != nil {
-				return nil, fmt.Errorf("decode server usage revision: %w", parseErr)
-			}
-			switch {
-			case envelope.Bucket.Revision < currentRevision:
-				status = protocol.AckStale
-			case envelope.Bucket.Revision == currentRevision:
-				if !bytes.Equal(currentHash, payloadHash[:]) {
-					return nil, serversync.ErrRevisionConflict
-				}
-				status = protocol.AckUnchanged
-			default:
-				if err = upsertUsageBucket(ctx, tx, principal.DeviceID, bucket, payloadHash); err != nil {
-					return nil, err
-				}
-			}
+			status = protocol.AckUnchanged
 		}
 		acknowledgements = append(acknowledgements, protocol.Acknowledgement{
 			BucketKey: envelope.BucketKey, Revision: envelope.Bucket.Revision, Status: status,
 		})
+	}
+	if writes.Len() > 0 {
+		// Queued in key order, so two batches never take row locks crosswise.
+		if err = tx.SendBatch(ctx, writes).Close(); err != nil {
+			return nil, fmt.Errorf("write server usage buckets: %w", err)
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit usage synchronization: %w", err)
@@ -108,12 +104,74 @@ func (r *UsageRepository) ApplyUsageBuckets(ctx context.Context, principal serve
 	return acknowledgements, nil
 }
 
-// upsertUsageBucket writes one absolute bucket. The caller holds the row lock
-// and has already decided that this revision replaces any stored one.
-func upsertUsageBucket(ctx context.Context, tx pgx.Tx, deviceID string, bucket serversync.Bucket, payloadHash [32]byte) error {
+// lockStoredRevisions confirms the device may still upload and returns what
+// is stored for each of keys, holding a row lock on every one it finds. Both
+// questions go to the database together and come back in one wait.
+func lockStoredRevisions(ctx context.Context, tx pgx.Tx, principal serverauth.Principal, keys []string) (map[string]storedRevision, error) {
+	questions := &pgx.Batch{}
+	questions.Queue(`
+		SELECT 1
+		FROM devices d JOIN users u ON u.id = d.user_id
+		WHERE d.id = $1::uuid AND d.user_id = $2::uuid
+		  AND d.revoked_at IS NULL AND u.deleted_at IS NULL
+		FOR SHARE OF d, u
+	`, principal.DeviceID, principal.UserID)
+	// Locked in key order, like the writes that follow.
+	questions.Queue(`
+		SELECT bucket_key, revision::text, payload_hash
+		FROM usage_buckets
+		WHERE device_id = $1::uuid AND bucket_key = ANY($2::text[])
+		ORDER BY bucket_key COLLATE "C"
+		FOR UPDATE
+	`, principal.DeviceID, keys)
+	answers := tx.SendBatch(ctx, questions)
+	var active int
+	if err := answers.QueryRow().Scan(&active); errors.Is(err, pgx.ErrNoRows) {
+		_ = answers.Close()
+		return nil, serverauth.ErrUnauthorized
+	} else if err != nil {
+		_ = answers.Close()
+		return nil, fmt.Errorf("verify active usage device: %w", err)
+	}
+	rows, err := answers.Query()
+	if err != nil {
+		_ = answers.Close()
+		return nil, fmt.Errorf("read server usage revisions: %w", err)
+	}
+	stored := make(map[string]storedRevision, len(keys))
+	for rows.Next() {
+		var key, revisionText string
+		var current storedRevision
+		if err := rows.Scan(&key, &revisionText, &current.hash); err != nil {
+			rows.Close()
+			_ = answers.Close()
+			return nil, fmt.Errorf("read server usage revision: %w", err)
+		}
+		if current.revision, err = strconv.ParseUint(revisionText, 10, 64); err != nil {
+			rows.Close()
+			_ = answers.Close()
+			return nil, fmt.Errorf("decode server usage revision: %w", err)
+		}
+		stored[key] = current
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		_ = answers.Close()
+		return nil, fmt.Errorf("read server usage revisions: %w", err)
+	}
+	if err := answers.Close(); err != nil {
+		return nil, fmt.Errorf("read server usage revisions: %w", err)
+	}
+	return stored, nil
+}
+
+// queueUsageBucket adds one absolute bucket to the batch's write. The caller
+// holds the row lock on any stored revision and has already decided that
+// this one replaces it.
+func queueUsageBucket(writes *pgx.Batch, deviceID string, bucket serversync.Bucket, payloadHash [32]byte) {
 	envelope, derived := bucket.Envelope, bucket.Derived
 	tokens := envelope.Bucket.Tokens
-	_, err := tx.Exec(ctx, `
+	writes.Queue(`
 		INSERT INTO usage_buckets(
 			device_id, bucket_key, bucket_start, interval_seconds, source, surface,
 			observed_model_id, model_evidence, measurement, normalization_version,
@@ -172,10 +230,6 @@ func upsertUsageBucket(ctx context.Context, tx pgx.Tx, deviceID string, bucket s
 		evidenceValue(envelope.Bucket.ServiceTier), evidenceValue(envelope.Bucket.PromptBand),
 		intervalSeconds(envelope.Bucket.Granularity),
 	)
-	if err != nil {
-		return fmt.Errorf("write server usage bucket: %w", err)
-	}
-	return nil
 }
 
 // Bucket intervals, in seconds, as stored in usage_buckets.interval_seconds.

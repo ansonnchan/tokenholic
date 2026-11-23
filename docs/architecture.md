@@ -325,6 +325,15 @@ acknowledged as stale, and newer absolute revisions replace earlier values.
 The payload hash covers client evidence only. Every server-derived column sits
 outside it, so a catalog update cannot turn an identical retry into a
 conflict. Other equal-revision differences reject the transaction.
+
+A batch waits on the database a fixed number of times, whatever its size.
+The API and its database are a network hop apart, so that count is what a
+batch costs. One read confirms the device and locks every stored row the
+batch names, the revisions are compared in the API, and the rows that change
+are written in one pipelined exchange, all in key order inside one
+transaction. Reading and writing one bucket at a time was 203 waits for 100
+buckets and about twelve seconds on the hosted API; it is now four. A test
+in `server/postgres` fails if the count grows with the batch again.
 Foreign keys make user ownership explicit and cascade user deletion through
 devices, credential hashes, and usage buckets. The schema has no columns for
 raw source records, local identities, paths, prompts, responses, code, project

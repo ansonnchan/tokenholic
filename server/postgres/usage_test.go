@@ -134,7 +134,7 @@ func localProtocolEnvelope(t *testing.T, model string) protocol.Envelope {
 }
 
 // bundledEngine is the server's authoritative pricer for the embedded catalog.
-func bundledEngine(t *testing.T) *serverpricing.Engine {
+func bundledEngine(t testing.TB) *serverpricing.Engine {
 	t.Helper()
 	deriver, err := modelcatalog.BundledDeriver()
 	if err != nil {
@@ -148,7 +148,7 @@ func bundledEngine(t *testing.T) *serverpricing.Engine {
 }
 
 // derived pairs client evidence with what the given engine derives from it.
-func derived(t *testing.T, engine *serverpricing.Engine, envelope protocol.Envelope) serversync.Bucket {
+func derived(t testing.TB, engine *serverpricing.Engine, envelope protocol.Envelope) serversync.Bucket {
 	t.Helper()
 	values, err := engine.Derive(serverpricing.Usage{
 		ObservedModelID: envelope.Bucket.ObservedModelID, ModelEvidence: envelope.Bucket.ModelEvidence, Tokens: envelope.Bucket.Tokens,
