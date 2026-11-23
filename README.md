@@ -11,6 +11,7 @@ records your agents already keep on your machine, totals them in your
 terminal, and ranks you against the friends you invite.
 
 [![npm](https://img.shields.io/npm/v/@tokenholic/cli?color=d9805f&label=%40tokenholic%2Fcli)](https://www.npmjs.com/package/@tokenholic/cli)
+[![npm downloads](https://img.shields.io/npm/dm/@tokenholic/cli?color=d9805f&label=downloads)](https://www.npmjs.com/package/@tokenholic/cli)
 [![ci](https://img.shields.io/github/actions/workflow/status/ansonnchan/tokenholic/ci.yml?branch=main&color=d9805f&label=ci)](https://github.com/ansonnchan/tokenholic/actions/workflows/ci.yml)
 [![issues welcome](https://img.shields.io/badge/issues-welcome-d9805f)](CONTRIBUTING.md)
 [![license: MIT](https://img.shields.io/badge/license-MIT-d9805f)](LICENSE)
