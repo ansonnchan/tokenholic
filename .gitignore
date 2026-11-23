@@ -12,3 +12,6 @@ node_modules/
 /packages/win32-*/README.md
 /packages/*/LICENSE
 coverage.out
+
+# macOS Finder metadata
+.DS_Store
