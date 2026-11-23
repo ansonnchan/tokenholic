@@ -150,6 +150,10 @@ func defaultDependencies() dependencies {
 }
 
 func run(args []string, stdout, stderr io.Writer, deps dependencies) int {
+	if asksForHelp(args) {
+		printUsage(stdout)
+		return 0
+	}
 	if len(args) > 0 && args[0] == "sync" {
 		return runSyncCommand(args[1:], stdout, stderr, deps)
 	}
@@ -186,6 +190,8 @@ func run(args []string, stdout, stderr io.Writer, deps dependencies) int {
 	}
 	flags := flag.NewFlagSet("tokenholic", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	// The flag package's own usage would list one flag and no command.
+	flags.Usage = func() { fmt.Fprintln(stderr, helpPointer) }
 	showVersion := flags.Bool("version", false, "print the version")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -195,24 +201,26 @@ func run(args []string, stdout, stderr io.Writer, deps dependencies) int {
 		fmt.Fprintln(stdout, version)
 		return 0
 	}
-	if flags.NArg() == 1 && flags.Arg(0) == "doctor" {
-		return runDoctor(stdout, stderr, deps)
+	if flags.NArg() == 0 {
+		return runTUI(stdout, stderr, deps)
 	}
-	if flags.NArg() == 1 && flags.Arg(0) == "login" {
-		return runLogin(stdout, stderr, deps)
+	plain := map[string]func(io.Writer, io.Writer, dependencies) int{
+		"doctor": runDoctor,
+		"login":  runLogin,
+		"claim":  runClaim,
+		"logout": runLogout,
 	}
-	if flags.NArg() == 1 && flags.Arg(0) == "claim" {
-		return runClaim(stdout, stderr, deps)
-	}
-	if flags.NArg() == 1 && flags.Arg(0) == "logout" {
-		return runLogout(stdout, stderr, deps)
-	}
-	if flags.NArg() != 0 {
+	command, known := plain[flags.Arg(0)]
+	if !known {
 		fmt.Fprintf(stderr, "unknown command %q\n", flags.Arg(0))
+		fmt.Fprintln(stderr, helpPointer)
 		return 2
 	}
-
-	return runTUI(stdout, stderr, deps)
+	if flags.NArg() != 1 {
+		fmt.Fprintf(stderr, "%s accepts no arguments\n", flags.Arg(0))
+		return 2
+	}
+	return command(stdout, stderr, deps)
 }
 
 func runSyncCommand(args []string, stdout, stderr io.Writer, deps dependencies) int {
@@ -255,6 +263,11 @@ func runSynchronization(dryRun bool, stdout, stderr io.Writer, deps dependencies
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	if err := deps.sync(ctx, home, codexHome, apiURL, dryRun, stdout); err != nil {
+		if errors.Is(err, errNothingToShow) {
+			// Not a failure, and not on stdout: that stream is the payload.
+			fmt.Fprintln(stderr, "Nothing is waiting to be uploaded, so there is no payload to show.")
+			return 0
+		}
 		if errors.Is(err, autosync.ErrAlreadyRunning) {
 			fmt.Fprintln(stderr, "synchronization is already running")
 			return 1

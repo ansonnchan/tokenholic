@@ -14,13 +14,19 @@ tokenholic sync --dry-run  # the same as show-data
 tokenholic share           # draft a post of your own totals
 tokenholic share --period week
 tokenholic --version
+tokenholic --help          # every command on one screen
 ```
 
 `doctor` reports source types, health, candidate-file availability,
 capabilities, and local database health. It does not print local source or
 database paths, parse session contents, or show stored records.
 
-`show-data` works without a login, an account, or an API address.
+`show-data` works without a login, an account, or an API address. Its output
+is the payload and nothing else; when no usage is waiting to be uploaded it
+prints nothing there and says so on the error stream.
+
+`--help`, `-h`, and `help` list the commands. A mistyped command or flag is
+named and followed by a pointer to that list.
 
 `tokenholic demo` opens the same interface on invented usage and boards, with
 `DEMO: invented data` in its header. It reads no agent records, opens no

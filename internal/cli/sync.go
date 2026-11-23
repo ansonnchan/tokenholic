@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -18,6 +19,10 @@ const credentialRefreshWindow = 7 * 24 * time.Hour
 // one bounded, and cutting the run off midway only made the user run it
 // again.
 const scanTimeout = 5 * time.Minute
+
+// errNothingToShow is a dry run that found no pending bucket. It printed
+// nothing, which on its own reads as a command that did not work.
+var errNothingToShow = errors.New("no pending usage to show")
 
 // unfinishedUpload is an upload that stopped after the server had accepted
 // part of it. What was accepted is committed locally and is not sent again.
@@ -76,7 +81,10 @@ func synchronizeLocal(ctx context.Context, home, codexHome, apiURL string, dryRu
 		return err
 	}
 	if dryRun {
-		_, err := usageSync.DryRun(ctx, database, output)
+		summary, err := usageSync.DryRun(ctx, database, output)
+		if err == nil && summary.Batches == 0 {
+			return errNothingToShow
+		}
 		return err
 	}
 	summary, err := uploadPending(ctx, database, apiURL, reportUpload(output))
