@@ -170,7 +170,13 @@ kbd {
 
 .site-nav {
   display: flex;
+  align-items: center;
   gap: 24px;
+}
+/* An icon-only link keeps its accessible name in aria-label. */
+.site-nav .icon-link {
+  display: inline-flex;
+  line-height: 0;
 }
 .site-nav a {
   color: var(--muted);
