@@ -79,8 +79,6 @@ is token counts by category, the model ID, which agent, and a UTC time bucket.
 
 - **Slow uploads on the free API.** A batch of 100 buckets takes about twelve
   seconds. A long history finishes in one run, but still takes minutes.
-- **No upload count in the claim screen.** The terminal `sync` command prints
-  progress; the TUI's claim step shows only a spinner.
 - **Codex compaction usage** is not counted yet; it waits on real records to
   build a fixture from.
 - **Group timezone on Windows** falls back to UTC.

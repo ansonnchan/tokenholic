@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/ansonnchan/tokenholic/internal/account"
 	"github.com/ansonnchan/tokenholic/internal/normalize"
@@ -27,7 +28,19 @@ type Account interface {
 	// returns their login.
 	Complete(context.Context, account.DeviceStart) (string, error)
 	// Sync uploads pending usage buckets and returns how many were accepted.
-	Sync(context.Context) (int64, error)
+	// It calls report, when given one, as the upload advances.
+	Sync(ctx context.Context, report func(UploadProgress)) (int64, error)
+}
+
+// UploadProgress is how far an upload has got.
+type UploadProgress struct {
+	// Uploaded is how many buckets the server has accepted so far.
+	Uploaded int64
+	// Pending is how many buckets this upload set out to send.
+	Pending int
+	// Batches is how many requests that takes. More than one is a long
+	// history, which can take minutes.
+	Batches int
 }
 
 // Autosync turns on hourly background sync. A claim offers it once the first
@@ -83,6 +96,8 @@ type claimState struct {
 	note      string
 	// uploaded is what the first upload sent, kept to say so on the way out.
 	uploaded int64
+	// meter is where the running upload reports how far it has got.
+	meter *uploadMeter
 	// id discards the result of a step the user has cancelled.
 	id     uint64
 	cancel context.CancelFunc
@@ -111,6 +126,31 @@ type claimSynced struct {
 	err      error
 	// offer is whether hourly sync can be offered now.
 	offer bool
+}
+
+// uploadMeter holds the latest position of a running upload. The upload
+// runs off the update loop and can report many times before it returns one
+// message, so this is the single value the two share; the spinner's redraws
+// show it.
+type uploadMeter struct {
+	mu       sync.Mutex
+	progress UploadProgress
+}
+
+func (u *uploadMeter) set(progress UploadProgress) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.progress = progress
+}
+
+// get is the latest report, or zero before the first one.
+func (u *uploadMeter) get() UploadProgress {
+	if u == nil {
+		return UploadProgress{}
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.progress
 }
 
 type claimScheduled struct {
@@ -199,10 +239,11 @@ func (m Model) beginClaim() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) syncClaim() (tea.Model, tea.Cmd) {
-	m.claim.stage, m.claim.failure = claimSyncing, ""
+	meter := &uploadMeter{}
+	m.claim.stage, m.claim.failure, m.claim.meter = claimSyncing, "", meter
 	id := m.claim.id
 	return m, m.withTick(func() tea.Msg {
-		uploaded, err := m.account.Sync(m.ctx)
+		uploaded, err := m.account.Sync(m.ctx, meter.set)
 		// Asked here, off the update loop: it queries the scheduler.
 		offer := err == nil && m.autosync != nil && m.autosync.Available(m.ctx)
 		return claimSynced{id: id, uploaded: uploaded, err: err, offer: offer}
@@ -282,6 +323,11 @@ func (m Model) applyClaim(message tea.Msg) (tea.Model, tea.Cmd) {
 		case errors.Is(message.err, ErrSyncBusy):
 			m.claim.stage, m.claim.failure = claimSyncFailed, "Signed in, but another sync is running on this machine"
 			return m, nil
+		case message.err != nil && m.claim.meter.get().Uploaded > 0:
+			// Part of it arrived, and is not sent again.
+			m.claim.stage = claimSyncFailed
+			m.claim.failure = "Signed in, and " + progressText(m.claim.meter.get()) + " uploaded before the upload stopped. Those are kept, and a retry sends the rest"
+			return m, nil
 		case message.err != nil:
 			m.claim.stage, m.claim.failure = claimSyncFailed, "Signed in, but the first upload did not finish. Your usage is kept"
 			return m, nil
@@ -312,6 +358,11 @@ func uploadedText(buckets int64) string {
 		return "1 bucket uploaded"
 	}
 	return numfmt.Exact(uint64(max(buckets, 0))) + " buckets uploaded"
+}
+
+// progressText is an upload's position, such as "300 of 1,240 buckets".
+func progressText(progress UploadProgress) string {
+	return numfmt.Exact(uint64(max(progress.Uploaded, 0))) + " of " + numfmt.Exact(uint64(max(progress.Pending, 0))) + " buckets"
 }
 
 func memberLogin(login string) string {
@@ -376,6 +427,15 @@ func (m Model) claimView(width int) []string {
 	case claimSyncing:
 		say("Signed in as " + memberLogin(m.login) + ".")
 		lines = append(lines, t.Muted.Render(m.spin()+" Uploading your usage"))
+		progress := m.claim.meter.get()
+		if progress.Pending > 0 {
+			lines = append(lines, "")
+			field("uploaded", progressText(progress))
+		}
+		if progress.Batches > 1 {
+			field("takes", "several minutes for a long history")
+			field("safe", "to close: what is uploaded is kept, and the next sync sends the rest")
+		}
 	case claimFailed:
 		lines = append(lines, widget.Notice(t, widget.Failure, m.claim.failure+".", inner)...)
 		keys(widget.Action(t, "enter", "try again"), "esc close")

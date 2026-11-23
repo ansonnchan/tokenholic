@@ -292,7 +292,10 @@ GitHub device flow inside the TUI:
 2. The verification address and the code are shown. `o` opens the page, `y`
    copies the code, `esc` cancels. A code approved after a cancel signs
    nobody in.
-3. Once approved, pending usage uploads.
+3. Once approved, pending usage uploads. The step counts the buckets
+   accepted so far against the total. A history long enough to need several
+   requests also says that it can take minutes and that closing is safe:
+   what is uploaded is kept and the next sync sends the rest.
 4. A `KEEP IT CURRENT` panel asks whether to turn on hourly sync. It states
    what is installed, what is uploaded, and how to undo it. `enter` installs
    the schedule; `esc` skips it. The step is left out where hourly sync is
@@ -304,7 +307,9 @@ GitHub device flow inside the TUI:
 Nothing uploads before step 3, and nothing is installed without the yes in
 step 4. A failed start or an expired code offers
 `enter` to try again. If the upload fails after sign-in, `enter` retries only
-the upload and `esc` continues signed in; local usage is kept either way.
+the upload and `esc` continues signed in; local usage is kept either way. An
+upload that stops partway says how many buckets arrived, and the retry sends
+only the rest.
 While the claim is open it takes every key, so none quits or navigates by
 accident. HOME keeps a `[ c  CLAIM YOUR SPOT ]` chip for a signed-out
 device, and the BOARDS sign-in gate offers the same.

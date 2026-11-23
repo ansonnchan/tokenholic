@@ -71,6 +71,12 @@ var screens = []screen{
 	{name: "claim_confirm", dashboard: sampleDashboard, account: signedOut, firstLaunch: true, keys: []string{"c"}},
 	{name: "claim_code", dashboard: sampleDashboard, account: func() *fakeAccount { return &fakeAccount{completeErr: errHeld} }, keys: []string{"c", "enter", "y"}},
 	{name: "claim_uploading", dashboard: sampleDashboard, account: func() *fakeAccount { return &fakeAccount{syncErr: errHeld} }, keys: []string{"c", "enter"}},
+	{name: "claim_uploading_progress", dashboard: sampleDashboard, account: func() *fakeAccount {
+		return &fakeAccount{syncErr: errHeld, progress: longUpload}
+	}, keys: []string{"c", "enter"}},
+	{name: "claim_upload_stopped", dashboard: sampleDashboard, account: func() *fakeAccount {
+		return &fakeAccount{syncErr: errors.New("synthetic: connection lost"), progress: longUpload}
+	}, keys: []string{"c", "enter"}},
 	{name: "claim_failed", dashboard: sampleDashboard, account: func() *fakeAccount {
 		return &fakeAccount{completeErr: errors.New("synthetic: expired")}
 	}, keys: []string{"c", "enter"}},

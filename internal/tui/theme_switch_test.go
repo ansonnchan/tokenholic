@@ -142,6 +142,8 @@ func TestWritePaintedPreviews(t *testing.T) {
 		height int
 		// claimed is a device whose claim offers hourly sync.
 		claimed bool
+		// account is a signed-out device whose claim goes as it says.
+		account func() *fakeAccount
 	}{
 		{name: "home", dashboard: sampleDashboard, height: 26},
 		{name: "board", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"2"}, height: 24},
@@ -151,6 +153,12 @@ func TestWritePaintedPreviews(t *testing.T) {
 		{name: "board_day_level", dashboard: agentsDashboard, remote: dayLevelRemote, keys: []string{"2"}, height: 36},
 		{name: "claim_autosync", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"c", "enter"}, height: 22, claimed: true},
 		{name: "claimed_autosync", dashboard: sampleDashboard, remote: sampleRemote, keys: []string{"c", "enter", "enter"}, height: 30, claimed: true},
+		{name: "claim_uploading_progress", dashboard: sampleDashboard, keys: []string{"c", "enter"}, height: 22, account: func() *fakeAccount {
+			return &fakeAccount{syncErr: errHeld, progress: longUpload}
+		}},
+		{name: "claim_upload_stopped", dashboard: sampleDashboard, keys: []string{"c", "enter"}, height: 22, account: func() *fakeAccount {
+			return &fakeAccount{syncErr: errors.New("synthetic: connection lost"), progress: longUpload}
+		}},
 	}
 	for _, mode := range []theme.Mode{theme.Dark, theme.Light} {
 		for _, width := range []int{120, 88, 48} {
@@ -165,6 +173,9 @@ func TestWritePaintedPreviews(t *testing.T) {
 				}
 				if preview.claimed {
 					config.Account, config.Autosync = &fakeAccount{uploaded: 4014}, &fakeAutosync{}
+				}
+				if preview.account != nil {
+					config.Account = preview.account()
 				}
 				model := start(t, &fakeApplication{dashboard: preview.dashboard()}, config, width, preview.height)
 				path := filepath.Join(directory, preview.name+"_"+mode.String()+"_"+"w"+strconv.Itoa(width)+".ansi")
