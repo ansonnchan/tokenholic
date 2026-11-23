@@ -44,7 +44,11 @@ func TestRun(t *testing.T) {
 		wantStderr string
 	}{
 		{name: "version", args: []string{"--version"}, wantCode: 0, wantStdout: "dev\n"},
-		{name: "unknown", args: []string{"collect"}, wantCode: 2, wantStderr: "unknown command"},
+		{name: "unknown", args: []string{"collect"}, wantCode: 2, wantStderr: "unknown command \"collect\"\n" + helpPointer},
+		{name: "unknown flag", args: []string{"--verbose"}, wantCode: 2, wantStderr: helpPointer},
+		{name: "help flag", args: []string{"--help"}, wantCode: 0, wantStdout: usageText},
+		{name: "short help flag", args: []string{"-h"}, wantCode: 0, wantStdout: usageText},
+		{name: "help command", args: []string{"help"}, wantCode: 0, wantStdout: usageText},
 	}
 
 	for _, tt := range tests {
@@ -64,6 +68,57 @@ func TestRun(t *testing.T) {
 				t.Errorf("stderr = %q, want substring %q", stderr.String(), tt.wantStderr)
 			}
 		})
+	}
+}
+
+// The usage text is the only list of commands the program prints, so a command
+// the dispatcher accepts must be in it.
+func TestHelpListsEveryCommand(t *testing.T) {
+	t.Parallel()
+	for _, command := range []string{
+		"demo", "doctor", "show-data", "share", "ccusage",
+		"claim", "login", "logout", "sync", "autosync", "account",
+		"group", "global", "profile",
+	} {
+		var stdout, stderr bytes.Buffer
+		// Every command refuses this argument without doing anything, and
+		// only an unknown one says so in these words.
+		run([]string{command, "--not-an-argument"}, &stdout, &stderr, dependencies{})
+		if strings.Contains(stderr.String(), "unknown command") {
+			t.Errorf("%q is listed here but is not a command", command)
+		}
+		if !strings.Contains(usageText, "\n  "+command) {
+			t.Errorf("the usage text does not list %q", command)
+		}
+	}
+	for _, line := range strings.Split(usageText, "\n") {
+		if len(line) > 79 {
+			t.Errorf("usage line is wider than a narrow terminal: %q", line)
+		}
+		for _, r := range line {
+			if r > 126 {
+				t.Errorf("usage line is not plain ASCII: %q", line)
+			}
+		}
+	}
+}
+
+// A dry run with nothing pending says so instead of printing nothing.
+func TestShowDataSaysWhenThereIsNothingToShow(t *testing.T) {
+	t.Parallel()
+	deps := dependencies{
+		homeDir: func() (string, error) { return syntheticHome, nil },
+		getenv:  func(string) string { return "" },
+		sync: func(context.Context, string, string, string, bool, io.Writer) error {
+			return errNothingToShow
+		},
+	}
+	for _, args := range [][]string{{"show-data"}, {"sync", "--dry-run"}} {
+		var stdout, stderr bytes.Buffer
+		code := run(args, &stdout, &stderr, deps)
+		if code != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "Nothing is waiting to be uploaded") {
+			t.Errorf("%v = %d, stdout %q, stderr %q", args, code, stdout.String(), stderr.String())
+		}
 	}
 }
 
