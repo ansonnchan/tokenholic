@@ -77,8 +77,6 @@ is token counts by category, the model ID, which agent, and a UTC time bucket.
 
 ### Known gaps
 
-- **Slow uploads on the free API.** A batch of 100 buckets takes about twelve
-  seconds. A long history finishes in one run, but still takes minutes.
 - **Codex compaction usage** is not counted yet; it waits on real records to
   build a fixture from.
 - **Group timezone on Windows** falls back to UTC.
@@ -90,8 +88,6 @@ is token counts by category, the model ID, which agent, and a UTC time bucket.
 - **Native readers for the day-level agents**, so they report by the minute
   like Claude and Codex instead of one total per UTC day.
 - **More agents**, as ccusage or a native reader makes them available.
-- **Batch speed on the server**, measured first, then fixed where the time
-  actually goes.
 - **Other install channels**, such as Homebrew, alongside npm.
 
 ## Documentation

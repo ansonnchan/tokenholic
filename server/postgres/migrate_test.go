@@ -164,7 +164,7 @@ func insertSyntheticBucket(ctx context.Context, pool *pgxpool.Pool, deviceID, ke
 	return err
 }
 
-func integrationPool(t *testing.T) *pgxpool.Pool {
+func integrationPool(t testing.TB) *pgxpool.Pool {
 	t.Helper()
 	databaseURL := os.Getenv(testDatabaseEnv)
 	if databaseURL == "" {

@@ -210,7 +210,10 @@ on two Macs. Steps 5 to 7 were left for later.
   stops partway says how many buckets were uploaded and that `tokenholic
   sync` continues from there. The fix is covered by tests against a fake
   server; it has not been watched uploading a long history to the live API.
-  The server is as slow per batch as it was.
+  The server was later changed to wait on its database 4 times for a batch
+  instead of 203. In a benchmark that makes each wait take 60 ms, a batch of
+  100 new buckets went from 12.4 s to 0.25 s. The time per batch on the live
+  API after that change has not been measured.
 - **Tagged and published.** `v0.2.0` was tagged on November 22, 2026, at the
   owner's instruction and before step 5: the Windows manual run has not been
   done. The release workflow ran for the first time and passed every job:
