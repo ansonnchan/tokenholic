@@ -8,4 +8,5 @@ node_modules/
 /packages/win32-*/bin/
 /packages/win32-*/ccusage.lock.json
 /packages/*/LICENSE
+/packages/*/README.md
 coverage.out
