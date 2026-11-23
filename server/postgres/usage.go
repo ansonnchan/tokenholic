@@ -74,34 +74,134 @@ func (r *UsageRepository) ApplyUsageBuckets(ctx context.Context, principal serve
 
 	acknowledgements = make([]protocol.Acknowledgement, 0, len(ordered))
 	writes := &pgx.Batch{}
+	queued := make([]queuedWrite, 0, len(ordered))
 	for index, bucket := range ordered {
 		envelope := bucket.Envelope
-		status := protocol.AckApplied
 		current, exists := stored[envelope.BucketKey]
-		switch {
-		case !exists || envelope.Bucket.Revision > current.revision:
+		status, decideErr := decideRevision(envelope.Bucket.Revision, hashes[index], current, exists)
+		if decideErr != nil {
+			return nil, decideErr
+		}
+		if status == protocol.AckApplied {
 			queueUsageBucket(writes, principal.DeviceID, bucket, hashes[index])
-		case envelope.Bucket.Revision < current.revision:
-			status = protocol.AckStale
-		case !bytes.Equal(current.hash, hashes[index][:]):
-			return nil, serversync.ErrRevisionConflict
-		default:
-			status = protocol.AckUnchanged
+			queued = append(queued, queuedWrite{acknowledgement: len(acknowledgements), hash: hashes[index]})
 		}
 		acknowledgements = append(acknowledgements, protocol.Acknowledgement{
 			BucketKey: envelope.BucketKey, Revision: envelope.Bucket.Revision, Status: status,
 		})
 	}
-	if writes.Len() > 0 {
+	if len(queued) > 0 {
 		// Queued in key order, so two batches never take row locks crosswise.
-		if err = tx.SendBatch(ctx, writes).Close(); err != nil {
-			return nil, fmt.Errorf("write server usage buckets: %w", err)
+		lost, writeErr := sendUsageWrites(ctx, tx, writes, queued)
+		if writeErr != nil {
+			return nil, writeErr
+		}
+		if len(lost) > 0 {
+			if err = settleLostWrites(ctx, tx, principal.DeviceID, lost, acknowledgements); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit usage synchronization: %w", err)
 	}
 	return acknowledgements, nil
+}
+
+// queuedWrite ties one queued upsert to its acknowledgement.
+type queuedWrite struct {
+	acknowledgement int
+	hash            [32]byte
+}
+
+// decideRevision compares an incoming revision with what is stored for its
+// key. Only a missing key or a newer revision is written.
+func decideRevision(revision uint64, hash [32]byte, current storedRevision, exists bool) (protocol.AckStatus, error) {
+	switch {
+	case !exists || revision > current.revision:
+		return protocol.AckApplied, nil
+	case revision < current.revision:
+		return protocol.AckStale, nil
+	case !bytes.Equal(current.hash, hash[:]):
+		return "", serversync.ErrRevisionConflict
+	default:
+		return protocol.AckUnchanged, nil
+	}
+}
+
+// sendUsageWrites sends the queued upserts in one exchange and returns those
+// that changed no row. The upsert refuses to lower a stored revision, so a
+// write changes nothing only when another upload inserted the same new key
+// first: FOR UPDATE cannot lock a row that did not exist yet.
+func sendUsageWrites(ctx context.Context, tx pgx.Tx, writes *pgx.Batch, queued []queuedWrite) ([]queuedWrite, error) {
+	results := tx.SendBatch(ctx, writes)
+	var lost []queuedWrite
+	for _, write := range queued {
+		tag, err := results.Exec()
+		if err != nil {
+			_ = results.Close()
+			return nil, fmt.Errorf("write server usage buckets: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			lost = append(lost, write)
+		}
+	}
+	if err := results.Close(); err != nil {
+		return nil, fmt.Errorf("write server usage buckets: %w", err)
+	}
+	return lost, nil
+}
+
+// settleLostWrites decides the writes another upload got to first, against
+// the row it stored. The refused upsert already locked that row. This costs
+// one extra round trip, and only when uploads from one device race.
+func settleLostWrites(ctx context.Context, tx pgx.Tx, deviceID string, lost []queuedWrite, acknowledgements []protocol.Acknowledgement) error {
+	keys := make([]string, len(lost))
+	for index, write := range lost {
+		keys[index] = acknowledgements[write.acknowledgement].BucketKey
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT bucket_key, revision::text, payload_hash
+		FROM usage_buckets
+		WHERE device_id = $1::uuid AND bucket_key = ANY($2::text[])
+	`, deviceID, keys)
+	if err != nil {
+		return fmt.Errorf("read concurrently stored usage revisions: %w", err)
+	}
+	stored := make(map[string]storedRevision, len(keys))
+	for rows.Next() {
+		var key, revisionText string
+		var current storedRevision
+		if err := rows.Scan(&key, &revisionText, &current.hash); err != nil {
+			rows.Close()
+			return fmt.Errorf("read concurrently stored usage revision: %w", err)
+		}
+		if current.revision, err = strconv.ParseUint(revisionText, 10, 64); err != nil {
+			rows.Close()
+			return fmt.Errorf("decode concurrently stored usage revision: %w", err)
+		}
+		stored[key] = current
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read concurrently stored usage revisions: %w", err)
+	}
+	for _, write := range lost {
+		acknowledgement := &acknowledgements[write.acknowledgement]
+		current, exists := stored[acknowledgement.BucketKey]
+		if !exists {
+			return fmt.Errorf("usage bucket %q was neither written nor stored", acknowledgement.BucketKey)
+		}
+		status, err := decideRevision(acknowledgement.Revision, write.hash, current, true)
+		if err != nil {
+			return err
+		}
+		if status == protocol.AckApplied {
+			return fmt.Errorf("usage bucket %q revision %d was refused below a lower stored revision", acknowledgement.BucketKey, acknowledgement.Revision)
+		}
+		acknowledgement.Status = status
+	}
+	return nil
 }
 
 // lockStoredRevisions confirms the device may still upload and returns what
@@ -167,7 +267,9 @@ func lockStoredRevisions(ctx context.Context, tx pgx.Tx, principal serverauth.Pr
 
 // queueUsageBucket adds one absolute bucket to the batch's write. The caller
 // holds the row lock on any stored revision and has already decided that
-// this one replaces it.
+// this one replaces it. The conflict guard still refuses to lower a stored
+// revision, which matters only when a concurrent upload inserted the key
+// after the caller found it missing.
 func queueUsageBucket(writes *pgx.Batch, deviceID string, bucket serversync.Bucket, payloadHash [32]byte) {
 	envelope, derived := bucket.Envelope, bucket.Derived
 	tokens := envelope.Bucket.Tokens
@@ -213,6 +315,7 @@ func queueUsageBucket(writes *pgx.Batch, deviceID string, bucket serversync.Buck
 			api_estimate_microusd=excluded.api_estimate_microusd, api_estimate_state=excluded.api_estimate_state,
 			pricing_revision=excluded.pricing_revision,
 			service_tier=excluded.service_tier, prompt_band=excluded.prompt_band
+		WHERE usage_buckets.revision < excluded.revision
 	`,
 		deviceID, envelope.BucketKey, envelope.Bucket.Start, envelope.Bucket.Source, envelope.Bucket.Surface,
 		envelope.Bucket.ObservedModelID, envelope.Bucket.ModelEvidence, envelope.Bucket.Measurement, envelope.Bucket.NormalizationVersion,

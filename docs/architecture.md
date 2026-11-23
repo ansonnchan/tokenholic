@@ -334,6 +334,15 @@ are written in one pipelined exchange, all in key order inside one
 transaction. Reading and writing one bucket at a time was 203 waits for 100
 buckets and about twelve seconds on the hosted API; it is now four. A test
 in `server/postgres` fails if the count grows with the batch again.
+
+That read cannot lock a key that is not stored yet, so two uploads from one
+device could both find a new key missing. The upsert therefore refuses to
+lower a stored revision. A write that changes nothing is decided again against
+the row the other upload stored: an older revision becomes stale, the same
+revision and payload unchanged, and the same revision with other contents
+rejects the transaction. That costs one extra wait, and only when such
+uploads race.
+
 Foreign keys make user ownership explicit and cascade user deletion through
 devices, credential hashes, and usage buckets. The schema has no columns for
 raw source records, local identities, paths, prompts, responses, code, project

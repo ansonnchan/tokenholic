@@ -15,6 +15,7 @@ import (
 	protocol "github.com/ansonnchan/tokenholic/internal/sync"
 	serverauth "github.com/ansonnchan/tokenholic/server/auth"
 	serversync "github.com/ansonnchan/tokenholic/server/sync"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -368,4 +369,118 @@ func TestPostgresUsageConcurrentBatchesBothFinish(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM usage_buckets WHERE device_id = $1::uuid`, principal.DeviceID).Scan(&stored); err != nil || stored != len(buckets) {
 		t.Fatalf("stored buckets = %d, %v", stored, err)
 	}
+}
+
+// FOR UPDATE cannot lock a key that does not exist yet. When another upload
+// inserts the same new key while this one is deciding, the second write must
+// not lower or overwrite what the first stored, and its acknowledgement must
+// say what actually happened.
+func TestPostgresUsageConcurrentNewKeyNeverLowersARevision(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := t.Context()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	seedPricing(t, pool)
+	principal := registerSyncDevice(t, pool, 909, "90900000-0000-4000-8000-0000000000")
+	engine := bundledEngine(t)
+	repository, err := NewUsageRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelopes := localProtocolEnvelopes(t, 3)
+	revised := func(envelope protocol.Envelope, revision, output uint64) serversync.Bucket {
+		envelope.Bucket.Revision = revision
+		envelope.Bucket.Tokens.Output.Value = &output
+		return derived(t, engine, envelope)
+	}
+	tests := []struct {
+		name           string
+		first, second  serversync.Bucket
+		wantStatus     protocol.AckStatus
+		wantConflict   bool
+		wantStoredPair string
+	}{
+		{"a newer revision stored first stays", revised(envelopes[0], 3, 11), revised(envelopes[0], 2, 7), protocol.AckStale, false, "3:11"},
+		{"the same revision and payload is unchanged", revised(envelopes[1], 2, 7), revised(envelopes[1], 2, 7), protocol.AckUnchanged, false, "2:7"},
+		{"the same revision with other contents conflicts", revised(envelopes[2], 2, 8), revised(envelopes[2], 2, 7), "", true, "2:8"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// The first upload inserts the key and holds its transaction open.
+			first, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = first.Rollback(context.WithoutCancel(ctx)) }()
+			_, hash, err := protocol.CanonicalEnvelope(test.first.Envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			insert := &pgx.Batch{}
+			queueUsageBucket(insert, principal.DeviceID, test.first, hash)
+			if err := first.SendBatch(ctx, insert).Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			// The second upload cannot see that row, finds the key missing, and
+			// blocks on the insert until the first commits.
+			type outcome struct {
+				acknowledgements []protocol.Acknowledgement
+				err              error
+			}
+			done := make(chan outcome, 1)
+			go func() {
+				acknowledgements, err := repository.ApplyUsageBuckets(ctx, principal, []serversync.Bucket{test.second})
+				done <- outcome{acknowledgements, err}
+			}()
+			waitForBlockedUsageWrite(t, pool)
+			if err := first.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+
+			result := <-done
+			if test.wantConflict {
+				if !errors.Is(result.err, serversync.ErrRevisionConflict) {
+					t.Fatalf("error = %v, want a revision conflict", result.err)
+				}
+			} else if result.err != nil || len(result.acknowledgements) != 1 || result.acknowledgements[0].Status != test.wantStatus {
+				t.Fatalf("acknowledgements = %#v, %v; want %s", result.acknowledgements, result.err, test.wantStatus)
+			}
+			var stored string
+			if err := pool.QueryRow(ctx, `
+				SELECT revision::text || ':' || output_tokens::text FROM usage_buckets
+				WHERE device_id = $1::uuid AND bucket_key = $2
+			`, principal.DeviceID, test.first.Envelope.BucketKey).Scan(&stored); err != nil {
+				t.Fatal(err)
+			}
+			if stored != test.wantStoredPair {
+				t.Fatalf("stored %s, want %s", stored, test.wantStoredPair)
+			}
+		})
+	}
+}
+
+// waitForBlockedUsageWrite returns once another session is waiting on a row
+// lock while writing usage, so a race is exercised rather than avoided.
+func waitForBlockedUsageWrite(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting bool
+		if err := pool.QueryRow(t.Context(), `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_stat_activity
+				WHERE pid <> pg_backend_pid() AND wait_event_type = 'Lock'
+				  AND query LIKE '%INSERT INTO usage_buckets%'
+			)
+		`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the second upload never waited on the first one's insert")
 }
