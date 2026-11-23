@@ -36,6 +36,10 @@ type Config struct {
 	// the executable, so an upgrade that moves the hosted API is followed.
 	PinAPIURL bool
 	CodexHome string
+	// ClaudeConfigDir is CLAUDE_CONFIG_DIR when the user moved Claude Code's
+	// configuration directory. A scheduler starts the job without the
+	// user's shell environment, so the schedule carries it.
+	ClaudeConfigDir string
 	// CCUsagePath is where the pinned ccusage executable was installed, as
 	// the npm launcher reported it to the command enabling autosync. A
 	// scheduled run does not start through the launcher, so the schedule
@@ -59,7 +63,7 @@ type Status struct {
 // system's own scheduler.
 type Manager struct {
 	executable, apiURL, codexHome string
-	ccusagePath                   string
+	claudeConfigDir, ccusagePath  string
 	pinAPIURL                     bool
 	scheduler                     scheduler
 	// remove, rename, and wait are the file operations a busy executable can
@@ -74,6 +78,11 @@ type Manager struct {
 // it for runs the launcher does not start.
 const CCUsagePathVariable = "TOKENHOLIC_CCUSAGE_PATH"
 
+// ClaudeConfigDirVariable names the variable Claude Code reads for a moved
+// configuration directory. A schedule repeats it so a scheduled run reads
+// the same records as a run from the user's shell.
+const ClaudeConfigDirVariable = "CLAUDE_CONFIG_DIR"
+
 // NewManager validates paths and binds the platform scheduler.
 func NewManager(config Config) (*Manager, error) {
 	if !filepath.IsAbs(config.Home) || !filepath.IsAbs(config.Executable) {
@@ -81,6 +90,9 @@ func NewManager(config Config) (*Manager, error) {
 	}
 	if config.CodexHome != "" && !filepath.IsAbs(config.CodexHome) {
 		return nil, errors.New("autosync Codex home must be absolute")
+	}
+	if config.ClaudeConfigDir != "" && !filepath.IsAbs(config.ClaudeConfigDir) {
+		return nil, errors.New("autosync Claude configuration directory must be absolute")
 	}
 	if config.CCUsagePath != "" && !filepath.IsAbs(config.CCUsagePath) {
 		return nil, errors.New("autosync ccusage location must be absolute")
@@ -97,7 +109,8 @@ func NewManager(config Config) (*Manager, error) {
 	}
 	return &Manager{
 		executable: config.Executable, apiURL: strings.TrimSpace(config.APIURL),
-		pinAPIURL: config.PinAPIURL, codexHome: config.CodexHome, ccusagePath: config.CCUsagePath, scheduler: scheduler,
+		pinAPIURL: config.PinAPIURL, codexHome: config.CodexHome, claudeConfigDir: config.ClaudeConfigDir,
+		ccusagePath: config.CCUsagePath, scheduler: scheduler,
 		remove: os.Remove, rename: os.Rename, wait: busyWait,
 	}, nil
 }
@@ -243,6 +256,9 @@ func (m *Manager) job(installed installation) job {
 	}
 	if m.codexHome != "" {
 		environment = append(environment, variable{"CODEX_HOME", m.codexHome})
+	}
+	if m.claudeConfigDir != "" {
+		environment = append(environment, variable{ClaudeConfigDirVariable, m.claudeConfigDir})
 	}
 	if m.ccusagePath != "" {
 		// A location, not a permission: the scheduled run still refuses any

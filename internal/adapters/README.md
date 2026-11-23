@@ -34,7 +34,7 @@ macOS:
 
 | Evidence | Location |
 | --- | --- |
-| Claude Code CLI | `~/.claude/projects` |
+| Claude Code CLI | `~/.claude/projects`, and `$CLAUDE_CONFIG_DIR/projects` when that is set |
 | Claude Desktop | `~/Library/Application Support/Claude`, in `claude-code-sessions` and `local-agent-mode-sessions` |
 | Codex | `~/.codex`, or `CODEX_HOME` |
 
@@ -42,7 +42,7 @@ Linux:
 
 | Evidence | Location | Basis |
 | --- | --- | --- |
-| Claude Code CLI | `~/.claude/projects` | Documented [1]. Claude Code does not follow the XDG variables today |
+| Claude Code CLI | `~/.claude/projects`, and `$CLAUDE_CONFIG_DIR/projects` when that is set | Documented [1] [9]. Claude Code does not follow the XDG variables today |
 | Claude Code CLI, versions 1.0.28 to 1.0.30 | `$XDG_CONFIG_HOME/claude/projects`, by default `~/.config/claude/projects`; optional | Those versions moved the configuration directory, sessions included, under `XDG_CONFIG_HOME`, and 1.0.31 moved it back [2]. The directory name `claude` comes from a user's report of 1.0.29 [3], not from Anthropic. Records found in both places count once |
 | Claude Desktop (beta) | `$XDG_CONFIG_HOME/Claude`, by default `~/.config/Claude`, in `claude-code-sessions` and `local-agent-mode-sessions` | Derived, not stated outright. The Linux build keeps its configuration file in `~/.config/Claude` [4], the same folder that holds both session directories on macOS and Windows [5], and the third-party build documents the same layout under `~/.config/Claude-3p` on Linux [6]. Following `XDG_CONFIG_HOME` is Electron's rule for an application's data folder [7]. Not yet observed on a real Linux install |
 | Codex | `~/.codex`, or `CODEX_HOME` | Source and documentation: the home is `.codex` under the home directory on every system, with no XDG handling [8] |
@@ -51,7 +51,7 @@ Windows:
 
 | Evidence | Location | Basis |
 | --- | --- | --- |
-| Claude Code CLI | `%USERPROFILE%\.claude\projects` | Documented: `~/.claude` is `%USERPROFILE%\.claude` on Windows [1] |
+| Claude Code CLI | `%USERPROFILE%\.claude\projects`, and `%CLAUDE_CONFIG_DIR%\projects` when that is set | Documented: `~/.claude` is `%USERPROFILE%\.claude` on Windows [1]; the override [9] |
 | Claude Desktop | `%APPDATA%\Claude`, in `claude-code-sessions` and `local-agent-mode-sessions` | Documented as the data folder that holds `local-agent-mode-sessions` [5] |
 | Claude Desktop, packaged install | `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude`, same two directories; optional | Documented as the second place the same folder can be, with the instruction to check both [5] |
 | Codex | `%USERPROFILE%\.codex`, or `CODEX_HOME` | Documented, and shared by the Codex app and the native CLI [10] |
@@ -67,11 +67,19 @@ A default Codex home beside a separate `CODEX_HOME` is attributed to Codex
 Desktop on macOS and Windows. On Linux nothing first-party says the desktop
 app writes there, so it stays shared and unattributed.
 
-Two documented overrides are not honored yet: Claude Code's
-`CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME` [9]. A user who sets
-them sees Claude Code reported as not found.
+Claude Code's `CLAUDE_CONFIG_DIR` moves its whole configuration directory,
+transcripts included, and is documented as an absolute path [9]. When it is
+set to one, its `projects` directory is the Claude Code source on every
+platform. The default directory is still read, as an optional root: it can
+hold sessions from before the move or from runs without the variable, and a
+session found in both counts once. A value that is not absolute is ignored
+and the default is read alone. `CLAUDE_CODE_PROJECT_DIR_NAME` [9] only names
+a directory inside `projects`, which is read whatever its directories are
+called, so it needs no handling of its own. Enabling hourly sync writes the
+variable into the schedule, because a scheduler does not start the job from
+the user's shell.
 
-Sources, retrieved 2026-11-21:
+Sources, retrieved 2026-11-21; [9] read again on 2026-11-22:
 
 1. <https://code.claude.com/docs/en/claude-directory>
 2. <https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md> (1.0.28) and <https://github.com/anthropics/claude-code/issues/1455#issuecomment-3005581687>

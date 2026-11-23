@@ -82,6 +82,38 @@ func WindowsRoots(home, codexHome, appData, localAppData string) []RootSpec {
 	return append(roots, codexHomes(home, codexHome, RootCodexDesktop, normalize.SurfaceDesktop)...)
 }
 
+// ClaudeConfigDirVariable is the variable Claude Code reads to keep its
+// configuration directory, transcripts included, somewhere other than
+// .claude under the home directory.
+const ClaudeConfigDirVariable = "CLAUDE_CONFIG_DIR"
+
+// withClaudeConfigDir adds the configuration directory the user moved Claude
+// Code to. The default directory is still read, but as optional: it may hold
+// sessions from before the move or from runs without the variable, and its
+// absence is no longer a missing source. Claude Code documents the value as
+// an absolute path, so anything else selects the default alone. A session
+// found in both places counts once.
+func withClaudeConfigDir(roots []RootSpec, home, configDirectory string) []RootSpec {
+	if !filepath.IsAbs(configDirectory) {
+		return roots
+	}
+	chosen := claudeCLIRoot(filepath.Clean(configDirectory), false)
+	if chosen.Path == claudeCLIRoot(filepath.Join(home, ".claude"), false).Path {
+		return roots
+	}
+	moved := []RootSpec{chosen}
+	for _, root := range roots {
+		if root.Kind == RootClaudeCLI {
+			if root.Path == chosen.Path {
+				continue
+			}
+			root.Optional = true
+		}
+		moved = append(moved, root)
+	}
+	return moved
+}
+
 // claudeCLIRoot is the transcript directory inside one Claude Code
 // configuration directory.
 func claudeCLIRoot(configDirectory string, optional bool) RootSpec {

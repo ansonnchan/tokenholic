@@ -44,6 +44,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 type dependencies struct {
 	homeDir func() (string, error)
 	getenv  func(string) string
+	// setenv changes the process environment. Only a scheduled run on a
+	// system whose scheduler passes no environment uses it.
+	setenv func(name, value string) error
 	// defaultAPIURL is the address used when TOKENHOLIC_API_URL is unset.
 	defaultAPIURL string
 	diagnose      func(context.Context, string, string, doctor.ParserProbe) doctor.Report
@@ -109,6 +112,7 @@ func defaultDependencies() dependencies {
 	return dependencies{
 		homeDir:       os.UserHomeDir,
 		getenv:        os.Getenv,
+		setenv:        os.Setenv,
 		defaultAPIURL: defaultAPIURL,
 		input:         os.Stdin,
 		executable:    os.Executable,

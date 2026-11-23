@@ -42,7 +42,7 @@ stored sign-in.
 ## What the job runs
 
 The stable executable with the single argument `sync`, and a fixed
-environment: `CODEX_HOME` when the user had it set, `TOKENHOLIC_CCUSAGE_PATH`
+environment: `CODEX_HOME` and `CLAUDE_CONFIG_DIR` when the user had them set, `TOKENHOLIC_CCUSAGE_PATH`
 when the npm launcher had reported where the pinned ccusage is, `NO_COLOR`, on Linux
 `XDG_CONFIG_HOME` when the user had it set, and the API address only when the
 user had overridden it with `TOKENHOLIC_API_URL`. Without an override the job
@@ -63,7 +63,9 @@ the job reads the sign-in from the OS credential store like any other run.
   redirect output. The task therefore runs `tokenholic autosync run
   <job.json>`. The job file holds the allowlisted environment and the two
   log paths, and `LoadScheduledJob` refuses any other variable, so the file
-  cannot steer the process. The command is not offered to users.
+  cannot steer the process. The run puts those variables into its own
+  process environment before it synchronizes, which is where source
+  locations are read from. The command is not offered to users.
 - Everything autosync owns is in one private folder, so disabling removes
   the folder. The task is registered at the scheduler's root so that
   deleting it leaves no empty task folder behind.

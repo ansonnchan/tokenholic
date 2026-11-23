@@ -26,11 +26,12 @@ import (
 // Synthetic locations are absolute on every system and name nothing real:
 // /synthetic/... on Unix and <drive>:\synthetic\... on Windows.
 var (
-	syntheticRoot        = filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "synthetic")
-	syntheticHome        = filepath.Join(syntheticRoot, "home")
-	syntheticPrivateHome = filepath.Join(syntheticRoot, "private-home")
-	syntheticCodexHome   = filepath.Join(syntheticRoot, "codex")
-	syntheticBinary      = filepath.Join(syntheticRoot, "bin", "tokenholic")
+	syntheticRoot         = filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "synthetic")
+	syntheticHome         = filepath.Join(syntheticRoot, "home")
+	syntheticPrivateHome  = filepath.Join(syntheticRoot, "private-home")
+	syntheticCodexHome    = filepath.Join(syntheticRoot, "codex")
+	syntheticClaudeConfig = filepath.Join(syntheticRoot, "claude-moved")
+	syntheticBinary       = filepath.Join(syntheticRoot, "bin", "tokenholic")
 )
 
 func TestRun(t *testing.T) {
@@ -574,6 +575,8 @@ func TestAutosyncCommandsUseExplicitManagerBoundary(t *testing.T) {
 				return "https://api.example.test"
 			case "CODEX_HOME":
 				return syntheticCodexHome
+			case autosync.ClaudeConfigDirVariable:
+				return syntheticClaudeConfig
 			default:
 				return ""
 			}
@@ -581,6 +584,10 @@ func TestAutosyncCommandsUseExplicitManagerBoundary(t *testing.T) {
 		autosync: func(config autosync.Config) (autosyncManager, error) {
 			home, executable, apiURL, codexHome := config.Home, config.Executable, config.APIURL, config.CodexHome
 			managerCalls++
+			// Only enabling writes a schedule, so only it carries locations.
+			if want := map[bool]string{true: syntheticClaudeConfig}[managerCalls == 1]; config.ClaudeConfigDir != want {
+				t.Fatalf("autosync Claude configuration directory = %q, want %q", config.ClaudeConfigDir, want)
+			}
 			if config.Getenv == nil || config.Getenv("CODEX_HOME") != syntheticCodexHome {
 				t.Fatal("autosync did not receive the command's environment")
 			}
@@ -657,8 +664,13 @@ func TestScheduledRunUsesTheJobFile(t *testing.T) {
 		return path
 	}
 	var failure error
+	applied := map[string]string{}
 	deps := dependencies{
 		homeDir: func() (string, error) { return syntheticHome, nil },
+		setenv: func(name, value string) error {
+			applied[name] = value
+			return nil
+		},
 		// The process environment loses to the job file and fills the rest.
 		getenv: func(name string) string {
 			return map[string]string{"TOKENHOLIC_API_URL": "https://stale.example.test", "CODEX_HOME": syntheticCodexHome}[name]
@@ -672,12 +684,20 @@ func TestScheduledRunUsesTheJobFile(t *testing.T) {
 		},
 	}
 	job := writeJob(t, autosync.ScheduledJob{
-		Environment: map[string]string{"TOKENHOLIC_API_URL": "https://api.example.test", "NO_COLOR": "1"},
-		Stdout:      stdout, Stderr: stderr,
+		Environment: map[string]string{
+			"TOKENHOLIC_API_URL": "https://api.example.test", "NO_COLOR": "1",
+			autosync.ClaudeConfigDirVariable: syntheticClaudeConfig,
+		},
+		Stdout: stdout, Stderr: stderr,
 	})
 	var terminalOut, terminalErr bytes.Buffer
 	if code := run([]string{"autosync", "run", job}, &terminalOut, &terminalErr, deps); code != 0 {
 		t.Fatalf("scheduled run = %d", code)
+	}
+	// Source locations are read from the process environment, so the job's
+	// variables are put there, and nothing else is.
+	if len(applied) != 3 || applied[autosync.ClaudeConfigDirVariable] != syntheticClaudeConfig || applied["NO_COLOR"] != "1" {
+		t.Fatalf("scheduled run applied %v to the process environment", applied)
 	}
 	failure = fmt.Errorf("read /private/path: %w", account.ErrVaultUnavailable)
 	if code := run([]string{"autosync", "run", job}, &terminalOut, &terminalErr, deps); code != 1 {
@@ -1295,5 +1315,29 @@ func TestAFailedFirstSyncIsNotFollowedByTheOffer(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"claim"}, &stdout, &stderr, deps); code != 1 || manager.enabled || strings.Contains(stdout.String(), "hourly") {
 		t.Fatalf("claim = %d, enabled %v, stdout %q", code, manager.enabled, stdout.String())
+	}
+}
+
+// A schedule carries a moved Claude configuration directory only when the
+// value is one a scheduled run can use.
+func TestScheduleSettingsCarryAnAbsoluteClaudeConfigDir(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name, value, want string
+	}{
+		{name: "unset"},
+		{name: "absolute", value: syntheticClaudeConfig, want: syntheticClaudeConfig},
+		{name: "relative", value: filepath.Join("claude", "moved")},
+	} {
+		getenv := func(name string) string {
+			if name == autosync.ClaudeConfigDirVariable {
+				return test.value
+			}
+			return ""
+		}
+		settings, ok := scheduleSettingsFrom(syntheticHome, "https://api.example.test", false, getenv, func() (string, error) { return syntheticBinary, nil })
+		if !ok || settings.config().ClaudeConfigDir != test.want {
+			t.Errorf("%s: schedule carries %q (ok=%t), want %q", test.name, settings.config().ClaudeConfigDir, ok, test.want)
+		}
 	}
 }
